@@ -1,12 +1,14 @@
 //! Undo stack of kernel operations.
 //!
-//! Each entry is one document edit: a single paint or erase, a frame-list
-//! change, an active-frame change, or a whole gesture of those. The shell
-//! turns one drag into one gesture so a stroke undoes in one step. Inverse
-//! data lives on the entry; undo does not replay through [`crate::Document::paint`].
+//! Each entry is one document edit: a paint or erase, a palette color change,
+//! a frame-list change, an active-frame change, or a whole gesture of those.
+//! The shell turns one drag into one gesture so a stroke or a color-picker
+//! drag undoes in one step. Inverse data lives on the entry; undo does not
+//! replay through [`crate::Document::paint`].
 
 use crate::error::KernelError;
 use crate::frame::Frame;
+use crate::Rgba;
 use crate::MAX_UNDO;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +62,17 @@ pub(crate) enum Change {
     ActiveFrame {
         before: usize,
         after: usize,
+    },
+    /// RGB of a paint entry was replaced. Index 0 is never stored here.
+    PaletteColor {
+        index: u8,
+        before: Rgba,
+        after: Rgba,
+    },
+    /// An opaque color was appended. `index` is that new tail entry.
+    AddPaletteColor {
+        index: u8,
+        color: Rgba,
     },
 }
 
@@ -174,20 +187,31 @@ impl History {
     }
 }
 
-/// Folds a later write to the same cell into the earlier one, until a frame
-/// structure change makes that cell a different pixel.
+/// Folds a later write into the earlier one when they name the same pixel or
+/// the same palette entry.
+///
+/// Pixel folding stops at a frame-structure change, because that can make the
+/// offset a different cell. Palette folding does not: frame edits do not
+/// renumber colors, and a later recolor of the same index still means "this
+/// entry changed from its original RGB".
 fn coalesce(changes: &mut Vec<Change>, change: Change) {
-    let Change::Pixel {
-        frame,
-        offset,
-        before,
-        after,
-    } = change
-    else {
-        changes.push(change);
-        return;
-    };
+    match change {
+        Change::Pixel {
+            frame,
+            offset,
+            before,
+            after,
+        } => coalesce_pixel(changes, frame, offset, before, after),
+        Change::PaletteColor {
+            index,
+            before,
+            after,
+        } => coalesce_palette(changes, index, before, after),
+        other => changes.push(other),
+    }
+}
 
+fn coalesce_pixel(changes: &mut Vec<Change>, frame: usize, offset: usize, before: u8, after: u8) {
     let mut index = changes.len();
     while index > 0 {
         index -= 1;
@@ -219,6 +243,35 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
     changes.push(Change::Pixel {
         frame,
         offset,
+        before,
+        after,
+    });
+}
+
+fn coalesce_palette(changes: &mut Vec<Change>, index: u8, before: Rgba, after: Rgba) {
+    let mut cursor = changes.len();
+    while cursor > 0 {
+        cursor -= 1;
+        if let Change::PaletteColor {
+            index: existing,
+            before: original,
+            after: slot,
+        } = &mut changes[cursor]
+        {
+            if *existing != index {
+                continue;
+            }
+            debug_assert_eq!(*slot, before, "palette history skipped a color");
+            *slot = after;
+            if *original == *slot {
+                changes.remove(cursor);
+            }
+            return;
+        }
+    }
+
+    changes.push(Change::PaletteColor {
+        index,
         before,
         after,
     });

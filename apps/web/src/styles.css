@@ -167,6 +167,34 @@ h2 {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
+.color-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.color-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.color-field input[type="color"] {
+  width: 2.25rem;
+  height: 2rem;
+  padding: 0.12rem;
+  background: #2a3038;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.color-field code {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .swatch-empty {
   display: grid;
   place-items: center;
