@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { PixelCanvas } from "./canvas/PixelCanvas";
-import { createKernel } from "./kernel/client";
-import type { PixelKernel, Rgba } from "./kernel/types";
+import { createKernel, openProject } from "./kernel/client";
+import { kernelErrorFromUnknown, type PixelKernel, type Rgba } from "./kernel/types";
 
 function swatchInk(color: Rgba): string {
   const luminance = (0.299 * color.r + 0.587 * color.g + 0.114 * color.b) / 255;
@@ -29,6 +29,7 @@ function rgbFromHex(hex: string): { r: number; g: number; b: number } | null {
 type Tool = "paint" | "erase";
 
 const SCALES = [8, 16, 24] as const;
+const PROJECT_FILENAME = "pixelforge-project.json";
 
 export function App() {
   const [kernel, setKernel] = useState<PixelKernel>(() => createKernel());
@@ -37,6 +38,8 @@ export function App() {
   const [colorIndex, setColorIndex] = useState(7);
   const [scale, setScale] = useState<number>(16);
   const [showGrid, setShowGrid] = useState(true);
+  const [projectError, setProjectError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const snapshot = useMemo(() => kernel.snapshot(), [kernel, revision]);
   const canUndo = kernel.canUndo();
@@ -106,10 +109,50 @@ export function App() {
     }
   }
 
+  function saveProjectFile() {
+    downloadText(PROJECT_FILENAME, kernel.saveProject());
+    setProjectError(null);
+  }
+
+  function requestOpen() {
+    fileInput.current?.click();
+  }
+
+  function onProjectFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    void file.text().then(
+      (json) => {
+        try {
+          const next = openProject(json);
+          const paletteLength = next.snapshot().palette.length;
+          setKernel(next);
+          setColorIndex((current) =>
+            current > 0 && current < paletteLength ? current : Math.min(1, paletteLength - 1),
+          );
+          setProjectError(null);
+          touch();
+        } catch (error) {
+          setProjectError(`无法打开工程：${errorText(error)}`);
+        }
+      },
+      () => {
+        setProjectError("无法读取这个文件。");
+      },
+    );
+  }
+
   const undoRef = useRef(undo);
   const redoRef = useRef(redo);
+  const saveRef = useRef(saveProjectFile);
+  const openRef = useRef(requestOpen);
   undoRef.current = undo;
   redoRef.current = redo;
+  saveRef.current = saveProjectFile;
+  openRef.current = requestOpen;
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -123,6 +166,16 @@ export function App() {
       }
       const shortcut = event.ctrlKey || event.metaKey;
       if (!shortcut || event.altKey) {
+        return;
+      }
+      if (event.code === "KeyS" && !event.shiftKey) {
+        event.preventDefault();
+        saveRef.current();
+        return;
+      }
+      if (event.code === "KeyO" && !event.shiftKey) {
+        event.preventDefault();
+        openRef.current();
         return;
       }
       const redoKey = (event.code === "KeyZ" && event.shiftKey) || event.code === "KeyY";
@@ -154,6 +207,44 @@ export function App() {
 
       <div className="workspace">
         <aside className="panel">
+          <section>
+            <h2>工程</h2>
+            <div className="tool-row" role="group" aria-label="工程文件">
+              <button
+                type="button"
+                title="Ctrl/⌘+S"
+                aria-keyshortcuts="Control+S Meta+S"
+                onClick={saveProjectFile}
+              >
+                保存
+              </button>
+              <button
+                type="button"
+                title="Ctrl/⌘+O"
+                aria-keyshortcuts="Control+O Meta+O"
+                onClick={requestOpen}
+              >
+                打开
+              </button>
+            </div>
+            <input
+              ref={fileInput}
+              className="file-input"
+              type="file"
+              accept="application/json,.json"
+              aria-label="打开工程文件"
+              onChange={onProjectFile}
+            />
+            <p className="hint">
+              保存会下载 {PROJECT_FILENAME}。打开换成文件里的画布，撤销从这份文件重新开始。
+            </p>
+            {projectError ? (
+              <p className="alert" role="alert">
+                {projectError}
+              </p>
+            ) : null}
+          </section>
+
           <section>
             <h2>工具</h2>
             <div className="tool-row" role="group" aria-label="绘制工具">
@@ -361,6 +452,7 @@ export function App() {
               className="reset"
               onClick={() => {
                 setKernel(createKernel());
+                setProjectError(null);
                 touch();
               }}
             >
@@ -397,10 +489,33 @@ export function App() {
 
       <footer className="footnote">
         <p>
-          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、帧列表和撤销都进同一份
-          WebAssembly 文档。导入色板、锁定色板和工程保存还在后面的 issue 里。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、帧列表、撤销和工程文件都进同一份
+          WebAssembly 文档。导入色板和锁定色板还在后面的 issue 里。
         </p>
       </footer>
     </div>
   );
+}
+
+function downloadText(filename: string, contents: string): void {
+  const blob = new Blob([contents], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+function errorText(error: unknown): string {
+  const kernelError = kernelErrorFromUnknown(error);
+  if (kernelError) {
+    return kernelError.message;
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "文件不是这个版本的工程。";
 }

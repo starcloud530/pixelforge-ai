@@ -6,9 +6,11 @@
 //! this state;
 //! it does not own the pixels or a second history.
 //!
-//! Project files, PNG export, and the Tool API are later layers on this
-//! document model. See `docs/tech-stack.md` and `docs/dev-setup.md`.
-//! The browser shell calls this crate through `pixelforge-kernel-wasm`.
+//! Project files are version 1 `pixelforge-project` JSON from
+//! [`Document::save_project`] and [`Document::load_project`]. PNG export and
+//! the Tool API are later layers. See `docs/tech-stack.md` and
+//! `docs/dev-setup.md`. The browser shell calls this crate through
+//! `pixelforge-kernel-wasm`.
 
 mod color;
 mod document;
@@ -16,12 +18,14 @@ mod error;
 mod frame;
 mod history;
 mod palette;
+mod project;
 
 pub use color::Rgba;
 pub use document::Document;
-pub use error::KernelError;
+pub use error::{KernelError, ProjectFileError};
 pub use frame::Frame;
 pub use palette::Palette;
+pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
 
 /// Oldest undo entries past this depth are dropped.
 pub const MAX_UNDO: usize = 100;
