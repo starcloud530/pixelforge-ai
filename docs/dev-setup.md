@@ -47,14 +47,14 @@ cargo check --workspace
 
 - 画布边长 `1..=256`（M1 验收尺寸 16 与 32 可以建出来）
 - 索引像素缓冲，0 号为透明
-- 一份内置调色板（`Palette::studio_default`）
-- `paint` / `erase`
+- 一份内置调色板（`Palette::studio_default`）。可以改某个索引的 RGB，也可以在末尾追加颜色。索引 0 保持透明。格子里存的仍是索引，所以改色会作用到每一帧里用到该索引的格子
+- `paint` / `erase`。画笔只能写入当前调色板里的不透明索引
 - 帧列表的增、复制、删，以及切换当前帧（外壳通过 wasm 桥调用）
-- 撤销 / 重做。栈上记的是内核操作，上限 `MAX_UNDO`（100）。一次 `begin_gesture` … `end_gesture` 合成一步，所以拖动一笔只占一条记录。没有改动的格子不入栈。
+- 撤销 / 重做。栈上记的是内核操作，上限 `MAX_UNDO`（100），包括改色、追加颜色、画笔、橡皮和帧编辑。一次 `begin_gesture` … `end_gesture` 合成一步，所以拖动一笔或拖动取色器只占一条记录。没有改动的格子和没有改动的颜色不入栈。
 
 工程文件、PNG / sprite sheet、Tool API 还不在这个 crate 里。
 
-*`pixelforge-kernel` creates canvases with an edge from 1 to 256 (including the M1 sizes 16 and 32), stores indexed pixels with 0 as transparent, and ships `Palette::studio_default`. `paint` / `erase`, frame add / duplicate / delete, and the active-frame change push kernel operations onto an undo stack capped at `MAX_UNDO` (100). `begin_gesture` … `end_gesture` collapses one drag into one step. Cells that do not change are not recorded. The web shell calls those operations through the wasm bridge. Project files, PNG / sprite-sheet export, and the Tool API are not in this crate.*
+*`pixelforge-kernel` creates canvases with an edge from 1 to 256 (including the M1 sizes 16 and 32), stores indexed pixels with 0 as transparent, and ships `Palette::studio_default`. Paint entries can be recolored or extended; index 0 stays transparent. Cells keep their indices, so a recolor updates every frame that uses that entry. `paint` / `erase` only write opaque indices that exist. Those edits, plus frame add / duplicate / delete and the active-frame change, push kernel operations onto an undo stack capped at `MAX_UNDO` (100). `begin_gesture` … `end_gesture` collapses one drag — a stroke or a color-picker drag — into one step. Cells and colors that do not change are not recorded. The web shell calls those operations through the wasm bridge. Project files, PNG / sprite-sheet export, and the Tool API are not in this crate.*
 
 ## 网页外壳
 
@@ -82,23 +82,24 @@ wasm-pack build crates/pixelforge-kernel-wasm --target web --out-dir pkg
 2. 外壳只读 `snapshot().pixels`，那是调色板索引，不是直接在界面里涂的颜色缓冲。调色板字节也从内核读。
 3. 视图先画到一张 1:1 的位图，再用 `imageSmoothingEnabled = false` 放大，所以格子保持最近邻、没有抗锯齿糊边。
 4. 指针按下调用 `beginGesture`，画笔、橡皮、增帧、复制、删除、切换当前帧都调用内核，松开调用 `endGesture`，然后重新读取 snapshot。
-5. 撤销 / 重做按钮，以及 Ctrl/⌘+Z、Ctrl/⌘+Shift+Z、Ctrl/⌘+Y，调用同一份文档的 `undo` / `redo`。示例图在种下去之后清掉历史，撤销停在示例上。
+5. 色板从 `snapshot().palette` 画出。点一个索引就把它设为画笔颜色。取色器调用 `setPaletteColor`，追加颜色调用 `addPaletteColor`。取色器拖动包在同一次 gesture 里，所以一步撤销退回整次改色。
+6. 撤销 / 重做按钮，以及 Ctrl/⌘+Z、Ctrl/⌘+Shift+Z、Ctrl/⌘+Y，调用同一份文档的 `undo` / `redo`。示例图在种下去之后清掉历史，撤销停在示例上。
 
 左键走当前工具，右键擦除。放大倍数只改视图，不改文档尺寸。
 
 *Open <http://localhost:5173>. `pnpm dev`, `pnpm build`, and `pnpm typecheck` first run `pnpm build:wasm` at the repo root (`wasm-pack build crates/pixelforge-kernel-wasm --target web`). Output lands in `crates/pixelforge-kernel-wasm/pkg/`, which is gitignored. `pnpm build` then typechecks and runs the Vite production build. `pnpm typecheck` is wasm plus types only.*
 
-*The canvas awaits `initKernel()`, asks `createKernel()` for a Rust document, reads palette indices from `snapshot().pixels`, and reads palette bytes from the kernel too. It blits them into a 1:1 bitmap and scales that bitmap with `imageSmoothingEnabled = false`. A pointer-down starts a gesture; paint, erase, and frame add / duplicate / delete / select call the kernel; pointer-up ends the gesture. Undo and redo — buttons, Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, and Ctrl/⌘+Y — call that same document. The demo sprite clears history after seeding, so undo stops at that sprite. Scale changes the view, not the document size.*
+*The canvas awaits `initKernel()`, asks `createKernel()` for a Rust document, reads palette indices from `snapshot().pixels`, and reads palette bytes from the kernel too. It blits them into a 1:1 bitmap and scales that bitmap with `imageSmoothingEnabled = false`. A pointer-down starts a gesture; paint, erase, and frame add / duplicate / delete / select call the kernel; pointer-up ends the gesture. The palette swatches come from `snapshot().palette`. Choosing a swatch selects the paint index. The color input calls `setPaletteColor`, and adding a color calls `addPaletteColor`. A color-picker drag stays inside one gesture, so one undo restores that whole edit. Undo and redo — buttons, Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, and Ctrl/⌘+Y — call that same document. The demo sprite clears history after seeding, so undo stops at that sprite. Scale changes the view, not the document size.*
 
 ## 内核桥 Kernel bridge
 
-`crates/pixelforge-kernel-wasm` 依赖 `pixelforge-kernel`，用 `wasm-bindgen` 暴露 `Document`：尺寸、调色板 RGBA、当前帧像素、`paint`、`erase`、帧的增、复制、删、切换，以及 `undo` / `redo`。网页里没有第二份撤销栈。
+`crates/pixelforge-kernel-wasm` 依赖 `pixelforge-kernel`，用 `wasm-bindgen` 暴露 `Document`：尺寸、调色板 RGBA、`setPaletteColor`、`addPaletteColor`、当前帧像素、`paint`、`erase`、帧的增、复制、删、切换，以及 `undo` / `redo`。网页里没有第二份撤销栈，也没有第二份调色板。
 
 `apps/web/src/kernel/wasm.ts` 加载 `pkg/` 里的胶水模块。`initKernel()` 只初始化一次。`createKernel()` 返回 wasm 文档。视图继续只认 `PixelKernel` 和 `snapshot()`。
 
 JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint` 种进去，像素落在 Rust 文档里。界面和以后的外部模型都应该改这份内核状态，而不是另写一块像素缓冲。
 
-*`crates/pixelforge-kernel-wasm` depends on `pixelforge-kernel` and exposes `Document` through wasm-bindgen: size, palette RGBA, the active frame's pixels, `paint`, `erase`, frame add / duplicate / delete / select, and `undo` / `redo`. The page does not keep a second undo stack.*
+*`crates/pixelforge-kernel-wasm` depends on `pixelforge-kernel` and exposes `Document` through wasm-bindgen: size, palette RGBA, `setPaletteColor`, `addPaletteColor`, the active frame's pixels, `paint`, `erase`, frame add / duplicate / delete / select, and `undo` / `redo`. The page does not keep a second undo stack or a second palette.*
 
 *`apps/web/src/kernel/wasm.ts` loads the glue in `pkg/`. `initKernel()` initializes the module once. `createKernel()` returns the wasm document. The view stays on `PixelKernel` and `snapshot()`.*
 
@@ -112,11 +113,11 @@ JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint`
 | --- | --- | --- |
 | [#2](https://github.com/starcloud530/pixelforge-ai/issues/2) 编辑器底座 | 内核 crate + 网页外壳能显示并改格子 | 手搓精灵并保存的整条验收 |
 | [#3](https://github.com/starcloud530/pixelforge-ai/issues/3) 像素画布 | Rust `paint`/`erase`；外壳经 wasm 调用画笔、橡皮、整数倍缩放；撤销 / 重做走内核栈 | — |
-| [#4](https://github.com/starcloud530/pixelforge-ai/issues/4) 调色板 | 索引色和一份内置色板；画笔拒绝 0 号和越界索引。外壳从 wasm 读色板 | 导入、编辑、锁定色板 |
+| [#4](https://github.com/starcloud530/pixelforge-ai/issues/4) 调色板 | 索引色；可改已有颜色、追加颜色；画笔只用这些索引。改色记在撤销栈上。外壳经 wasm 点选当前颜色并编辑 | 导入、锁定色板 |
 | [#5](https://github.com/starcloud530/pixelforge-ai/issues/5) 多帧 | Rust 增帧、复制、删除；外壳经 wasm 切换、新增、复制、删除当前帧 | 每帧时长、洋葱皮、循环预览 |
 | [#6](https://github.com/starcloud530/pixelforge-ai/issues/6) 工程文件 | 无 | 打开 / 保存。格式还没落地 |
 
-*This slice does not close issues #2 and #4–#6. The shell shows and edits cells through the wasm kernel, including a minimal frame list. Undo/redo for paint, erase, and frame edits is on that same document. Palette editing, per-frame delay, onion skin, loop preview, and project open/save are still open.*
+*This slice does not close issues #2 and #4–#6. The shell shows and edits cells through the wasm kernel, including a minimal frame list. Undo/redo for paint, erase, palette edits, and frame edits is on that same document. Palette import and locking, per-frame delay, onion skin, loop preview, and project open/save are still open.*
 
 ## 计划中的工程文件 Project file
 
