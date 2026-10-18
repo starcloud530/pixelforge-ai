@@ -1,17 +1,19 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, and
-//! frames. Paint and erase write palette indices into the active frame.
-//! The TypeScript shell previews this state; it does not own the pixels.
+//! frames. Paint, erase, and frame edits write this document and push the
+//! same edits onto its undo stack. The TypeScript shell previews this state;
+//! it does not own the pixels or a second history.
 //!
-//! Project files, PNG export, undo, and the Tool API are later layers on
-//! this document model. See `docs/tech-stack.md` and `docs/dev-setup.md`.
+//! Project files, PNG export, and the Tool API are later layers on this
+//! document model. See `docs/tech-stack.md` and `docs/dev-setup.md`.
 //! The browser shell calls this crate through `pixelforge-kernel-wasm`.
 
 mod color;
 mod document;
 mod error;
 mod frame;
+mod history;
 mod palette;
 
 pub use color::Rgba;
@@ -19,6 +21,9 @@ pub use document::Document;
 pub use error::KernelError;
 pub use frame::Frame;
 pub use palette::Palette;
+
+/// Oldest undo entries past this depth are dropped.
+pub const MAX_UNDO: usize = 100;
 
 /// Largest canvas edge this skeleton accepts. M1 sizes are 16 and 32.
 pub const MAX_CANVAS_EDGE: u16 = 256;

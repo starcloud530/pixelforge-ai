@@ -21,8 +21,8 @@ export interface KernelSnapshot {
 
 /**
  * Operations the shell is allowed to ask of the kernel.
- * The Rust crate owns the rules. The web app calls them through the
- * wasm-bindgen bridge. See `docs/dev-setup.md`.
+ * The Rust crate owns the rules, including the undo stack. The web app calls
+ * them through the wasm-bindgen bridge. See `docs/dev-setup.md`.
  */
 export interface PixelKernel {
   snapshot(): KernelSnapshot;
@@ -32,6 +32,13 @@ export interface PixelKernel {
   duplicateFrame(index: number): number;
   deleteFrame(index: number): void;
   setActiveFrame(index: number): void;
+  beginGesture(): void;
+  endGesture(): void;
+  gestureOpen(): boolean;
+  undo(): void;
+  redo(): void;
+  canUndo(): boolean;
+  canRedo(): boolean;
 }
 
 export type KernelErrorCode =
@@ -39,7 +46,10 @@ export type KernelErrorCode =
   | "OutOfBounds"
   | "PaletteIndex"
   | "FrameIndex"
-  | "LastFrame";
+  | "LastFrame"
+  | "NothingToUndo"
+  | "NothingToRedo"
+  | "OpenGesture";
 
 const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "InvalidSize",
@@ -47,6 +57,9 @@ const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "PaletteIndex",
   "FrameIndex",
   "LastFrame",
+  "NothingToUndo",
+  "NothingToRedo",
+  "OpenGesture",
 ];
 
 export class KernelError extends Error {
