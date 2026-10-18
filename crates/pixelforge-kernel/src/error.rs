@@ -33,6 +33,43 @@ pub enum KernelError {
     /// [`crate::Document::begin_gesture`] was called again, or redo ran
     /// while a gesture already had edits.
     OpenGesture,
+    /// Bytes are not a supported `pixelforge-project` file.
+    ProjectFile(ProjectFileError),
+}
+
+/// Why [`KernelError::ProjectFile`] rejected a project file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectFileError {
+    /// JSON is missing, truncated, or not version 1 of this schema.
+    Malformed,
+    /// `format` is present and is not `pixelforge-project`.
+    Format,
+    /// `version` is an integer other than 1.
+    Version { version: u64 },
+    /// Width or height is outside `1..=MAX_CANVAS_EDGE`.
+    Size { width: u64, height: u64 },
+    /// A palette must contain at least the transparent slot.
+    EmptyPalette,
+    /// More than 256 entries would not fit in a `u8` index.
+    PaletteTooLarge { len: usize },
+    /// Entry 0 has to stay transparent so erase has one meaning.
+    TransparentSlot,
+    /// `frames` is an empty array.
+    EmptyFrames,
+    /// `activeFrame` is not an index into `frames`.
+    ActiveFrame { index: u64, len: usize },
+    /// A frame's `pixels` length is not `width * height`.
+    FrameLength {
+        index: usize,
+        expected: usize,
+        actual: usize,
+    },
+    /// A pixel index is outside the palette. Index 0 is allowed.
+    PixelIndex {
+        frame: usize,
+        index: u64,
+        palette_len: usize,
+    },
 }
 
 impl KernelError {
@@ -50,6 +87,7 @@ impl KernelError {
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
+            Self::ProjectFile(_) => "ProjectFile",
         }
     }
 }
@@ -84,6 +122,45 @@ impl fmt::Display for KernelError {
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
+            Self::ProjectFile(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl fmt::Display for ProjectFileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Malformed => write!(f, "project file is not valid version 1 JSON"),
+            Self::Format => write!(f, "project file format is not pixelforge-project"),
+            Self::Version { version } => {
+                write!(f, "project file version {version} is not supported")
+            }
+            Self::Size { width, height } => {
+                write!(
+                    f,
+                    "canvas size {width}x{height} is outside 1..={MAX_CANVAS_EDGE}"
+                )
+            }
+            Self::EmptyPalette => write!(f, "palette is empty"),
+            Self::PaletteTooLarge { len } => write!(f, "palette length {len} exceeds 256"),
+            Self::TransparentSlot => write!(f, "palette index 0 must be transparent"),
+            Self::EmptyFrames => write!(f, "project file has no frames"),
+            Self::ActiveFrame { index, len } => {
+                write!(f, "active frame {index} is outside 0..{len}")
+            }
+            Self::FrameLength {
+                index,
+                expected,
+                actual,
+            } => write!(f, "frame {index} has {actual} pixels, expected {expected}"),
+            Self::PixelIndex {
+                frame,
+                index,
+                palette_len,
+            } => write!(
+                f,
+                "frame {frame} uses palette index {index}, palette length is {palette_len}"
+            ),
         }
     }
 }
@@ -99,6 +176,14 @@ mod tests {
         assert_eq!(KernelError::LastFrame.code(), "LastFrame");
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
+        assert_eq!(
+            KernelError::ProjectFile(ProjectFileError::Malformed).code(),
+            "ProjectFile"
+        );
+        assert_eq!(
+            KernelError::ProjectFile(ProjectFileError::Version { version: 2 }).to_string(),
+            "project file version 2 is not supported"
+        );
         assert_eq!(
             KernelError::PaletteIndex { index: 0 }.code(),
             "PaletteIndex"
