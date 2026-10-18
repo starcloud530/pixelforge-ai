@@ -32,6 +32,7 @@ export function createKernel(width = 16, height = 16): PixelKernel {
   const kernel = WasmKernel.open(width, height);
   if (width === 16 && height === 16) {
     seedDemo(kernel);
+    kernel.clearHistory();
   }
   return kernel;
 }
@@ -104,6 +105,50 @@ class WasmKernel implements PixelKernel {
     } catch (error) {
       rethrow(error);
     }
+  }
+
+  beginGesture(): void {
+    try {
+      this.doc.beginGesture();
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  endGesture(): void {
+    this.doc.endGesture();
+  }
+
+  gestureOpen(): boolean {
+    return this.doc.gestureOpen();
+  }
+
+  undo(): void {
+    try {
+      this.doc.undo();
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  redo(): void {
+    try {
+      this.doc.redo();
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  canUndo(): boolean {
+    return this.doc.canUndo();
+  }
+
+  canRedo(): boolean {
+    return this.doc.canRedo();
+  }
+
+  clearHistory(): void {
+    this.doc.clearHistory();
   }
 }
 

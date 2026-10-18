@@ -1,10 +1,10 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, and the frame-list methods. Pixel rules
-//! stay in the kernel. This module only copies bytes across the boundary
-//! and turns [`pixelforge_kernel::KernelError`] into a `Code: message` string
-//! the shell maps back onto its `KernelError`.
+//! `snapshot()`, `paint`, `erase`, frame-list methods, and undo / redo.
+//! Pixel rules and the undo stack stay in the kernel. This module only copies
+//! bytes across the boundary and turns [`pixelforge_kernel::KernelError`]
+//! into a `Code: message` string the shell maps back onto its `KernelError`.
 
 use pixelforge_kernel::{Document, KernelError};
 use wasm_bindgen::prelude::*;
@@ -94,6 +94,44 @@ impl PixelDocument {
     #[wasm_bindgen(js_name = setActiveFrame)]
     pub fn set_active_frame(&mut self, index: u32) -> Result<(), String> {
         self.inner.set_active_frame(as_index(index)).map_err(reject)
+    }
+
+    #[wasm_bindgen(js_name = beginGesture)]
+    pub fn begin_gesture(&mut self) -> Result<(), String> {
+        self.inner.begin_gesture().map_err(reject)
+    }
+
+    #[wasm_bindgen(js_name = endGesture)]
+    pub fn end_gesture(&mut self) {
+        self.inner.end_gesture();
+    }
+
+    #[wasm_bindgen(js_name = gestureOpen)]
+    pub fn gesture_open(&self) -> bool {
+        self.inner.gesture_open()
+    }
+
+    #[wasm_bindgen(js_name = canUndo)]
+    pub fn can_undo(&self) -> bool {
+        self.inner.can_undo()
+    }
+
+    #[wasm_bindgen(js_name = canRedo)]
+    pub fn can_redo(&self) -> bool {
+        self.inner.can_redo()
+    }
+
+    pub fn undo(&mut self) -> Result<(), String> {
+        self.inner.undo().map_err(reject)
+    }
+
+    pub fn redo(&mut self) -> Result<(), String> {
+        self.inner.redo().map_err(reject)
+    }
+
+    #[wasm_bindgen(js_name = clearHistory)]
+    pub fn clear_history(&mut self) {
+        self.inner.clear_history();
     }
 }
 
@@ -199,5 +237,44 @@ mod tests {
             .duplicate_frame(2)
             .unwrap_err()
             .starts_with("FrameIndex:"));
+    }
+
+    #[test]
+    fn undo_and_redo_share_the_kernel_document() {
+        let mut document = doc();
+        document.begin_gesture().unwrap();
+        document.paint(1, 1, 2).unwrap();
+        document.paint(2, 1, 3).unwrap();
+        document.end_gesture();
+        assert!(document.can_undo());
+
+        document.undo().unwrap();
+        assert_eq!(document.pixels()[1 + 16], 0);
+        assert_eq!(document.pixels()[2 + 16], 0);
+        assert!(document.can_redo());
+
+        document.redo().unwrap();
+        assert_eq!(document.pixels()[1 + 16], 2);
+        assert_eq!(document.pixels()[2 + 16], 3);
+
+        document.begin_gesture().unwrap();
+        let index = document.add_frame();
+        document.set_active_frame(index).unwrap();
+        document.end_gesture();
+        assert_eq!(document.frame_count(), 2);
+        assert_eq!(document.active_frame(), 1);
+        assert!(document.pixels().iter().all(|pixel| *pixel == 0));
+
+        document.undo().unwrap();
+        assert_eq!(document.frame_count(), 1);
+        assert_eq!(document.active_frame(), 0);
+        assert_eq!(document.pixels()[1 + 16], 2);
+
+        document.undo().unwrap();
+        assert_eq!(document.pixels()[1 + 16], 0);
+        assert_eq!(
+            document.undo().unwrap_err(),
+            "NothingToUndo: nothing to undo"
+        );
     }
 }

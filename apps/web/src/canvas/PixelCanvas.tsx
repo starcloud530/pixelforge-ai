@@ -10,6 +10,8 @@ interface PixelCanvasProps {
   snapshot: KernelSnapshot;
   scale: number;
   showGrid: boolean;
+  onStrokeStart: () => void;
+  onStrokeEnd: () => void;
   onPrimary: (x: number, y: number) => void;
   onSecondary: (x: number, y: number) => void;
 }
@@ -23,6 +25,8 @@ export function PixelCanvas({
   snapshot,
   scale,
   showGrid,
+  onStrokeStart,
+  onStrokeEnd,
   onPrimary,
   onSecondary,
 }: PixelCanvasProps) {
@@ -70,6 +74,7 @@ export function PixelCanvas({
     }
     event.currentTarget.setPointerCapture(event.pointerId);
     stroke.current = mode;
+    onStrokeStart();
     apply(cell, mode);
   }
 
@@ -88,9 +93,13 @@ export function PixelCanvas({
   }
 
   function endStroke(event: PointerEvent<HTMLCanvasElement>) {
+    const active = stroke.current;
     stroke.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (active) {
+      onStrokeEnd();
     }
   }
 

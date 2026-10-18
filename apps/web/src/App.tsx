@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PixelCanvas } from "./canvas/PixelCanvas";
 import { createKernel } from "./kernel/client";
 import type { PixelKernel, Rgba } from "./kernel/types";
@@ -21,20 +21,77 @@ export function App() {
   const [showGrid, setShowGrid] = useState(true);
 
   const snapshot = useMemo(() => kernel.snapshot(), [kernel, revision]);
+  const canUndo = kernel.canUndo();
+  const canRedo = kernel.canRedo();
 
   function touch() {
     setRevision((value) => value + 1);
   }
 
-  function paintAt(x: number, y: number) {
-    kernel.paint(x, y, colorIndex);
+  function undo() {
+    if (!kernel.canUndo()) {
+      return;
+    }
+    kernel.undo();
     touch();
   }
 
-  function eraseAt(x: number, y: number) {
-    kernel.erase(x, y);
+  function redo() {
+    if (!kernel.canRedo()) {
+      return;
+    }
+    kernel.redo();
     touch();
   }
+
+  function edit(run: () => void) {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+    }
+    kernel.beginGesture();
+    try {
+      run();
+    } finally {
+      kernel.endGesture();
+      touch();
+    }
+  }
+
+  const undoRef = useRef(undo);
+  const redoRef = useRef(redo);
+  undoRef.current = undo;
+  redoRef.current = redo;
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
+      ) {
+        return;
+      }
+      const shortcut = event.ctrlKey || event.metaKey;
+      if (!shortcut || event.altKey) {
+        return;
+      }
+      const redoKey = (event.code === "KeyZ" && event.shiftKey) || event.code === "KeyY";
+      const undoKey = event.code === "KeyZ" && !event.shiftKey;
+      if (!undoKey && !redoKey) {
+        return;
+      }
+      event.preventDefault();
+      if (undoKey) {
+        undoRef.current();
+      } else {
+        redoRef.current();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <div className="app">
@@ -68,7 +125,27 @@ export function App() {
                 橡皮
               </button>
             </div>
-            <p className="hint">左键使用当前工具，右键擦除。拖动可连续画。</p>
+            <div className="tool-row" role="group" aria-label="撤销">
+              <button
+                type="button"
+                disabled={!canUndo}
+                title="Ctrl/⌘+Z"
+                aria-keyshortcuts="Control+Z Meta+Z"
+                onClick={undo}
+              >
+                撤销
+              </button>
+              <button
+                type="button"
+                disabled={!canRedo}
+                title="Ctrl/⌘+Shift+Z"
+                aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z Control+Y"
+                onClick={redo}
+              >
+                重做
+              </button>
+            </div>
+            <p className="hint">左键使用当前工具，右键擦除。一次拖动是一步撤销。</p>
           </section>
 
           <section>
@@ -136,9 +213,10 @@ export function App() {
               <button
                 type="button"
                 onClick={() => {
-                  const index = kernel.addFrame();
-                  kernel.setActiveFrame(index);
-                  touch();
+                  edit(() => {
+                    const index = kernel.addFrame();
+                    kernel.setActiveFrame(index);
+                  });
                 }}
               >
                 新增
@@ -146,9 +224,10 @@ export function App() {
               <button
                 type="button"
                 onClick={() => {
-                  const index = kernel.duplicateFrame(snapshot.activeFrame);
-                  kernel.setActiveFrame(index);
-                  touch();
+                  edit(() => {
+                    const index = kernel.duplicateFrame(snapshot.activeFrame);
+                    kernel.setActiveFrame(index);
+                  });
                 }}
               >
                 复制
@@ -165,7 +244,7 @@ export function App() {
                 删除
               </button>
             </div>
-            <p className="hint">增、复制、删除都写在内核里。最后一帧不能删。</p>
+            <p className="hint">增删、复制和切换当前帧记在内核的撤销栈上。最后一帧不能删。</p>
           </section>
 
           <section>
@@ -208,21 +287,32 @@ export function App() {
           snapshot={snapshot}
           scale={scale}
           showGrid={showGrid}
+          onStrokeStart={() => {
+            if (kernel.gestureOpen()) {
+              kernel.endGesture();
+            }
+            kernel.beginGesture();
+          }}
+          onStrokeEnd={() => kernel.endGesture()}
           onPrimary={(x, y) => {
             if (tool === "erase") {
-              eraseAt(x, y);
+              kernel.erase(x, y);
             } else {
-              paintAt(x, y);
+              kernel.paint(x, y, colorIndex);
             }
+            touch();
           }}
-          onSecondary={eraseAt}
+          onSecondary={(x, y) => {
+            kernel.erase(x, y);
+            touch();
+          }}
         />
       </div>
 
       <footer className="footnote">
         <p>
-          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮和帧列表都进 WebAssembly。
-          撤销、色板编辑和工程保存还在 issue #3–#6。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、帧列表和撤销都进同一份 WebAssembly
+          文档。色板编辑和工程保存还在后面的 issue 里。
         </p>
       </footer>
     </div>

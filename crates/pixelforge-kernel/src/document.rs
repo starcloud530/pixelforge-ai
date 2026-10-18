@@ -2,16 +2,18 @@ use std::cmp::Ordering;
 
 use crate::error::KernelError;
 use crate::frame::Frame;
+use crate::history::{Change, History};
 use crate::palette::Palette;
 use crate::Rgba;
 use crate::MAX_CANVAS_EDGE;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, and one or more frames.
+/// Indexed pixel document: size, palette, frames, and the undo stack.
 ///
-/// UI gestures and, later, Tool API calls are meant to meet here. This
-/// skeleton implements paint, erase, and minimal frame-list edits. It does
-/// not record undo, save a project file, or export PNG.
+/// UI gestures and, later, Tool API calls meet here. Paint, erase, and frame
+/// edits record kernel operations on this document. Undo restores those
+/// operations; it does not patch a buffer owned by the shell. Project files
+/// and PNG export are not implemented.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,
@@ -19,6 +21,7 @@ pub struct Document {
     palette: Palette,
     frames: Vec<Frame>,
     active: usize,
+    history: History,
 }
 
 impl Document {
@@ -36,6 +39,7 @@ impl Document {
             palette,
             frames: vec![Frame::blank(len)],
             active: 0,
+            history: History::new(),
         })
     }
 
@@ -84,31 +88,36 @@ impl Document {
     }
 
     /// Writes a non-transparent palette index. Index 0 is rejected; use [`Self::erase`].
+    ///
+    /// A cell that already holds `color_index` is left alone and is not recorded.
     pub fn paint(&mut self, x: u16, y: u16, color_index: u8) -> Result<(), KernelError> {
         if !self.palette.contains_paint_index(color_index) {
             return Err(KernelError::PaletteIndex { index: color_index });
         }
         let offset = self.offset(x, y)?;
-        self.frames[self.active].set(offset, color_index);
+        self.write_index(self.active, offset, color_index);
         Ok(())
     }
 
     /// Sets one cell back to [`TRANSPARENT_INDEX`].
+    ///
+    /// An empty cell is left alone and is not recorded.
     pub fn erase(&mut self, x: u16, y: u16) -> Result<(), KernelError> {
         let offset = self.offset(x, y)?;
-        self.frames[self.active].set(offset, TRANSPARENT_INDEX);
+        self.write_index(self.active, offset, TRANSPARENT_INDEX);
         Ok(())
     }
 
     /// Appends a blank frame and returns its index. The active frame stays put.
-    ///
-    /// This is a kernel primitive for issue #5, not the editor frame list.
     pub fn add_frame(&mut self) -> usize {
+        let index = self.frames.len();
         self.frames.push(Frame::blank(self.pixel_count()));
-        self.frames.len() - 1
+        self.history.record(Change::AddFrame { index });
+        index
     }
 
-    /// Inserts a copy after `index`. Active frame still names the same content.
+    /// Inserts a copy after `index`. Active frame still names the same content
+    /// when it sat before the insertion point; later frames shift right.
     pub fn duplicate_frame(&mut self, index: usize) -> Result<usize, KernelError> {
         let frame = self
             .frames
@@ -119,10 +128,17 @@ impl Document {
                 len: self.frames.len(),
             })?;
         let inserted = index + 1;
-        self.frames.insert(inserted, frame);
+        let active_before = self.active;
+        self.frames.insert(inserted, frame.clone());
         if self.active >= inserted {
             self.active += 1;
         }
+        self.history.record(Change::InsertFrame {
+            index: inserted,
+            frame,
+            active_before,
+            active_after: self.active,
+        });
         Ok(inserted)
     }
 
@@ -137,15 +153,25 @@ impl Document {
                 len: self.frames.len(),
             });
         }
-        self.frames.remove(index);
-        self.active = match self.active.cmp(&index) {
-            Ordering::Greater => self.active - 1,
+        let active_before = self.active;
+        let frame = self.frames.remove(index);
+        self.active = match active_before.cmp(&index) {
+            Ordering::Greater => active_before - 1,
             Ordering::Equal => index.min(self.frames.len() - 1),
-            Ordering::Less => self.active,
+            Ordering::Less => active_before,
         };
+        self.history.record(Change::RemoveFrame {
+            index,
+            frame,
+            active_before,
+            active_after: self.active,
+        });
         Ok(())
     }
 
+    /// Selects a frame. The same index is not recorded. Switching frames is an
+    /// undoable kernel operation so later undos return to the frame that was
+    /// being edited.
     pub fn set_active_frame(&mut self, index: usize) -> Result<(), KernelError> {
         if index >= self.frames.len() {
             return Err(KernelError::FrameIndex {
@@ -153,8 +179,175 @@ impl Document {
                 len: self.frames.len(),
             });
         }
+        if index == self.active {
+            return Ok(());
+        }
+        let before = self.active;
         self.active = index;
+        self.history.record(Change::ActiveFrame {
+            before,
+            after: index,
+        });
         Ok(())
+    }
+
+    /// Groups later successful edits into one undo step until [`Self::end_gesture`].
+    ///
+    /// A drag should call this once on pointer down. Nested gestures error.
+    pub fn begin_gesture(&mut self) -> Result<(), KernelError> {
+        self.history.begin_gesture()
+    }
+
+    /// Seals the open gesture. Does nothing when no gesture is open. A gesture
+    /// that changed nothing does not push an undo entry or clear redo.
+    pub fn end_gesture(&mut self) {
+        self.history.end_gesture();
+    }
+
+    pub fn gesture_open(&self) -> bool {
+        self.history.gesture_open()
+    }
+
+    /// True when [`Self::undo`] would restore an edit, including an open gesture
+    /// that has already changed the document.
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    /// True when [`Self::redo`] would reapply an undone edit. False while an
+    /// open gesture already has changes, because that gesture is a new branch.
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    /// Reverts the latest kernel operation.
+    ///
+    /// An open gesture with edits is sealed and then reverted, so one undo
+    /// cancels the in-progress stroke. An empty open gesture is dropped.
+    pub fn undo(&mut self) -> Result<(), KernelError> {
+        let operation = self.history.take_undo()?;
+        self.history.set_replaying(true);
+        for change in operation.changes().iter().rev() {
+            self.apply_change(change, false);
+        }
+        self.history.set_replaying(false);
+        self.history.push_redo(operation);
+        Ok(())
+    }
+
+    /// Reapplies the latest undone operation. Errors if the undo stack's redo
+    /// side is empty, or if a gesture in progress already has edits.
+    pub fn redo(&mut self) -> Result<(), KernelError> {
+        let operation = self.history.take_redo()?;
+        self.history.set_replaying(true);
+        for change in operation.changes() {
+            self.apply_change(change, true);
+        }
+        self.history.set_replaying(false);
+        self.history.push_undo(operation);
+        Ok(())
+    }
+
+    /// Drops undo, redo, and any open gesture. Pixels and frames stay as they are.
+    ///
+    /// Used to mark a seeded document as the baseline the user undoes back to.
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
+    fn write_index(&mut self, frame: usize, offset: usize, value: u8) {
+        let before = self.frames[frame].pixels()[offset];
+        if before == value {
+            return;
+        }
+        self.frames[frame].set(offset, value);
+        self.history.record(Change::Pixel {
+            frame,
+            offset,
+            before,
+            after: value,
+        });
+    }
+
+    fn apply_change(&mut self, change: &Change, forward: bool) {
+        match change {
+            Change::Pixel {
+                frame,
+                offset,
+                before,
+                after,
+            } => {
+                let current = self.frames[*frame].pixels()[*offset];
+                let (expected, next) = if forward {
+                    (*before, *after)
+                } else {
+                    (*after, *before)
+                };
+                debug_assert_eq!(
+                    current, expected,
+                    "undo stack diverged from the document pixels"
+                );
+                self.frames[*frame].set(*offset, next);
+            }
+            Change::AddFrame { index } => {
+                if forward {
+                    debug_assert_eq!(*index, self.frames.len());
+                    self.frames.push(Frame::blank(self.pixel_count()));
+                } else {
+                    debug_assert_eq!(self.frames.len() - 1, *index);
+                    self.frames.remove(*index);
+                    self.clamp_active();
+                }
+            }
+            Change::InsertFrame {
+                index,
+                frame,
+                active_before,
+                active_after,
+            } => {
+                if forward {
+                    self.frames.insert(*index, frame.clone());
+                    self.assign_active(*active_before, *active_after);
+                } else {
+                    self.frames.remove(*index);
+                    self.assign_active(*active_after, *active_before);
+                }
+            }
+            Change::RemoveFrame {
+                index,
+                frame,
+                active_before,
+                active_after,
+            } => {
+                if forward {
+                    self.frames.remove(*index);
+                    self.assign_active(*active_before, *active_after);
+                } else {
+                    self.frames.insert(*index, frame.clone());
+                    self.assign_active(*active_after, *active_before);
+                }
+            }
+            Change::ActiveFrame { before, after } => {
+                self.active = if forward { *after } else { *before };
+            }
+        }
+    }
+
+    /// Restores an active index a structural edit itself changed. When the edit
+    /// left the index numerically unchanged, keep the current selection unless
+    /// it now points past the frame list.
+    fn assign_active(&mut self, previous: usize, next: usize) {
+        if previous != next {
+            self.active = next;
+        } else {
+            self.clamp_active();
+        }
+    }
+
+    fn clamp_active(&mut self) {
+        if self.active >= self.frames.len() {
+            self.active = self.frames.len() - 1;
+        }
     }
 
     fn pixel_count(&self) -> usize {
