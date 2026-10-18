@@ -1,8 +1,9 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, and
-//! frames. Paint, erase, and frame edits write this document and push the
-//! same edits onto its undo stack. The TypeScript shell previews this state;
+//! frames. Paint, erase, palette edits, and frame edits write this document
+//! and push the same edits onto its undo stack. The TypeScript shell previews
+//! this state;
 //! it does not own the pixels or a second history.
 //!
 //! Project files, PNG export, and the Tool API are later layers on this

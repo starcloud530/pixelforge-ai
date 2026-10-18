@@ -10,10 +10,10 @@ use crate::TRANSPARENT_INDEX;
 
 /// Indexed pixel document: size, palette, frames, and the undo stack.
 ///
-/// UI gestures and, later, Tool API calls meet here. Paint, erase, and frame
-/// edits record kernel operations on this document. Undo restores those
-/// operations; it does not patch a buffer owned by the shell. Project files
-/// and PNG export are not implemented.
+/// UI gestures and, later, Tool API calls meet here. Paint, erase, palette
+/// edits, and frame edits record kernel operations on this document. Undo
+/// restores those operations; it does not patch a buffer owned by the shell.
+/// Project files and PNG export are not implemented.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,
@@ -97,6 +97,35 @@ impl Document {
         let offset = self.offset(x, y)?;
         self.write_index(self.active, offset, color_index);
         Ok(())
+    }
+
+    /// Replaces the RGB of a paint entry. Index 0 cannot be changed.
+    ///
+    /// Cells keep their indices, so every frame that uses `index` shows the
+    /// new color. The same RGB is not recorded. A color-picker drag should
+    /// sit inside one gesture; those writes fold into a single undo step.
+    pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) -> Result<(), KernelError> {
+        let before = self.palette.set_rgb(index, r, g, b)?;
+        let after = Rgba::rgb(r, g, b);
+        if before == after {
+            return Ok(());
+        }
+        self.history.record(Change::PaletteColor {
+            index,
+            before,
+            after,
+        });
+        Ok(())
+    }
+
+    /// Appends an opaque color and returns its index. Paint can use it immediately.
+    pub fn add_palette_color(&mut self, r: u8, g: u8, b: u8) -> Result<u8, KernelError> {
+        let index = self.palette.push_rgb(r, g, b)?;
+        self.history.record(Change::AddPaletteColor {
+            index,
+            color: Rgba::rgb(r, g, b),
+        });
+        Ok(index)
     }
 
     /// Sets one cell back to [`TRANSPARENT_INDEX`].
@@ -329,6 +358,44 @@ impl Document {
             }
             Change::ActiveFrame { before, after } => {
                 self.active = if forward { *after } else { *before };
+            }
+            Change::PaletteColor {
+                index,
+                before,
+                after,
+            } => {
+                let current = self
+                    .palette
+                    .get(*index)
+                    .expect("palette entry still exists");
+                let (expected, next) = if forward {
+                    (*before, *after)
+                } else {
+                    (*after, *before)
+                };
+                debug_assert_eq!(current, expected, "undo stack diverged from the palette");
+                self.palette.write(*index, next);
+            }
+            Change::AddPaletteColor { index, color } => {
+                if forward {
+                    debug_assert_eq!(usize::from(*index), self.palette.len());
+                    let added = self
+                        .palette
+                        .push_rgb(color.r, color.g, color.b)
+                        .expect("undone palette color still fits");
+                    debug_assert_eq!(added, *index);
+                } else {
+                    debug_assert_eq!(usize::from(*index) + 1, self.palette.len());
+                    debug_assert!(
+                        !self
+                            .frames
+                            .iter()
+                            .any(|frame| frame.pixels().contains(index)),
+                        "palette index {index} is still stored in a frame"
+                    );
+                    let removed = self.palette.pop();
+                    debug_assert_eq!(removed, *color);
+                }
             }
         }
     }

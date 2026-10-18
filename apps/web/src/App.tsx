@@ -8,6 +8,24 @@ function swatchInk(color: Rgba): string {
   return luminance > 0.62 ? "#14161a" : "#f4f1de";
 }
 
+function hexFromRgb(color: Rgba): string {
+  const channel = (value: number) => value.toString(16).padStart(2, "0");
+  return `#${channel(color.r)}${channel(color.g)}${channel(color.b)}`;
+}
+
+function rgbFromHex(hex: string): { r: number; g: number; b: number } | null {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match?.[1]) {
+    return null;
+  }
+  const value = Number.parseInt(match[1], 16);
+  return {
+    r: (value >> 16) & 255,
+    g: (value >> 8) & 255,
+    b: value & 255,
+  };
+}
+
 type Tool = "paint" | "erase";
 
 const SCALES = [8, 16, 24] as const;
@@ -23,6 +41,14 @@ export function App() {
   const snapshot = useMemo(() => kernel.snapshot(), [kernel, revision]);
   const canUndo = kernel.canUndo();
   const canRedo = kernel.canRedo();
+  const paletteCount = snapshot.palette.length;
+  const paintColor = colorIndex > 0 ? snapshot.palette[colorIndex] : undefined;
+
+  useEffect(() => {
+    if (paletteCount > 1 && colorIndex >= paletteCount) {
+      setColorIndex(paletteCount - 1);
+    }
+  }, [colorIndex, paletteCount]);
 
   function touch() {
     setRevision((value) => value + 1);
@@ -41,6 +67,29 @@ export function App() {
       return;
     }
     kernel.redo();
+    touch();
+  }
+
+  function closePaletteGesture() {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+      touch();
+    }
+  }
+
+  function editPaletteColor(value: string) {
+    const next = rgbFromHex(value);
+    const current = snapshot.palette[colorIndex];
+    if (!next || !current || colorIndex === 0) {
+      return;
+    }
+    if (next.r === current.r && next.g === current.g && next.b === current.b) {
+      return;
+    }
+    if (!kernel.gestureOpen()) {
+      kernel.beginGesture();
+    }
+    kernel.setPaletteColor(colorIndex, next.r, next.g, next.b);
     touch();
   }
 
@@ -66,9 +115,9 @@ export function App() {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target;
       if (
-        target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
+        (target instanceof HTMLElement && target.isContentEditable) ||
+        (target instanceof HTMLInputElement && target.type !== "color")
       ) {
         return;
       }
@@ -174,6 +223,7 @@ export function App() {
                       textShadow: "none",
                     }}
                     onClick={() => {
+                      closePaletteGesture();
                       setColorIndex(index);
                       setTool("paint");
                     }}
@@ -183,7 +233,41 @@ export function App() {
                 );
               })}
             </div>
-            <p className="hint">索引 0 只表示空格子。画笔不能写入它。</p>
+            {paintColor ? (
+              <div className="color-editor">
+                <label className="color-field">
+                  <span>编辑索引 {colorIndex}</span>
+                  <input
+                    type="color"
+                    aria-label={`编辑索引 ${colorIndex} 的颜色`}
+                    value={hexFromRgb(paintColor)}
+                    onChange={(event) => editPaletteColor(event.target.value)}
+                    onBlur={closePaletteGesture}
+                  />
+                  <code>{hexFromRgb(paintColor)}</code>
+                </label>
+                <button
+                  type="button"
+                  disabled={snapshot.palette.length >= 256}
+                  title={
+                    snapshot.palette.length >= 256 ? "调色板最多 256 色" : "在色板末尾加一个颜色"
+                  }
+                  onClick={() => {
+                    edit(() => {
+                      const index = kernel.addPaletteColor(255, 255, 255);
+                      setColorIndex(index);
+                      setTool("paint");
+                    });
+                  }}
+                >
+                  添加颜色
+                </button>
+              </div>
+            ) : null}
+            <p className="hint">
+              点一个索引，画笔就用它。改这个索引的颜色会立刻重绘所有用到它的格子，撤销可以退回。索引
+              0 不能改，画笔也不能写入它。
+            </p>
           </section>
 
           <section>
@@ -200,6 +284,7 @@ export function App() {
                     aria-label={`帧 ${index + 1}`}
                     className={selected ? "is-active" : ""}
                     onClick={() => {
+                      closePaletteGesture();
                       kernel.setActiveFrame(index);
                       touch();
                     }}
@@ -237,6 +322,7 @@ export function App() {
                 disabled={snapshot.frameCount === 1}
                 title={snapshot.frameCount === 1 ? "至少保留一帧" : "删除当前帧"}
                 onClick={() => {
+                  closePaletteGesture();
                   kernel.deleteFrame(snapshot.activeFrame);
                   touch();
                 }}
@@ -311,8 +397,8 @@ export function App() {
 
       <footer className="footnote">
         <p>
-          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、帧列表和撤销都进同一份 WebAssembly
-          文档。色板编辑和工程保存还在后面的 issue 里。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、帧列表和撤销都进同一份
+          WebAssembly 文档。导入色板、锁定色板和工程保存还在后面的 issue 里。
         </p>
       </footer>
     </div>

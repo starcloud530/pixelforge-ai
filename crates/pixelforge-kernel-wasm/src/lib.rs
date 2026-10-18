@@ -1,7 +1,7 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, frame-list methods, and undo / redo.
+//! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, and undo / redo.
 //! Pixel rules and the undo stack stay in the kernel. This module only copies
 //! bytes across the boundary and turns [`pixelforge_kernel::KernelError`]
 //! into a `Code: message` string the shell maps back onto its `KernelError`.
@@ -68,6 +68,19 @@ impl PixelDocument {
 
     pub fn erase(&mut self, x: u16, y: u16) -> Result<(), String> {
         self.inner.erase(x, y).map_err(reject)
+    }
+
+    /// Replaces the RGB of a paint entry. Index 0 cannot be changed.
+    /// Cells keep their indices, so the new color shows everywhere that entry is used.
+    #[wasm_bindgen(js_name = setPaletteColor)]
+    pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) -> Result<(), String> {
+        self.inner.set_palette_color(index, r, g, b).map_err(reject)
+    }
+
+    /// Appends an opaque color and returns its index.
+    #[wasm_bindgen(js_name = addPaletteColor)]
+    pub fn add_palette_color(&mut self, r: u8, g: u8, b: u8) -> Result<u8, String> {
+        self.inner.add_palette_color(r, g, b).map_err(reject)
     }
 
     /// Appends a blank frame and returns its index. The active frame stays put.
@@ -276,5 +289,36 @@ mod tests {
             document.undo().unwrap_err(),
             "NothingToUndo: nothing to undo"
         );
+    }
+
+    #[test]
+    fn edited_palette_is_what_paint_indexes() {
+        let mut document = doc();
+        document.paint(2, 0, 3).unwrap();
+        document.set_palette_color(3, 1, 2, 3).unwrap();
+
+        let rgba = document.palette_rgba();
+        assert_eq!(&rgba[3 * 4..4 * 4], &[1, 2, 3, 255]);
+        assert_eq!(document.pixels()[2], 3);
+
+        let added = document.add_palette_color(9, 8, 7).unwrap();
+        assert_eq!(added, 9);
+        document.paint(3, 0, added).unwrap();
+        assert_eq!(document.pixels()[3], added);
+        assert_eq!(&document.palette_rgba()[9 * 4..10 * 4], &[9, 8, 7, 255]);
+
+        document.undo().unwrap();
+        assert_eq!(document.pixels()[3], 0);
+        document.undo().unwrap();
+        assert_eq!(document.palette_rgba().len(), 9 * 4);
+        document.undo().unwrap();
+        assert_eq!(&document.palette_rgba()[3 * 4..4 * 4], &[232, 93, 76, 255]);
+        assert_eq!(document.pixels()[2], 3);
+
+        assert_eq!(
+            document.set_palette_color(0, 4, 5, 6).unwrap_err(),
+            "TransparentSlot: palette index 0 must be transparent"
+        );
+        assert_eq!(&document.palette_rgba()[..4], &[0, 0, 0, 0]);
     }
 }

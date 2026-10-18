@@ -79,6 +79,22 @@ class WasmKernel implements PixelKernel {
     }
   }
 
+  setPaletteColor(index: number, r: number, g: number, b: number): void {
+    try {
+      this.doc.setPaletteColor(index, r, g, b);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  addPaletteColor(r: number, g: number, b: number): number {
+    try {
+      return this.doc.addPaletteColor(r, g, b);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
   addFrame(): number {
     return this.doc.addFrame();
   }

@@ -28,6 +28,10 @@ export interface PixelKernel {
   snapshot(): KernelSnapshot;
   paint(x: number, y: number, colorIndex: number): void;
   erase(x: number, y: number): void;
+  /** Replaces the RGB of a paint entry. Index 0 cannot be changed. */
+  setPaletteColor(index: number, r: number, g: number, b: number): void;
+  /** Appends an opaque color and returns its index. */
+  addPaletteColor(r: number, g: number, b: number): number;
   addFrame(): number;
   duplicateFrame(index: number): number;
   deleteFrame(index: number): void;
@@ -45,6 +49,9 @@ export type KernelErrorCode =
   | "InvalidSize"
   | "OutOfBounds"
   | "PaletteIndex"
+  | "EmptyPalette"
+  | "PaletteTooLarge"
+  | "TransparentSlot"
   | "FrameIndex"
   | "LastFrame"
   | "NothingToUndo"
@@ -55,6 +62,9 @@ const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "InvalidSize",
   "OutOfBounds",
   "PaletteIndex",
+  "EmptyPalette",
+  "PaletteTooLarge",
+  "TransparentSlot",
   "FrameIndex",
   "LastFrame",
   "NothingToUndo",
