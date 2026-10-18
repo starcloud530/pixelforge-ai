@@ -1,0 +1,6 @@
+[package]
+name = "pixelforge-kernel"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Indexed pixel grid, palette, and frames for PixelForge AI."

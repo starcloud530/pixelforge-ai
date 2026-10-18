@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["crates/pixelforge-kernel"]
+# Planned later, not a member yet: crates/pixelforge-kernel-wasm
+# (wasm-bindgen bridge). See docs/dev-setup.md.
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+publish = false

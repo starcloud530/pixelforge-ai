@@ -1,0 +1,9 @@
+{
+  "name": "pixelforge-ai",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @pixelforge/web dev",
+    "build": "pnpm --filter @pixelforge/web build",
+    "typecheck": "pnpm --filter @pixelforge/web typecheck"
+  }
+}
