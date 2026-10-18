@@ -64,13 +64,13 @@ Early / work in progress.
 
 ## 开发 Development
 
-本地骨架分成两层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮、帧列表原语），TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。
+本地骨架分成两层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮、帧列表原语），TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。`crates/pixelforge-kernel-wasm` 用 wasm-bindgen 把这份内核编进浏览器。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。
 
-外壳目前调用一个 JavaScript 内核桩，规则与 Rust `Document` 的画笔/橡皮对齐。`wasm-bindgen` 桥接写在开发文档里，还没有编进浏览器。这是仓库布局，issue #2–#6 的编辑器功能（撤销、色板编辑、多帧界面、工程保存）尚未完成。
+外壳的画笔、橡皮和帧列表都调用 wasm 里的 Rust `Document`。这是仓库布局，issue #2–#6 的编辑器功能（撤销、色板编辑、每帧时长与洋葱皮、工程保存）尚未完成。
 
-Local skeleton: a Rust kernel in `crates/pixelforge-kernel` (canvas size, indexed pixels, palette, paint/erase, frame-list primitives) and a TypeScript shell in `apps/web` (Vite + React, nearest-neighbor view of the indexed grid). Build and run: [docs/dev-setup.md](docs/dev-setup.md).
+Local skeleton: a Rust kernel in `crates/pixelforge-kernel` (canvas size, indexed pixels, palette, paint/erase, frame-list primitives) and a TypeScript shell in `apps/web` (Vite + React, nearest-neighbor view of the indexed grid). `crates/pixelforge-kernel-wasm` compiles that kernel into the browser with wasm-bindgen. Build and run: [docs/dev-setup.md](docs/dev-setup.md).
 
-The shell currently calls a JavaScript kernel stand-in whose paint/erase rules match the Rust `Document`. The `wasm-bindgen` bridge is described in the dev setup doc and is not compiled into the browser yet. This is the repo layout. Editor work in issues #2–#6 (undo, palette editing, the frame list UI, project save) is not done.
+Paint, erase, and the frame list in the shell call the Rust `Document` inside wasm. This is the repo layout. Editor work in issues #2–#6 (undo, palette editing, per-frame delay and onion skin, project save) is not done.
 
 ## 许可证 License
 
