@@ -44,6 +44,11 @@ button.is-active {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 button.swatch.is-selected {
   outline: 2px solid var(--paper);
   outline-offset: 2px;
@@ -118,10 +123,15 @@ h2 {
   gap: 0.55rem;
 }
 
-.tool-row {
+.tool-row,
+.frame-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.frame-row button {
+  min-width: 2.2rem;
 }
 
 .hint,

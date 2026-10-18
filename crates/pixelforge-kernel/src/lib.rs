@@ -6,6 +6,7 @@
 //!
 //! Project files, PNG export, undo, and the Tool API are later layers on
 //! this document model. See `docs/tech-stack.md` and `docs/dev-setup.md`.
+//! The browser shell calls this crate through `pixelforge-kernel-wasm`.
 
 mod color;
 mod document;

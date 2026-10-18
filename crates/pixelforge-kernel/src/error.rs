@@ -28,6 +28,22 @@ pub enum KernelError {
     LastFrame,
 }
 
+impl KernelError {
+    /// Stable name shared with the wasm bridge and the TypeScript shell.
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidSize { .. } => "InvalidSize",
+            Self::OutOfBounds { .. } => "OutOfBounds",
+            Self::PaletteIndex { .. } => "PaletteIndex",
+            Self::EmptyPalette => "EmptyPalette",
+            Self::PaletteTooLarge { .. } => "PaletteTooLarge",
+            Self::TransparentSlot => "TransparentSlot",
+            Self::FrameIndex { .. } => "FrameIndex",
+            Self::LastFrame => "LastFrame",
+        }
+    }
+}
+
 impl fmt::Display for KernelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -60,3 +76,25 @@ impl fmt::Display for KernelError {
 }
 
 impl std::error::Error for KernelError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn codes_match_variant_names() {
+        assert_eq!(KernelError::LastFrame.code(), "LastFrame");
+        assert_eq!(
+            KernelError::PaletteIndex { index: 0 }.code(),
+            "PaletteIndex"
+        );
+        assert_eq!(
+            KernelError::InvalidSize {
+                width: 0,
+                height: 1
+            }
+            .code(),
+            "InvalidSize"
+        );
+    }
+}

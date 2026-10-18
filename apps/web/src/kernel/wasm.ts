@@ -1,0 +1,132 @@
+import init, { PixelDocument } from "../../../../crates/pixelforge-kernel-wasm/pkg/pixelforge_kernel_wasm.js";
+import wasmUrl from "../../../../crates/pixelforge-kernel-wasm/pkg/pixelforge_kernel_wasm_bg.wasm?url";
+import { seedDemo } from "./demo";
+import { kernelErrorFromUnknown, type KernelSnapshot, type PixelKernel, type Rgba } from "./types";
+
+let ready = false;
+let starting: Promise<void> | null = null;
+
+/**
+ * Loads the wasm module once. `createKernel()` throws until this resolves.
+ * Vite serves the `.wasm` asset; the glue instantiates that URL.
+ */
+export function initKernel(): Promise<void> {
+  if (!starting) {
+    starting = init({ module_or_path: wasmUrl })
+      .then(() => {
+        ready = true;
+      })
+      .catch((error: unknown) => {
+        starting = null;
+        throw error;
+      });
+  }
+  return starting;
+}
+
+/** Returns a wasm document. Pass 16×16 to seed the demo through `paint`. */
+export function createKernel(width = 16, height = 16): PixelKernel {
+  if (!ready) {
+    throw new Error("initKernel() must finish before createKernel()");
+  }
+  const kernel = WasmKernel.open(width, height);
+  if (width === 16 && height === 16) {
+    seedDemo(kernel);
+  }
+  return kernel;
+}
+
+class WasmKernel implements PixelKernel {
+  private readonly doc: PixelDocument;
+
+  private constructor(doc: PixelDocument) {
+    this.doc = doc;
+  }
+
+  static open(width: number, height: number): WasmKernel {
+    try {
+      return new WasmKernel(new PixelDocument(width, height));
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  snapshot(): KernelSnapshot {
+    return {
+      width: this.doc.width(),
+      height: this.doc.height(),
+      palette: paletteFromRgba(this.doc.paletteRgba()),
+      frameCount: this.doc.frameCount(),
+      activeFrame: this.doc.activeFrame(),
+      pixels: this.doc.pixels(),
+    };
+  }
+
+  paint(x: number, y: number, colorIndex: number): void {
+    try {
+      this.doc.paint(x, y, colorIndex);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  erase(x: number, y: number): void {
+    try {
+      this.doc.erase(x, y);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  addFrame(): number {
+    return this.doc.addFrame();
+  }
+
+  duplicateFrame(index: number): number {
+    try {
+      return this.doc.duplicateFrame(index);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  deleteFrame(index: number): void {
+    try {
+      this.doc.deleteFrame(index);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  setActiveFrame(index: number): void {
+    try {
+      this.doc.setActiveFrame(index);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+}
+
+function paletteFromRgba(bytes: Uint8Array): Rgba[] {
+  if (bytes.length % 4 !== 0) {
+    throw new Error("palette byte length is not a multiple of 4");
+  }
+  const colors: Rgba[] = [];
+  for (let index = 0; index < bytes.length; index += 4) {
+    colors.push({
+      r: bytes[index] ?? 0,
+      g: bytes[index + 1] ?? 0,
+      b: bytes[index + 2] ?? 0,
+      a: bytes[index + 3] ?? 0,
+    });
+  }
+  return colors;
+}
+
+function rethrow(error: unknown): never {
+  const kernelError = kernelErrorFromUnknown(error);
+  if (kernelError) {
+    throw kernelError;
+  }
+  throw error;
+}
