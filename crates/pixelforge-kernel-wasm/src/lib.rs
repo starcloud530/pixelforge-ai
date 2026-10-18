@@ -1,10 +1,11 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, and undo / redo.
-//! Pixel rules and the undo stack stay in the kernel. This module only copies
-//! bytes across the boundary and turns [`pixelforge_kernel::KernelError`]
-//! into a `Code: message` string the shell maps back onto its `KernelError`.
+//! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, undo /
+//! redo, and project save / load. Pixel rules, the undo stack, and the project
+//! file stay in the kernel. This module only copies bytes across the boundary
+//! and turns [`pixelforge_kernel::KernelError`] into a `Code: message` string
+//! the shell maps back onto its `KernelError`.
 
 use pixelforge_kernel::{Document, KernelError};
 use wasm_bindgen::prelude::*;
@@ -145,6 +146,21 @@ impl PixelDocument {
     #[wasm_bindgen(js_name = clearHistory)]
     pub fn clear_history(&mut self) {
         self.inner.clear_history();
+    }
+
+    /// Version 1 `pixelforge-project` JSON for the current document.
+    #[wasm_bindgen(js_name = saveProject)]
+    pub fn save_project(&self) -> String {
+        self.inner.save_project()
+    }
+
+    /// Replaces nothing in place: returns a new document parsed by the kernel.
+    /// History on that document is empty.
+    #[wasm_bindgen(js_name = loadProject)]
+    pub fn load_project(json: &str) -> Result<PixelDocument, String> {
+        Document::load_project(json)
+            .map(|inner| Self { inner })
+            .map_err(reject)
     }
 }
 
@@ -320,5 +336,46 @@ mod tests {
             "TransparentSlot: palette index 0 must be transparent"
         );
         assert_eq!(&document.palette_rgba()[..4], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn save_and_load_round_trip_the_open_document() {
+        let mut document = doc();
+        document.paint(1, 0, 4).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(0, 1, 5).unwrap();
+
+        let mut loaded = PixelDocument::load_project(&document.save_project()).unwrap();
+        assert_eq!(loaded.width(), 16);
+        assert_eq!(loaded.height(), 16);
+        assert_eq!(loaded.frame_count(), 2);
+        assert_eq!(loaded.active_frame(), 1);
+        assert_eq!(loaded.pixels()[0 + 16], 5);
+        assert_eq!(loaded.palette_rgba(), document.palette_rgba());
+        assert!(!loaded.can_undo());
+        assert!(!loaded.can_redo());
+
+        loaded.set_active_frame(0).unwrap();
+        assert_eq!(loaded.pixels()[1], 4);
+        assert_eq!(
+            PixelDocument::load_project("{").unwrap_err(),
+            "ProjectFile: project file is not valid version 1 JSON"
+        );
+    }
+
+    #[test]
+    fn save_and_load_keep_an_edited_palette() {
+        let mut document = doc();
+        document.set_palette_color(3, 1, 2, 3).unwrap();
+        let added = document.add_palette_color(9, 8, 7).unwrap();
+        document.paint(0, 0, added).unwrap();
+        assert!(document.can_undo());
+
+        let loaded = PixelDocument::load_project(&document.save_project()).unwrap();
+        assert_eq!(loaded.palette_rgba(), document.palette_rgba());
+        assert_eq!(loaded.pixels()[0], added);
+        assert!(!loaded.can_undo());
+        assert!(!loaded.can_redo());
     }
 }

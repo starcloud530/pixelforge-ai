@@ -43,6 +43,8 @@ export interface PixelKernel {
   redo(): void;
   canUndo(): boolean;
   canRedo(): boolean;
+  /** Version 1 `pixelforge-project` JSON. The kernel owns the bytes. */
+  saveProject(): string;
 }
 
 export type KernelErrorCode =
@@ -56,7 +58,8 @@ export type KernelErrorCode =
   | "LastFrame"
   | "NothingToUndo"
   | "NothingToRedo"
-  | "OpenGesture";
+  | "OpenGesture"
+  | "ProjectFile";
 
 const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "InvalidSize",
@@ -70,6 +73,7 @@ const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "NothingToUndo",
   "NothingToRedo",
   "OpenGesture",
+  "ProjectFile",
 ];
 
 export class KernelError extends Error {

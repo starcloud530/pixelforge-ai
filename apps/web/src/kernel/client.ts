@@ -1,1 +1,1 @@
-export { createKernel, initKernel } from "./wasm";
+export { createKernel, initKernel, openProject } from "./wasm";

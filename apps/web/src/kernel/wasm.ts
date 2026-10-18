@@ -37,6 +37,14 @@ export function createKernel(width = 16, height = 16): PixelKernel {
   return kernel;
 }
 
+/** Parses project JSON in the kernel and returns that document. Does not seed the demo. */
+export function openProject(json: string): PixelKernel {
+  if (!ready) {
+    throw new Error("initKernel() must finish before openProject()");
+  }
+  return WasmKernel.fromProject(json);
+}
+
 class WasmKernel implements PixelKernel {
   private readonly doc: PixelDocument;
 
@@ -47,6 +55,14 @@ class WasmKernel implements PixelKernel {
   static open(width: number, height: number): WasmKernel {
     try {
       return new WasmKernel(new PixelDocument(width, height));
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  static fromProject(json: string): WasmKernel {
+    try {
+      return new WasmKernel(PixelDocument.loadProject(json));
     } catch (error) {
       rethrow(error);
     }
@@ -165,6 +181,10 @@ class WasmKernel implements PixelKernel {
 
   clearHistory(): void {
     this.doc.clearHistory();
+  }
+
+  saveProject(): string {
+    return this.doc.saveProject();
   }
 }
 

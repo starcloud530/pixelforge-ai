@@ -13,7 +13,8 @@ use crate::TRANSPARENT_INDEX;
 /// UI gestures and, later, Tool API calls meet here. Paint, erase, palette
 /// edits, and frame edits record kernel operations on this document. Undo
 /// restores those operations; it does not patch a buffer owned by the shell.
-/// Project files and PNG export are not implemented.
+/// Project open and save encode this document, not the undo stack. PNG export
+/// is not implemented.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,
@@ -282,6 +283,34 @@ impl Document {
     /// Used to mark a seeded document as the baseline the user undoes back to.
     pub fn clear_history(&mut self) {
         self.history.clear();
+    }
+
+    /// Rebuilds a stored document. The undo stack starts empty.
+    ///
+    /// The project loader checks size, palette, frames, and the active frame
+    /// before calling this.
+    pub(crate) fn from_stored(
+        width: u16,
+        height: u16,
+        palette: Palette,
+        frames: Vec<Frame>,
+        active: usize,
+    ) -> Self {
+        debug_assert!(!frames.is_empty(), "project files keep at least one frame");
+        debug_assert!(active < frames.len(), "active frame was checked");
+        let len = pixel_len(width, height);
+        debug_assert!(
+            frames.iter().all(|frame| frame.pixels().len() == len),
+            "frame length was checked"
+        );
+        Self {
+            width,
+            height,
+            palette,
+            frames,
+            active,
+            history: History::new(),
+        }
     }
 
     fn write_index(&mut self, frame: usize, offset: usize, value: u8) {

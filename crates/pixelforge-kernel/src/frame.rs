@@ -11,6 +11,10 @@ impl Frame {
         }
     }
 
+    pub(crate) fn from_pixels(pixels: Vec<u8>) -> Self {
+        Self { pixels }
+    }
+
     pub fn pixels(&self) -> &[u8] {
         &self.pixels
     }
