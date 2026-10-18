@@ -26,6 +26,13 @@ pub enum KernelError {
     FrameIndex { index: usize, len: usize },
     /// The document always keeps one frame.
     LastFrame,
+    /// [`crate::Document::undo`] found an empty undo stack.
+    NothingToUndo,
+    /// [`crate::Document::redo`] found an empty redo stack.
+    NothingToRedo,
+    /// [`crate::Document::begin_gesture`] was called again, or redo ran
+    /// while a gesture already had edits.
+    OpenGesture,
 }
 
 impl KernelError {
@@ -40,6 +47,9 @@ impl KernelError {
             Self::TransparentSlot => "TransparentSlot",
             Self::FrameIndex { .. } => "FrameIndex",
             Self::LastFrame => "LastFrame",
+            Self::NothingToUndo => "NothingToUndo",
+            Self::NothingToRedo => "NothingToRedo",
+            Self::OpenGesture => "OpenGesture",
         }
     }
 }
@@ -71,6 +81,9 @@ impl fmt::Display for KernelError {
                 write!(f, "frame {index} is outside 0..{len}")
             }
             Self::LastFrame => write!(f, "cannot delete the only frame"),
+            Self::NothingToUndo => write!(f, "nothing to undo"),
+            Self::NothingToRedo => write!(f, "nothing to redo"),
+            Self::OpenGesture => write!(f, "a gesture is already open"),
         }
     }
 }
@@ -84,6 +97,8 @@ mod tests {
     #[test]
     fn codes_match_variant_names() {
         assert_eq!(KernelError::LastFrame.code(), "LastFrame");
+        assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
+        assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
         assert_eq!(
             KernelError::PaletteIndex { index: 0 }.code(),
             "PaletteIndex"
