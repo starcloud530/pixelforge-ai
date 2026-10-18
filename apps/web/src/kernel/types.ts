@@ -21,21 +21,62 @@ export interface KernelSnapshot {
 
 /**
  * Operations the shell is allowed to ask of the kernel.
- * The Rust crate owns the real rules. The web app currently calls a JS
- * stand-in with the same paint/erase checks. See `docs/dev-setup.md`.
+ * The Rust crate owns the rules. The web app calls them through the
+ * wasm-bindgen bridge. See `docs/dev-setup.md`.
  */
 export interface PixelKernel {
   snapshot(): KernelSnapshot;
   paint(x: number, y: number, colorIndex: number): void;
   erase(x: number, y: number): void;
+  addFrame(): number;
+  duplicateFrame(index: number): number;
+  deleteFrame(index: number): void;
+  setActiveFrame(index: number): void;
 }
 
-export class KernelError extends Error {
-  readonly code: "InvalidSize" | "OutOfBounds" | "PaletteIndex";
+export type KernelErrorCode =
+  | "InvalidSize"
+  | "OutOfBounds"
+  | "PaletteIndex"
+  | "FrameIndex"
+  | "LastFrame";
 
-  constructor(code: KernelError["code"], message: string) {
+const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
+  "InvalidSize",
+  "OutOfBounds",
+  "PaletteIndex",
+  "FrameIndex",
+  "LastFrame",
+];
+
+export class KernelError extends Error {
+  readonly code: KernelErrorCode;
+
+  constructor(code: KernelErrorCode, message: string) {
     super(message);
     this.name = "KernelError";
     this.code = code;
   }
+}
+
+/** Maps a `Code: message` failure from the wasm bridge onto `KernelError`. */
+export function kernelErrorFromUnknown(error: unknown): KernelError | null {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : null;
+  if (message === null) {
+    return null;
+  }
+  const splitAt = message.indexOf(": ");
+  if (splitAt === -1) {
+    return null;
+  }
+  const code = message.slice(0, splitAt);
+  if (!isKernelErrorCode(code)) {
+    return null;
+  }
+  return new KernelError(code, message.slice(splitAt + 2));
+}
+
+function isKernelErrorCode(code: string): code is KernelErrorCode {
+  return (KERNEL_ERROR_CODES as readonly string[]).includes(code);
 }

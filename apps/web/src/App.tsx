@@ -43,7 +43,7 @@ export function App() {
           <p className="eyebrow">PixelForge AI</p>
           <h1>像素画布骨架</h1>
         </div>
-        <p className="kernel-tag">内核桩 · JavaScript</p>
+        <p className="kernel-tag">内核 · WebAssembly</p>
       </header>
 
       <div className="workspace">
@@ -110,6 +110,65 @@ export function App() {
           </section>
 
           <section>
+            <h2>帧</h2>
+            <div className="frame-row" role="listbox" aria-label="帧列表">
+              {Array.from({ length: snapshot.frameCount }, (_, index) => {
+                const selected = index === snapshot.activeFrame;
+                return (
+                  <button
+                    key={index}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    aria-label={`帧 ${index + 1}`}
+                    className={selected ? "is-active" : ""}
+                    onClick={() => {
+                      kernel.setActiveFrame(index);
+                      touch();
+                    }}
+                  >
+                    {index + 1}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="tool-row">
+              <button
+                type="button"
+                onClick={() => {
+                  const index = kernel.addFrame();
+                  kernel.setActiveFrame(index);
+                  touch();
+                }}
+              >
+                新增
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const index = kernel.duplicateFrame(snapshot.activeFrame);
+                  kernel.setActiveFrame(index);
+                  touch();
+                }}
+              >
+                复制
+              </button>
+              <button
+                type="button"
+                disabled={snapshot.frameCount === 1}
+                title={snapshot.frameCount === 1 ? "至少保留一帧" : "删除当前帧"}
+                onClick={() => {
+                  kernel.deleteFrame(snapshot.activeFrame);
+                  touch();
+                }}
+              >
+                删除
+              </button>
+            </div>
+            <p className="hint">增、复制、删除都写在内核里。最后一帧不能删。</p>
+          </section>
+
+          <section>
             <h2>视图</h2>
             <div className="tool-row" role="group" aria-label="放大倍数">
               {SCALES.map((value) => (
@@ -162,8 +221,8 @@ export function App() {
 
       <footer className="footnote">
         <p>
-          视图把内核里的索引像素按最近邻放大。撤销、色板编辑、多帧界面和工程保存还在
-          issue #3–#6，这一版没有做完。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮和帧列表都进 WebAssembly。
+          撤销、色板编辑和工程保存还在 issue #3–#6。
         </p>
       </footer>
     </div>

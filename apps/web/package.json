@@ -4,8 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "pnpm --dir ../.. run build:wasm",
     "dev": "vite",
+    "prebuild": "pnpm --dir ../.. run build:wasm",
     "build": "tsc --noEmit && vite build",
+    "pretypecheck": "pnpm --dir ../.. run build:wasm",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },

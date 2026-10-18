@@ -28,8 +28,8 @@ impl Palette {
 
     /// Small built-in palette so a canvas can paint before issue #4.
     ///
-    /// The web stub copies these bytes. Keep the two lists identical until
-    /// the wasm bridge replaces the stub.
+    /// The browser reads these entries from the wasm bridge. It does not
+    /// keep a second copy.
     pub fn studio_default() -> Self {
         Self::new(vec![
             Rgba::TRANSPARENT,
