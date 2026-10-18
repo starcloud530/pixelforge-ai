@@ -27,7 +27,7 @@ PixelForge AI 走的是 Aseprite 这一类的像素工作流，目标是像素�
 - **导出** — 产出引擎可直接使用的精灵资源。
 - **L4 自动驾驶** — 提示或参考进去，常规素材端到端走完：真像素、动画、引擎就绪导出，尽量少看管。
 
-技术方向（不是搭建说明）：编辑器基于 Godot，AI 推理服务用 Python。像素是网格和调色板上的真像素，不是扩散模型叠出来的假像素。
+技术方向（不是搭建说明）：自建像素工作室。TypeScript 做可视化界面和桌面/网页外壳，Rust 做核心内核（像素网格、调色板、帧与时间轴数据、导出）；需要桌面包一层时可选 Tauri。不自训模型，外部 AI（例如 GPT-6 Astra）通过 Tool API 驱动这些工具。边界与非目标见 [docs/tech-stack.md](docs/tech-stack.md)。像素是网格和调色板上的真像素，不是扩散模型叠出来的假像素。
 
 ### 定位
 
@@ -42,7 +42,7 @@ PixelForge AI follows an Aseprite-class pixel workflow, aimed at **L4 autopilot*
 - **Export** of engine-ready sprite assets.
 - **L4 autopilot** — prompt or reference in; routine assets run end to end (true pixels, animation, engine-ready export) with minimal babysitting.
 
-Stack direction, not a build guide: the editor is on Godot; the AI inference service is in Python. Pixels are real grid-and-palette pixels, not diffusion fake-pixel.
+Stack direction, not a build guide: a self-built pixel studio. TypeScript is the visualization UI and desktop/web shell; Rust is the core kernel (pixel grid, palette, frame and timeline data, export). Tauri is optional when a desktop shell should wrap that kernel. We do not train models; external AI (for example GPT-6 Astra) drives these tools through Tool APIs. Boundaries and non-goals: [docs/tech-stack.md](docs/tech-stack.md). Pixels are real grid-and-palette pixels, not diffusion fake-pixel.
 
 Google Playground and Unity Spark aim at text → full games. We aim at text or reference → true-pixel sprites → animation → export. Same belief that AI puts creation in more hands; a narrower wedge we can ship. An indie / small team building games and tools.
 
