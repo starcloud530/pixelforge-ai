@@ -57,6 +57,7 @@ fn save_writes_version_1_json() {
       "a": 128
     }
   ],
+  "paletteLocked": false,
   "frames": [
     {
       "pixels": [
@@ -141,6 +142,7 @@ fn documented_example_loads() {
     assert_eq!(loaded.frame_pixels(0).unwrap(), &[0, 1]);
     assert_eq!(loaded.frame_pixels(1).unwrap(), &[1, 0]);
     assert_eq!(loaded.palette().colors()[1], Rgba::rgb(232, 93, 76));
+    assert!(!loaded.palette_locked());
     assert_eq!(loaded.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
     assert_eq!(loaded.frame_delay(1).unwrap(), DEFAULT_FRAME_DELAY_MS);
     assert!(!loaded.playing());
@@ -364,6 +366,41 @@ fn rejects_size_palette_frames_and_indices() {
             r#""format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":1,"palette":[{"r":0,"g":0,"b":0,"a":0}],"frames":[{"pixels":[0]}]"#
         )),
         ProjectFileError::ActiveFrame { index: 1, len: 1 }
+    );
+}
+
+#[test]
+fn palette_lock_round_trips_and_a_missing_field_stays_unlocked() {
+    let mut document = tiny();
+    assert!(!document.palette_locked());
+    assert!(document.save_project().contains("\"paletteLocked\": false"));
+
+    document.set_palette_locked(true);
+    let saved = document.save_project();
+    assert!(saved.contains("\"paletteLocked\": true"));
+    let mut loaded = Document::load_project(&saved).unwrap();
+    assert!(loaded.palette_locked());
+    assert!(!loaded.can_undo());
+    assert_eq!(loaded.palette(), document.palette());
+    assert_eq!(
+        loaded.set_palette_color(1, 0, 0, 0).unwrap_err(),
+        KernelError::PaletteLocked
+    );
+    loaded.paint(0, 0, 1).unwrap();
+    assert_eq!(loaded.get(0, 0).unwrap(), 1);
+
+    let legacy = Document::load_project(
+        r#"{"format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0},{"r":9,"g":8,"b":7,"a":255}],"frames":[{"pixels":[1]}]}"#,
+    )
+    .unwrap();
+    assert!(!legacy.palette_locked());
+    assert_eq!(legacy.get(0, 0).unwrap(), 1);
+
+    assert_eq!(
+        rejected(&project(
+            r#""format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0}],"paletteLocked":"yes","frames":[{"pixels":[0]}]"#
+        )),
+        ProjectFileError::Malformed
     );
 }
 

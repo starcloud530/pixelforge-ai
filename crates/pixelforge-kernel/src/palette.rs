@@ -4,9 +4,10 @@ use crate::TRANSPARENT_INDEX;
 
 /// Indexed color list. Entry 0 is always transparent.
 ///
-/// Paint entries can be recolored or extended. Import and locking from
-/// issue #4 are not implemented. Pixels store indices into this list, so
-/// replacing an entry changes every cell that uses it.
+/// Paint entries can be recolored, extended, or replaced from an imported
+/// file. Pixels store indices into this list, so replacing an entry changes
+/// every cell that uses it. A locked document refuses those edits; the list
+/// itself does not store the lock.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Palette {
     colors: Vec<Rgba>,
@@ -97,6 +98,12 @@ impl Palette {
 
     pub(crate) fn write(&mut self, index: u8, color: Rgba) {
         self.colors[usize::from(index)] = color;
+    }
+
+    /// Replaces every entry. `colors[0]` must be transparent, and the length
+    /// must fit in a `u8` index.
+    pub(crate) fn install(&mut self, colors: Vec<Rgba>) {
+        *self = Self::new(colors).expect("palette entries were checked");
     }
 
     pub(crate) fn pop(&mut self) -> Rgba {
