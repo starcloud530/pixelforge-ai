@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { AiPanel } from "./ai/AiPanel";
 import { PixelCanvas, type OnionLayer } from "./canvas/PixelCanvas";
 import { createKernel, openProject } from "./kernel/client";
 import {
@@ -65,6 +66,7 @@ export function App() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [paletteError, setPaletteError] = useState<string | null>(null);
   const [importMode, setImportMode] = useState<PaletteImportMode>("replace");
+  const [agentBusy, setAgentBusy] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const paletteInput = useRef<HTMLInputElement>(null);
 
@@ -342,6 +344,9 @@ export function App() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (agentBusy) {
+        return;
+      }
       const target = event.target;
       if (
         target instanceof HTMLTextAreaElement ||
@@ -394,7 +399,7 @@ export function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [agentBusy]);
 
   useEffect(() => {
     if (!snapshot.playing) {
@@ -819,53 +824,67 @@ export function App() {
         </aside>
 
         <div className="canvas-column">
-          <PixelCanvas
-            snapshot={snapshot}
-            scale={scale}
-            showGrid={showGrid}
-            onionLayers={onionLayers}
-            onionEnabled={onionOn}
-            onStrokeStart={() => {
-              stopPlayback();
-              if (kernel.gestureOpen()) {
-                kernel.endGesture();
+          <AiPanel
+            kernel={kernel}
+            onBusy={setAgentBusy}
+            onBeforeRun={() => {
+              if (kernel.playing()) {
+                kernel.stop();
+                touch();
               }
-              kernel.beginGesture();
             }}
-            onStrokeEnd={() => kernel.endGesture()}
-            onPrimary={(x, y) => {
-              if (tool === "erase") {
+            onApplied={touch}
+          />
+          <div className={agentBusy ? "is-busy" : undefined}>
+            <PixelCanvas
+              snapshot={snapshot}
+              scale={scale}
+              showGrid={showGrid}
+              onionLayers={onionLayers}
+              onionEnabled={onionOn}
+              onStrokeStart={() => {
+                stopPlayback();
+                if (kernel.gestureOpen()) {
+                  kernel.endGesture();
+                }
+                kernel.beginGesture();
+              }}
+              onStrokeEnd={() => kernel.endGesture()}
+              onPrimary={(x, y) => {
+                if (tool === "erase") {
+                  kernel.erase(x, y);
+                } else {
+                  kernel.paint(x, y, colorIndex);
+                }
+                touch();
+              }}
+              onSecondary={(x, y) => {
                 kernel.erase(x, y);
-              } else {
-                kernel.paint(x, y, colorIndex);
-              }
-              touch();
-            }}
-            onSecondary={(x, y) => {
-              kernel.erase(x, y);
-              touch();
-            }}
-          />
-          <Timeline
-            frameCount={snapshot.frameCount}
-            activeFrame={snapshot.activeFrame}
-            delays={snapshot.frameDelays}
-            playing={snapshot.playing}
-            onTogglePlay={togglePlayback}
-            onScrubStart={onScrubStart}
-            onScrub={onScrub}
-            onScrubEnd={onScrubEnd}
-            onDelayFocus={onDelayFocus}
-            onDelayChange={onDelayChange}
-            onDelayBlur={onDelayBlur}
-          />
+                touch();
+              }}
+            />
+            <Timeline
+              frameCount={snapshot.frameCount}
+              activeFrame={snapshot.activeFrame}
+              delays={snapshot.frameDelays}
+              playing={snapshot.playing}
+              onTogglePlay={togglePlayback}
+              onScrubStart={onScrubStart}
+              onScrub={onScrub}
+              onScrubEnd={onScrubEnd}
+              onDelayFocus={onDelayFocus}
+              onDelayChange={onDelayChange}
+              onDelayBlur={onDelayBlur}
+            />
+          </div>
         </div>
       </div>
 
       <footer className="footnote">
         <p>
           视图把 Rust 内核里的索引像素按最近邻放大。画笔只写入调色板索引。锁定色板，以及从 .gpl
-          或十六进制列表导入，都进同一份 WebAssembly 文档。洋葱皮只叠在视图上，播放时先藏起。
+          或十六进制列表导入，都进同一份 WebAssembly 文档。外部模型的一轮修改也只走这份文档的 Tool
+          API。洋葱皮只叠在视图上，播放时先藏起。
         </p>
       </footer>
     </div>

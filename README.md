@@ -58,9 +58,9 @@ Google Playground and Unity Spark aim at text → full games. We aim at text or 
 
 ## 状态 Status
 
-早期，开发中（WIP）。M5 Tool API 已在 Rust 内核提供稳定的机器可读接口，目录见 [docs/tool-api.md](docs/tool-api.md)。外部模型尚未接入。
+早期，开发中（WIP）。M5 Tool API 已在 Rust 内核提供稳定的机器可读接口，目录见 [docs/tool-api.md](docs/tool-api.md)。外部模型的一轮编排已接上：OpenAI 兼容的 chat/completions 返回工具调用，外壳经 Tool API 改同一份文档。见 [docs/ai-driver.md](docs/ai-driver.md)。多轮对话还没有做。
 
-Early / work in progress. The M5 Tool API is a stable machine-readable surface in the Rust kernel; the catalog is [docs/tool-api.md](docs/tool-api.md). An external model is not wired up yet.
+Early / work in progress. The M5 Tool API is a stable machine-readable surface in the Rust kernel; the catalog is [docs/tool-api.md](docs/tool-api.md). One external-model turn is wired: an OpenAI-compatible chat completion returns tool calls, and the shell applies them through the Tool API on that same document. See [docs/ai-driver.md](docs/ai-driver.md). A multi-turn conversation is not built yet.
 
 ## 开发 Development
 

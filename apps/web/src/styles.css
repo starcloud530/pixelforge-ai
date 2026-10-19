@@ -22,7 +22,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -267,6 +268,58 @@ h2 {
   flex-direction: column;
   gap: 0.6rem;
   min-width: 0;
+}
+
+.is-busy {
+  pointer-events: none;
+  opacity: 0.72;
+}
+
+.ai-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.9rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.ai-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ai-prompt textarea {
+  min-height: 4.6rem;
+  resize: vertical;
+  padding: 0.5rem 0.6rem;
+  background: #14161a;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.ai-report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ai-log {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.75rem;
+}
+
+.ai-log li {
+  margin: 0.15rem 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-log li.is-error {
+  color: #e85d4c;
 }
 
 .timeline {

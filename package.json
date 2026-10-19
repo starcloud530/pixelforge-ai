@@ -3,9 +3,11 @@
   "private": true,
   "scripts": {
     "build:wasm": "rustup target add wasm32-unknown-unknown && wasm-pack build crates/pixelforge-kernel-wasm --target web --out-dir pkg",
+    "build:wasm:node": "rustup target add wasm32-unknown-unknown && wasm-pack build crates/pixelforge-kernel-wasm --target nodejs --out-dir pkg-node",
     "dev": "pnpm --filter @pixelforge/web dev",
     "build": "pnpm --filter @pixelforge/web build",
-    "typecheck": "pnpm --filter @pixelforge/web typecheck"
+    "typecheck": "pnpm --filter @pixelforge/web typecheck",
+    "test": "pnpm run build:wasm:node && pnpm --filter @pixelforge/web test"
   },
   "devDependencies": {
     "wasm-pack": "0.15.0"
