@@ -2,11 +2,13 @@
 //!
 //! The kernel owns this format. The shell and, later, the Tool API call
 //! [`Document::save_project`] and [`Document::load_project`] instead of
-//! writing a second encoder. The file stores canvas size, the palette, every
-//! frame's indices and delay, and the active frame. The undo stack and the
-//! playback clock are not part of the file, so a loaded document undoes back
-//! to the opened pixels and is not playing. A frame written before delays
-//! existed omits `delayMs` and loads as [`crate::DEFAULT_FRAME_DELAY_MS`].
+//! writing a second encoder. The file stores canvas size, the palette, the
+//! palette lock, every frame's indices and delay, and the active frame. The
+//! undo stack and the playback clock are not part of the file, so a loaded
+//! document undoes back to the opened pixels and is not playing. A frame
+//! written before delays existed omits `delayMs` and loads as
+//! [`crate::DEFAULT_FRAME_DELAY_MS`]. A file written before the palette lock
+//! existed omits `paletteLocked` and loads unlocked.
 
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +44,9 @@ struct ProjectFile {
     height: u64,
     active_frame: u64,
     palette: Vec<ColorFile>,
+    /// Missing in files saved before the palette could be locked.
+    #[serde(default)]
+    palette_locked: bool,
     frames: Vec<FrameFile>,
 }
 
@@ -81,6 +86,7 @@ impl Document {
                 .copied()
                 .map(ColorFile::from)
                 .collect(),
+            palette_locked: self.palette_locked(),
             frames: (0..self.frame_count())
                 .map(|index| FrameFile {
                     pixels: self
@@ -166,7 +172,12 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     }
     let active = usize::try_from(file.active_frame).expect("active frame was checked");
     Ok(Document::from_stored(
-        width, height, palette, frames, active,
+        width,
+        height,
+        palette,
+        file.palette_locked,
+        frames,
+        active,
     ))
 }
 

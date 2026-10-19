@@ -190,6 +190,11 @@ h2 {
   cursor: pointer;
 }
 
+.color-field input[type="color"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .color-field code {
   color: var(--muted);
   font-size: 0.82rem;

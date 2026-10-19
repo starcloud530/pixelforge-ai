@@ -1,7 +1,7 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, per-frame
+//! `snapshot()`, `paint`, `erase`, palette edits, palette lock, palette import, frame-list methods, per-frame
 //! delay, timeline scrub, loop playback, undo / redo, project save / load,
 //! `frameRgba`, and PNG export. Pixel rules, delays, the playback clock, the
 //! undo stack, the project file, and PNG bytes stay in the kernel. `frameRgba`
@@ -86,6 +86,35 @@ impl PixelDocument {
     #[wasm_bindgen(js_name = addPaletteColor)]
     pub fn add_palette_color(&mut self, r: u8, g: u8, b: u8) -> Result<u8, String> {
         self.inner.add_palette_color(r, g, b).map_err(reject)
+    }
+
+    /// True when recolor, append, and import are refused. Paint still works.
+    #[wasm_bindgen(js_name = paletteLocked)]
+    pub fn palette_locked(&self) -> bool {
+        self.inner.palette_locked()
+    }
+
+    /// Locks or unlocks palette edits. The same value is not recorded.
+    /// The flag is stored in the project file.
+    #[wasm_bindgen(js_name = setPaletteLocked)]
+    pub fn set_palette_locked(&mut self, locked: bool) {
+        self.inner.set_palette_locked(locked);
+    }
+
+    /// Imports a GIMP palette (`.gpl`) or a hex list.
+    ///
+    /// `mode` is `replace` or `merge`. Replace makes the paint colors match
+    /// the file and clears indices that no longer exist. Merge appends colors
+    /// the palette does not already have. Either change is one undo step.
+    /// Index 0 stays transparent. A locked palette is rejected.
+    #[wasm_bindgen(js_name = importPalette)]
+    pub fn import_palette(&mut self, text: &str, mode: &str) -> Result<(), String> {
+        let mode = match mode {
+            "replace" => pixelforge_kernel::PaletteImportMode::Replace,
+            "merge" => pixelforge_kernel::PaletteImportMode::Merge,
+            _ => return Err(reject(pixelforge_kernel::KernelError::PaletteImportMode)),
+        };
+        self.inner.import_palette(text, mode).map_err(reject)
     }
 
     /// Appends a blank frame and returns its index. The active frame stays put.
@@ -571,5 +600,51 @@ mod tests {
             .unwrap()
             .starts_with(b"\x89PNG"));
         assert!(!first.starts_with(b"\x89PNG"));
+    }
+
+    #[test]
+    fn lock_and_import_round_trip_through_the_bridge() {
+        let mut document = doc();
+        assert!(!document.palette_locked());
+        document.paint(0, 0, 8).unwrap();
+        document
+            .import_palette("#112233\n445566\n", "replace")
+            .unwrap();
+        assert_eq!(document.palette_rgba().len(), 3 * 4);
+        assert_eq!(&document.palette_rgba()[4..8], &[0x11, 0x22, 0x33, 255]);
+        assert_eq!(document.pixels()[0], 0);
+
+        document.undo().unwrap();
+        assert_eq!(document.palette_rgba().len(), 9 * 4);
+        assert_eq!(document.pixels()[0], 8);
+
+        document
+            .import_palette("GIMP Palette\nName: Demo\n#\n1 2 3\n", "merge")
+            .unwrap();
+        assert_eq!(&document.palette_rgba()[9 * 4..10 * 4], &[1, 2, 3, 255]);
+        document.undo().unwrap();
+        assert_eq!(document.palette_rgba().len(), 9 * 4);
+
+        document.set_palette_locked(true);
+        assert!(document.palette_locked());
+        assert_eq!(
+            document.import_palette("ff0000\n", "replace").unwrap_err(),
+            "PaletteLocked: palette is locked"
+        );
+        assert_eq!(
+            document.set_palette_color(1, 4, 5, 6).unwrap_err(),
+            "PaletteLocked: palette is locked"
+        );
+        document.paint(1, 0, 2).unwrap();
+        assert_eq!(document.pixels()[1], 2);
+
+        let loaded = PixelDocument::load_project(&document.save_project()).unwrap();
+        assert!(loaded.palette_locked());
+        assert_eq!(loaded.pixels()[1], 2);
+        assert!(!loaded.can_undo());
+        assert_eq!(
+            document.import_palette("ff0000\n", "nope").unwrap_err(),
+            "PaletteImportMode: palette import mode must be replace or merge"
+        );
     }
 }
