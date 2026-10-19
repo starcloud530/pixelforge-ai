@@ -267,6 +267,10 @@ class WasmKernel implements PixelKernel {
   spriteSheetRows(): number {
     return this.doc.spriteSheetRows();
   }
+
+  callTool(request: string): string {
+    return this.doc.callTool(request);
+  }
 }
 
 function paletteFromRgba(bytes: Uint8Array): Rgba[] {

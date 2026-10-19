@@ -3,7 +3,7 @@ name = "pixelforge-kernel"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Indexed pixel grid, palette, frames, project files, and PNG export for PixelForge AI."
+description = "Indexed pixel grid, palette, frames, project files, PNG export, and the Tool API for PixelForge AI."
 
 [dependencies]
 png = "0.17.16"
