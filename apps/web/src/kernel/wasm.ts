@@ -75,6 +75,8 @@ class WasmKernel implements PixelKernel {
       palette: paletteFromRgba(this.doc.paletteRgba()),
       frameCount: this.doc.frameCount(),
       activeFrame: this.doc.activeFrame(),
+      frameDelays: [...this.doc.frameDelays()],
+      playing: this.doc.playing(),
       pixels: this.doc.pixels(),
     };
   }
@@ -134,6 +136,38 @@ class WasmKernel implements PixelKernel {
   setActiveFrame(index: number): void {
     try {
       this.doc.setActiveFrame(index);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  setFrameDelay(index: number, delayMs: number): void {
+    try {
+      this.doc.setFrameDelay(index, delayMs);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  play(): void {
+    this.doc.play();
+  }
+
+  stop(): void {
+    this.doc.stop();
+  }
+
+  playing(): boolean {
+    return this.doc.playing();
+  }
+
+  tick(deltaMs: number): boolean {
+    return this.doc.tick(deltaMs);
+  }
+
+  scrub(ratioPpm: number): void {
+    try {
+      this.doc.scrub(ratioPpm);
     } catch (error) {
       rethrow(error);
     }
