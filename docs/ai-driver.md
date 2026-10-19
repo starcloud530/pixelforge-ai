@@ -1,14 +1,18 @@
 # 外部 AI 编排 AI driver
 
-这一层是骨架，不是 L4 自动驾驶。它做一轮：用户写一句提示，编排向外部模型要一次 chat completion，把回复里的 `tool_calls` 按顺序交给 Rust Tool API，然后外壳从同一份 `Document` 刷新画面。多轮记忆、规划和自然语言润色留在 [#14](https://github.com/starcloud530/pixelforge-ai/issues/14)。
+产品路径是仓库外的 Agent，不是应用里的聊天。Agent 调用本地 `pixelforge` CLI，CLI 把 Tool API JSON 交给 Rust 内核。配方和不变式见 [agent-skill.md](agent-skill.md)，目录见 [tool-api.md](tool-api.md)。
 
-*This layer is a skeleton, not L4 autopilot. One turn: the user writes a prompt, the driver asks an external model for one chat completion, runs that reply's `tool_calls` in order through the Rust Tool API, and the shell refreshes from the same `Document`. Multi-turn memory, planning, and revision polish stay in [#14](https://github.com/starcloud530/pixelforge-ai/issues/14).*
+这一页剩下的内容是网页外壳里的**可选一轮演示**。它做一轮：用户写一句提示，编排向外部模型要一次 chat completion，把回复里的 `tool_calls` 按顺序交给 Rust Tool API，然后外壳从同一份 `Document` 刷新画面。多轮记忆、规划和自然语言润色不在这个仓库里做。[#14](https://github.com/starcloud530/pixelforge-ai/issues/14) 那种嵌在应用里的多轮对话不是产品；对话留在外部 Agent。MCP 不在这一阶段，以后若要接，只做 CLI 的薄封装。
+
+*The product path is an agent outside this repository, not an in-app chat. The agent runs the local `pixelforge` CLI, and the CLI hands Tool API JSON to the Rust kernel. Recipes and invariants: [agent-skill.md](agent-skill.md). Catalog: [tool-api.md](tool-api.md).*
+
+*The rest of this page is the **optional one-turn demo** in the web shell. One turn: the user writes a prompt, the driver asks an external model for one chat completion, runs that reply's `tool_calls` in order through the Rust Tool API, and the shell refreshes from the same `Document`. Multi-turn memory, planning, and revision polish are not built in this repository. An embedded multi-turn chat like [#14](https://github.com/starcloud530/pixelforge-ai/issues/14) is not the product; the conversation stays with the external agent. MCP is out of this stage. A later wrapper, if any, would be a thin layer over the CLI.*
 
 ## 它在哪 Where it lives
 
-编排在 `apps/web/src/ai`。模型不在这个仓库里，也没有 Python 推理服务。像素、调色板、帧、时长、撤销、工程文件和导出只通过 `Document::call_tool`（外壳是 `callDocumentTool`，浏览器里是 wasm `callTool`）。目录见 [tool-api.md](tool-api.md)。编排层不改界面上的像素缓冲。
+首选入口是 `pixelforge` CLI，见 [agent-skill.md](agent-skill.md)。下面这个演示编排在 `apps/web/src/ai`。模型不在这个仓库里，也没有 Python 推理服务。像素、调色板、帧、时长、撤销、工程文件和导出只通过 `Document::call_tool`（外壳是 `callDocumentTool`，浏览器里是 wasm `callTool`，CLI 调用的是同一个方法）。目录见 [tool-api.md](tool-api.md)。编排层不改界面上的像素缓冲。
 
-*The driver is `apps/web/src/ai`. The model is not in this repository, and there is no Python inference service. Pixels, palette, frames, delays, undo, project files, and export go through `Document::call_tool` only (the shell helper is `callDocumentTool`; in the browser that is wasm `callTool`). The catalog is [tool-api.md](tool-api.md). The driver does not patch the pixel buffer the view draws.*
+*The preferred entry is the `pixelforge` CLI; see [agent-skill.md](agent-skill.md). The demo driver below is `apps/web/src/ai`. The model is not in this repository, and there is no Python inference service. Pixels, palette, frames, delays, undo, project files, and export go through `Document::call_tool` only (the shell helper is `callDocumentTool`; in the browser that is wasm `callTool`; the CLI calls that same method). The catalog is [tool-api.md](tool-api.md). The driver does not patch the pixel buffer the view draws.*
 
 | 文件 File | 职责 Responsibility |
 | --- | --- |
@@ -93,8 +97,9 @@ pnpm test
 
 ## 非目标 Non-goals
 
-- 不把工具结果送回模型，也不保存对话。那是 #14。
+- 不把工具结果送回模型，也不在应用里保存对话。外部 Agent 自己保留多轮。#14 那种嵌入式聊天不是产品。
+- 不在这一阶段做 MCP 服务器。
 - 不训练模型，不新增 Python 服务，不把扩散图写回工程。
 - 终稿仍然只存在于内核的索引色网格上。见 [tech-stack.md](tech-stack.md)。
 
-*Out of scope: feeding tool results back to the model, and keeping a conversation. That is #14. We do not train a model, add a Python service, or write a diffusion image back into the project. Finished pixels still live only on the kernel's indexed grid. See [tech-stack.md](tech-stack.md).*
+*Out of scope: feeding tool results back to the model, and keeping a conversation inside the app. The external agent keeps its own turns. An embedded chat like #14 is not the product. An MCP server is out of this stage. We do not train a model, add a Python service, or write a diffusion image back into the project. Finished pixels still live only on the kernel's indexed grid. See [tech-stack.md](tech-stack.md).*

@@ -14,9 +14,10 @@
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
 //! as onion skin; it is not part of the document. [`Document::call_tool`] is
 //! the stable Tool API: named JSON tools that dispatch onto this document and
-//! its undo stack. See `docs/tech-stack.md`, `docs/dev-setup.md`,
-//! `docs/export.md`, and `docs/tool-api.md`. The browser shell calls this
-//! crate through `pixelforge-kernel-wasm`.
+//! its undo stack. The local `pixelforge` command (`crates/pixelforge-cli`)
+//! and the browser shell (through `pixelforge-kernel-wasm`) are callers.
+//! See `docs/tech-stack.md`, `docs/dev-setup.md`, `docs/export.md`,
+//! `docs/tool-api.md`, and `docs/agent-skill.md`.
 
 mod color;
 mod document;

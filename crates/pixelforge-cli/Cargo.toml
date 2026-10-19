@@ -1,0 +1,21 @@
+[package]
+name = "pixelforge-cli"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Local pixelforge command: open a pixelforge-project and call the kernel Tool API."
+
+[[bin]]
+name = "pixelforge"
+path = "src/main.rs"
+
+[dependencies]
+# Pinned for the repo's Rust 1.83 floor. Newer clap releases may raise MSRV.
+base64 = "=0.22.1"
+clap = { version = "=4.5.23", features = ["derive"] }
+pixelforge-kernel = { path = "../pixelforge-kernel" }
+serde_json = "1"
+
+[dev-dependencies]
+pixelforge-kernel = { path = "../pixelforge-kernel" }
+serde_json = "1"

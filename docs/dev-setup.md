@@ -27,14 +27,17 @@ Cargo.toml                 Cargo workspace
 crates/pixelforge-kernel   索引像素、调色板、帧、画笔/橡皮、撤销栈、工程文件
 crates/pixelforge-kernel-wasm
                            wasm-bindgen 桥，生成的 pkg/ 不入库
+crates/pixelforge-cli      本地 pixelforge 命令：打开工程，调用 Tool API
 package.json               pnpm 脚本，含 build:wasm
 pnpm-workspace.yaml
 apps/web                   Vite + React 外壳
+.cursor/skills/pixelforge  给外部 Agent 的 skill
 docs/tech-stack.md         已锁定的技术栈
 docs/dev-setup.md          本文件
 docs/export.md             PNG 序列、sprite sheet，以及 Godot / Unity 导入约定
 docs/tool-api.md           Tool API 目录：工具名、参数、结果、错误
-docs/ai-driver.md          外部模型一轮编排：密钥、端点、Tool API
+docs/agent-skill.md        pixelforge CLI 的用法和配方
+docs/ai-driver.md          网页里的可选一轮演示；主路径是 CLI
 ```
 
 ## Rust 内核
@@ -62,6 +65,23 @@ cargo check --workspace
 - Tool API。`Document::call_tool` 用 JSON 调用上面这些操作，写的是同一份文档和撤销栈。wasm 上的入口是 `callTool`。目录见 [tool-api.md](tool-api.md)。
 
 *`pixelforge-kernel` creates canvases with an edge from 1 to 256 (including the M1 sizes 16 and 32), stores indexed pixels with 0 as transparent, and ships `Palette::studio_default`. Paint entries can be recolored, extended, or imported; index 0 stays transparent. Cells keep their indices, so a recolor updates every frame that uses that entry. A locked palette refuses recolor, append, and import, while paint still writes an existing index. `paletteLocked` is stored in the project file and defaults to unlocked when an older file omits it. `import_palette` reads a GIMP palette (`.gpl`) or a hex list (`RRGGBB` / `#RRGGBB` per line): `Replace` swaps the paint colors and clears indices that no longer exist, and `Merge` appends opaque colors the palette does not already have. One import is one undo step. `paint` / `erase` only write opaque indices that exist, never raw RGB. Each frame has a delay in milliseconds (`DEFAULT_FRAME_DELAY_MS` is 100, including when an older file omits `delayMs`; the accepted range is `1..=65535`). `play` / `stop` / `tick` loop the active frame from those delays and do not push undo entries. `scrub` selects the frame under a timeline ratio; a drag should be one gesture. Those edits, plus palette import, the palette lock, frame add / duplicate / delete, the active-frame change, and delay edits, push kernel operations onto an undo stack capped at `MAX_UNDO` (100). The lock refuses new palette edits; operations already on the stack still undo and redo. `begin_gesture` … `end_gesture` collapses one drag — a stroke, a color-picker drag, a timeline scrub, or a run of delay edits — into one step. Cells, colors, and delays that do not change are not recorded. `Document::save_project` / `Document::load_project` round-trip canvas size, the palette (including recolored and appended entries), the palette lock, every frame's indices and delay, and the active frame as `pixelforge-project` version 1 JSON. A missing `paletteLocked` loads unlocked. The undo stack and the playback clock are not in the file. The web shell calls those operations through the wasm bridge. `Document::export_png_sequence` writes one transparent RGBA PNG per frame in timeline order. `Document::export_sprite_sheet` packs those frames into one grid: columns are `ceil(sqrt(frame_count))`, rows are `ceil(frame_count / columns)`, left to right then wrapping, with transparent padding cells. Index 0 exports as transparent. Export does not push an undo entry. Godot / Unity import conventions are in [export.md](export.md). `Document::call_tool` runs the same operations from one JSON request and writes the same document and undo stack. The wasm entry is `callTool`. The catalog is [tool-api.md](tool-api.md).*
+
+## CLI
+
+`pixelforge` 是外部 Agent 的本地入口。它打开磁盘上的 `pixelforge-project`，调用上面的 `Document::call_tool`，把 JSON 打到 stdout。一次进程是一份文档，撤销栈不写入工程文件。
+
+*The `pixelforge` command is the local entry for an external agent. It opens a `pixelforge-project` from disk, calls `Document::call_tool`, and prints JSON on stdout. One process is one document. The undo stack is not stored in the project file.*
+
+在仓库根目录：
+
+```bash
+cargo run -p pixelforge-cli -- --help
+cargo install --path crates/pixelforge-cli
+```
+
+用法和配方见 [agent-skill.md](agent-skill.md)。网页里的一轮面板仍是可选演示，见 [ai-driver.md](ai-driver.md)。
+
+*From the repository root, `cargo run -p pixelforge-cli -- --help` prints the command, and `cargo install --path crates/pixelforge-cli` installs it. Usage and recipes: [agent-skill.md](agent-skill.md). The one-turn web panel remains an optional demo; see [ai-driver.md](ai-driver.md).*
 
 ## 网页外壳
 
@@ -186,6 +206,6 @@ JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint`
 
 ## 这一版明确不包含
 
-Godot、GDScript、C#、Python 推理、模型训练都不在仓库里。Tool API 已经在内核里，目录见 [tool-api.md](tool-api.md)。外部模型、API key 和对话界面还不接。选型见 [tech-stack.md](tech-stack.md)。
+Godot、GDScript、C#、Python 推理、模型训练都不在仓库里。Tool API 在内核里，本地入口是 `pixelforge` CLI，见 [agent-skill.md](agent-skill.md) 和 [tool-api.md](tool-api.md)。网页里的一轮面板是可选演示，见 [ai-driver.md](ai-driver.md)。不在应用里做多轮对话，也不在这一阶段做 MCP。选型见 [tech-stack.md](tech-stack.md)。
 
-*Godot, GDScript, C#, a Python inference service, and model training are not in this repo. The Tool API is in the kernel; the catalog is [tool-api.md](tool-api.md). An external model, API keys, and a chat UI are not wired. The stack decision is [tech-stack.md](tech-stack.md).*
+*Godot, GDScript, C#, a Python inference service, and model training are not in this repo. The Tool API is in the kernel. The local entry is the `pixelforge` CLI; see [agent-skill.md](agent-skill.md) and [tool-api.md](tool-api.md). The one-turn web panel is an optional demo; see [ai-driver.md](ai-driver.md). An in-app multi-turn chat is not the product, and MCP is out of this stage. The stack decision is [tech-stack.md](tech-stack.md).*
