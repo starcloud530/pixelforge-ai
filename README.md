@@ -66,11 +66,11 @@ Early / work in progress.
 
 本地骨架分成两层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮、帧，以及记录这些操作的撤销栈），TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。`crates/pixelforge-kernel-wasm` 用 wasm-bindgen 把这份内核编进浏览器。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。
 
-外壳的画笔、橡皮、调色板编辑、帧时间轴（拖动选帧、每帧时长、循环播放）、撤销/重做和工程打开/保存都调用 wasm 里的同一份 Rust `Document`。洋葱皮还没做。
+外壳的画笔、橡皮、调色板编辑、帧时间轴（拖动选帧、每帧时长、循环播放）、撤销/重做、工程打开/保存，以及透明 PNG 序列和网格 sprite sheet 导出，都调用 wasm 里的同一份 Rust `Document`。导入 Godot / Unity 的约定见 [docs/export.md](docs/export.md)。洋葱皮还没做。
 
 Local skeleton: a Rust kernel in `crates/pixelforge-kernel` (canvas size, indexed pixels, palette, paint/erase, frames, per-frame delay, and an undo stack of those operations) and a TypeScript shell in `apps/web` (Vite + React, nearest-neighbor view of the indexed grid). `crates/pixelforge-kernel-wasm` compiles that kernel into the browser with wasm-bindgen. Build and run: [docs/dev-setup.md](docs/dev-setup.md).
 
-Paint, erase, palette edits, the frame timeline (scrub, per-frame delay, and loop playback), undo/redo, and project open/save in the shell call the same Rust `Document` inside wasm. Onion skin is still open.
+Paint, erase, palette edits, the frame timeline (scrub, per-frame delay, and loop playback), undo/redo, project open/save, and transparent PNG-sequence plus grid sprite-sheet export in the shell call the same Rust `Document` inside wasm. Godot / Unity import conventions: [docs/export.md](docs/export.md). Onion skin is still open.
 
 ## 许可证 License
 

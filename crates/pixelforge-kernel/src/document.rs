@@ -20,7 +20,8 @@ use crate::TRANSPARENT_INDEX;
 /// by the shell. Loop playback is preview state: [`Self::tick`] moves the
 /// active frame from each frame's delay and does not push undo entries.
 /// Project open and save encode pixels, palette, frames, and delays, not the
-/// undo stack or the playback clock. PNG export is not implemented.
+/// undo stack or the playback clock. PNG export reads this state and does not
+/// record an undo entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,

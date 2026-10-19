@@ -8,14 +8,16 @@
 //! second history.
 //!
 //! Project files are version 1 `pixelforge-project` JSON from
-//! [`Document::save_project`] and [`Document::load_project`]. PNG export and
-//! the Tool API are later layers. See `docs/tech-stack.md` and
-//! `docs/dev-setup.md`. The browser shell calls this crate through
+//! [`Document::save_project`] and [`Document::load_project`]. PNG sequence and
+//! sprite-sheet export resolve the indexed palette to RGBA. The Tool API is a
+//! later layer. See `docs/tech-stack.md`, `docs/dev-setup.md`, and
+//! `docs/export.md`. The browser shell calls this crate through
 //! `pixelforge-kernel-wasm`.
 
 mod color;
 mod document;
 mod error;
+mod export;
 mod frame;
 mod history;
 mod palette;
@@ -24,6 +26,7 @@ mod project;
 pub use color::Rgba;
 pub use document::Document;
 pub use error::{KernelError, ProjectFileError};
+pub use export::{sprite_sheet_layout, SpriteSheetLayout};
 pub use frame::Frame;
 pub use palette::Palette;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
