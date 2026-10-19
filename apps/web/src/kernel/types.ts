@@ -79,6 +79,12 @@ export interface PixelKernel {
   /** Version 1 `pixelforge-project` JSON. The kernel owns the bytes. */
   saveProject(): string;
   /**
+   * Packed RGBA for one frame, row-major, length `width * height * 4`.
+   * Same colors as [`PixelKernel.exportFramePng`]. The shell composites onion
+   * skin from this buffer. Reading it does not change pixels, the project, or export.
+   */
+  frameRgba(index: number): Uint8Array;
+  /**
    * RGBA PNG for one frame, timeline order. Index 0 is transparent.
    * The kernel owns the encoding. The shell only downloads the bytes.
    */
