@@ -116,19 +116,19 @@ JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint`
 
 ## 和 issue #2–#6 的关系
 
-这一版仍不关闭 #2、#5。#3 的撤销、#4 的色板和 #6 的工程打开/保存已经接到内核文档和 wasm 外壳上。
+这一版仍不关闭 #2。#3 的撤销、#4 的色板、#5 的帧列表增删复制和 #6 的工程打开/保存已经接到内核文档和 wasm 外壳上。#5 可以关闭：新增在末尾追加一帧空白帧，复制把当前帧的像素和时长插到下一格，删除不能低于一帧。这三步都由 Rust `Document` 写入撤销栈。外壳的帧列表和「新增 / 复制 / 删除」经 wasm 调用它们。新增和复制会在同一次 gesture 里选中新帧，所以一步撤销回到原来的列表和当前帧。每帧时长与循环预览在 #8，洋葱皮在 #9，都已落地。
 
 | Issue | 骨架里有什么 | 还没做 |
 | --- | --- | --- |
 | [#2](https://github.com/starcloud530/pixelforge-ai/issues/2) 编辑器底座 | 内核 crate + 网页外壳能显示并改格子 | 手搓精灵并保存的整条验收 |
 | [#3](https://github.com/starcloud530/pixelforge-ai/issues/3) 像素画布 | Rust `paint`/`erase`；外壳经 wasm 调用画笔、橡皮、整数倍缩放；撤销 / 重做走内核栈 | — |
 | [#4](https://github.com/starcloud530/pixelforge-ai/issues/4) 调色板 | 索引色；可改已有颜色、追加颜色；画笔只用这些索引。可锁定，可导入 `.gpl` 和十六进制列表（替换或合并）。改色、导入和锁定记在撤销栈上。外壳经 wasm 点选、编辑、锁定和导入 | — |
-| [#5](https://github.com/starcloud530/pixelforge-ai/issues/5) 多帧 | Rust 增帧、复制、删除；外壳经 wasm 切换、新增、复制、删除当前帧。每帧时长和循环预览在 [#8](https://github.com/starcloud530/pixelforge-ai/issues/8)。洋葱皮在 [#9](https://github.com/starcloud530/pixelforge-ai/issues/9) | — |
+| [#5](https://github.com/starcloud530/pixelforge-ai/issues/5) 多帧 | Rust 在末尾新增空白帧、在源帧后复制（像素和时长一起）、删除（至少留一帧），并记入撤销栈。外壳经 wasm 切换、新增、复制、删除当前帧；新增和复制与选中新帧合成一步撤销。每帧时长和循环预览在 [#8](https://github.com/starcloud530/pixelforge-ai/issues/8)。洋葱皮在 [#9](https://github.com/starcloud530/pixelforge-ai/issues/9) | — |
 | [#6](https://github.com/starcloud530/pixelforge-ai/issues/6) 工程文件 | version 1 JSON：尺寸、调色板、全部帧、当前帧。外壳经 wasm 下载和打开 | 撤销栈不写入文件 |
 
 [#10](https://github.com/starcloud530/pixelforge-ai/issues/10) 的 PNG 序列和网格 sprite sheet 已由内核编码，外壳只下载。约定见 [export.md](export.md)。[#9](https://github.com/starcloud530/pixelforge-ai/issues/9) 洋葱皮由外壳把 `frameRgba` 半透明叠在当前帧下面；循环播放时隐藏。不进工程文件，也不进 PNG。
 
-*This slice does not close issues #2 and #5. Undo/redo (#3), the indexed palette with lock and import (#4), project open/save (#6), the frame timeline (#8: scrub, per-frame delay, loop preview), and PNG sequence plus grid sprite-sheet export (#10) go through the wasm kernel. Onion skin (#9) reads `frameRgba` from that kernel and composites in the shell. The overlay is hidden while the timeline is playing and is not stored in the project file or in PNG export.*
+*This slice does not close issue #2. Undo/redo (#3), the indexed palette with lock and import (#4), frame-list add / duplicate / delete (#5), and project open/save (#6) go through the wasm kernel. Issue #5 can close: add appends a blank frame, duplicate inserts a copy of the current frame (pixels and delay) after it, and delete refuses to go below one frame. Those three operations are Rust `Document` undo entries. The shell's frame list and the 新增 / 复制 / 删除 buttons call them through wasm. Add and duplicate select the new frame inside the same gesture, so one undo restores the previous list and the previous active frame. The frame timeline (#8: scrub, per-frame delay, loop preview) and PNG sequence plus grid sprite-sheet export (#10) go through the wasm kernel. Onion skin (#9) reads `frameRgba` from that kernel and composites in the shell. The overlay is hidden while the timeline is playing and is not stored in the project file or in PNG export.*
 
 ## 工程文件 Project file
 
