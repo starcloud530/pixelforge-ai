@@ -4,6 +4,7 @@ use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::history::{Change, History};
 use crate::palette::Palette;
+use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::MAX_CANVAS_EDGE;
@@ -19,14 +20,16 @@ use crate::TRANSPARENT_INDEX;
 /// document. Undo restores those operations; it does not patch a buffer owned
 /// by the shell. Loop playback is preview state: [`Self::tick`] moves the
 /// active frame from each frame's delay and does not push undo entries.
-/// Project open and save encode pixels, palette, frames, and delays, not the
-/// undo stack or the playback clock. PNG export reads this state and does not
-/// record an undo entry.
+/// Project open and save encode pixels, palette, the palette lock, frames, and
+/// delays, not the undo stack or the playback clock. PNG export reads this
+/// state and does not record an undo entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,
     height: u16,
     palette: Palette,
+    /// When set, recolor, append, and import fail. Paint still writes indices.
+    palette_locked: bool,
     frames: Vec<Frame>,
     active: usize,
     history: History,
@@ -63,6 +66,7 @@ impl Document {
             width,
             height,
             palette,
+            palette_locked: false,
             frames: vec![Frame::blank(len, DEFAULT_FRAME_DELAY_MS)],
             active: 0,
             history: History::new(),
@@ -84,6 +88,11 @@ impl Document {
 
     pub fn palette_colors(&self) -> &[Rgba] {
         self.palette.colors()
+    }
+
+    /// True when recolor, append, and import are refused.
+    pub fn palette_locked(&self) -> bool {
+        self.palette_locked
     }
 
     pub fn frame_count(&self) -> usize {
@@ -116,7 +125,10 @@ impl Document {
 
     /// Writes a non-transparent palette index. Index 0 is rejected; use [`Self::erase`].
     ///
-    /// A cell that already holds `color_index` is left alone and is not recorded.
+    /// The cell stores `color_index`, not the entry's RGB. Recoloring that
+    /// entry later changes how the cell is shown and exported. A cell that
+    /// already holds `color_index` is left alone and is not recorded. A locked
+    /// palette does not block this write.
     pub fn paint(&mut self, x: u16, y: u16, color_index: u8) -> Result<(), KernelError> {
         if !self.palette.contains_paint_index(color_index) {
             return Err(KernelError::PaletteIndex { index: color_index });
@@ -132,6 +144,7 @@ impl Document {
     /// new color. The same RGB is not recorded. A color-picker drag should
     /// sit inside one gesture; those writes fold into a single undo step.
     pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) -> Result<(), KernelError> {
+        self.ensure_palette_unlocked()?;
         let before = self.palette.set_rgb(index, r, g, b)?;
         let after = Rgba::rgb(r, g, b);
         if before == after {
@@ -147,12 +160,135 @@ impl Document {
 
     /// Appends an opaque color and returns its index. Paint can use it immediately.
     pub fn add_palette_color(&mut self, r: u8, g: u8, b: u8) -> Result<u8, KernelError> {
+        self.ensure_palette_unlocked()?;
         let index = self.palette.push_rgb(r, g, b)?;
         self.history.record(Change::AddPaletteColor {
             index,
             color: Rgba::rgb(r, g, b),
         });
         Ok(index)
+    }
+
+    /// Locks or unlocks palette edits. Painting is unaffected.
+    ///
+    /// The same value is not recorded. The flag is stored in the project file.
+    /// Undo and redo still apply palette operations that were already on the
+    /// stack; the lock only refuses new recolors, appends, and imports.
+    pub fn set_palette_locked(&mut self, locked: bool) {
+        if self.palette_locked == locked {
+            return;
+        }
+        let before = self.palette_locked;
+        self.palette_locked = locked;
+        self.history.record(Change::PaletteLocked {
+            before,
+            after: locked,
+        });
+    }
+
+    /// Reads a GIMP palette (`.gpl`) or a hex list into this document.
+    ///
+    /// See [`PaletteImportMode`]. Index 0 stays transparent, and every imported
+    /// color is stored opaque. A locked palette is refused before the text is
+    /// applied. A file that does not change the document is not recorded.
+    /// [`PaletteImportMode::Replace`] that drops indices, and
+    /// [`PaletteImportMode::Merge`] that appends several colors, are one undo
+    /// step. Callers wrap this in a gesture only when it should join other edits.
+    pub fn import_palette(
+        &mut self,
+        text: &str,
+        mode: PaletteImportMode,
+    ) -> Result<(), KernelError> {
+        self.ensure_palette_unlocked()?;
+        let imported = parse_palette_text(text)?;
+        match mode {
+            PaletteImportMode::Replace => self.replace_palette(imported),
+            PaletteImportMode::Merge => self.merge_palette(imported),
+        }
+    }
+
+    fn replace_palette(&mut self, imported: Vec<Rgba>) -> Result<(), KernelError> {
+        let mut colors = Vec::with_capacity(imported.len() + 1);
+        colors.push(Rgba::TRANSPARENT);
+        colors.extend(imported);
+        let checked = Palette::new(colors.clone())?;
+        if checked.colors() == self.palette.colors() {
+            return Ok(());
+        }
+        let mut changes = Vec::new();
+        if colors.len() < self.palette.len() {
+            let limit = u8::try_from(colors.len()).expect("palette length fits in u8");
+            for (frame, pixels) in self.frames.iter().enumerate() {
+                for (offset, index) in pixels.pixels().iter().copied().enumerate() {
+                    if index >= limit {
+                        changes.push(Change::Pixel {
+                            frame,
+                            offset,
+                            before: index,
+                            after: TRANSPARENT_INDEX,
+                        });
+                    }
+                }
+            }
+        }
+        for change in &changes {
+            let Change::Pixel {
+                frame,
+                offset,
+                after,
+                ..
+            } = change
+            else {
+                continue;
+            };
+            self.frames[*frame].set(*offset, *after);
+        }
+        let before = self.palette.colors().to_vec();
+        self.palette = checked;
+        changes.push(Change::PaletteReplace {
+            before,
+            after: colors,
+        });
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    fn merge_palette(&mut self, imported: Vec<Rgba>) -> Result<(), KernelError> {
+        let mut existing = self.palette.colors().to_vec();
+        let mut additions = Vec::new();
+        for color in imported {
+            if existing.contains(&color) {
+                continue;
+            }
+            existing.push(color);
+            additions.push(color);
+        }
+        if additions.is_empty() {
+            return Ok(());
+        }
+        if existing.len() > usize::from(u8::MAX) + 1 {
+            return Err(KernelError::PaletteTooLarge {
+                len: existing.len(),
+            });
+        }
+        let mut changes = Vec::new();
+        for color in additions {
+            let index = self
+                .palette
+                .push_rgb(color.r, color.g, color.b)
+                .expect("merged color fits");
+            changes.push(Change::AddPaletteColor { index, color });
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    fn ensure_palette_unlocked(&self) -> Result<(), KernelError> {
+        if self.palette_locked {
+            Err(KernelError::PaletteLocked)
+        } else {
+            Ok(())
+        }
     }
 
     /// Sets one cell back to [`TRANSPARENT_INDEX`].
@@ -457,6 +593,7 @@ impl Document {
         width: u16,
         height: u16,
         palette: Palette,
+        palette_locked: bool,
         frames: Vec<Frame>,
         active: usize,
     ) -> Self {
@@ -471,6 +608,7 @@ impl Document {
             width,
             height,
             palette,
+            palette_locked,
             frames,
             active,
             history: History::new(),
@@ -479,6 +617,10 @@ impl Document {
     }
 
     fn write_index(&mut self, frame: usize, offset: usize, value: u8) {
+        debug_assert!(
+            value == TRANSPARENT_INDEX || self.palette.contains_paint_index(value),
+            "pixels store palette indices"
+        );
         let before = self.frames[frame].pixels()[offset];
         if before == value {
             return;
@@ -608,6 +750,13 @@ impl Document {
                     debug_assert_eq!(removed, *color);
                 }
             }
+            Change::PaletteReplace { before, after } => {
+                let next = if forward { after } else { before };
+                self.palette.install(next.clone());
+            }
+            Change::PaletteLocked { before, after } => {
+                self.palette_locked = if forward { *after } else { *before };
+            }
         }
     }
 
@@ -690,7 +839,9 @@ fn pixel_len(width: u16, height: u16) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DEFAULT_FRAME_DELAY_MS, MAX_FRAME_DELAY_MS, TIMELINE_RATIO_PPM};
+    use crate::{
+        PaletteImportMode, Rgba, DEFAULT_FRAME_DELAY_MS, MAX_FRAME_DELAY_MS, TIMELINE_RATIO_PPM,
+    };
 
     fn doc() -> Document {
         Document::new(16, 16).unwrap()
@@ -992,6 +1143,203 @@ mod tests {
         document.undo().unwrap();
         assert!(!document.playing());
         assert_eq!(document.active_frame(), 0);
+        assert!(!document.can_undo());
+    }
+
+    #[test]
+    fn paint_stores_indices_and_rgba_views_follow_the_palette() {
+        let mut document = doc();
+        document.paint(1, 2, 4).unwrap();
+        let offset = (2 * 16 + 1) * 4;
+        assert_eq!(document.pixels()[2 * 16 + 1], 4);
+        let color = document.palette().get(4).unwrap();
+        let rgba = document.frame_rgba(0).unwrap();
+        assert_eq!(
+            &rgba[offset..offset + 4],
+            &[color.r, color.g, color.b, color.a]
+        );
+
+        document.set_palette_color(4, 9, 8, 7).unwrap();
+        assert_eq!(document.pixels()[2 * 16 + 1], 4);
+        let rgba = document.frame_rgba(0).unwrap();
+        assert_eq!(&rgba[offset..offset + 4], &[9, 8, 7, 255]);
+        let png = document.export_frame_png(0).unwrap();
+        assert_ne!(png, {
+            let mut restored = document.clone();
+            restored.undo().unwrap();
+            restored.export_frame_png(0).unwrap()
+        });
+    }
+
+    #[test]
+    fn lock_blocks_edits_and_imports_but_not_paint_or_history() {
+        let mut document = doc();
+        let original = document.palette().get(1).unwrap();
+        document.set_palette_locked(false);
+        assert!(!document.can_undo());
+
+        document.set_palette_color(1, 9, 8, 7).unwrap();
+        document.set_palette_locked(true);
+        document.set_palette_locked(true);
+        assert!(document.palette_locked());
+
+        assert_eq!(
+            document.set_palette_color(1, 1, 2, 3).unwrap_err(),
+            KernelError::PaletteLocked
+        );
+        assert_eq!(
+            document.add_palette_color(4, 5, 6).unwrap_err(),
+            KernelError::PaletteLocked
+        );
+        assert_eq!(
+            document
+                .import_palette("ff0000\n", PaletteImportMode::Replace)
+                .unwrap_err(),
+            KernelError::PaletteLocked
+        );
+        assert_eq!(document.palette().get(1), Some(Rgba::rgb(9, 8, 7)));
+        assert_eq!(document.palette().len(), 9);
+
+        document.paint(3, 4, 2).unwrap();
+        assert_eq!(document.get(3, 4).unwrap(), 2);
+
+        document.undo().unwrap();
+        assert_eq!(document.get(3, 4).unwrap(), TRANSPARENT_INDEX);
+        assert!(document.palette_locked());
+        document.undo().unwrap();
+        assert!(!document.palette_locked());
+        assert_eq!(document.palette().get(1), Some(Rgba::rgb(9, 8, 7)));
+        document.undo().unwrap();
+        assert_eq!(document.palette().get(1), Some(original));
+        assert!(!document.can_undo());
+
+        document.redo().unwrap();
+        assert_eq!(document.palette().get(1), Some(Rgba::rgb(9, 8, 7)));
+        document.redo().unwrap();
+        assert!(document.palette_locked());
+        document.redo().unwrap();
+        assert_eq!(document.get(3, 4).unwrap(), 2);
+        assert_eq!(
+            document.set_palette_color(1, 1, 2, 3).unwrap_err(),
+            KernelError::PaletteLocked
+        );
+    }
+
+    #[test]
+    fn replace_import_remaps_orphans_and_undoes_in_one_step() {
+        let mut document = doc();
+        let before = document.palette().colors().to_vec();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 8).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(2, 2, 8).unwrap();
+
+        document
+            .import_palette("aa bb cc\n#ddee00 Name\n", PaletteImportMode::Replace)
+            .unwrap_err();
+        document
+            .import_palette("#aabbcc\n#ddee00 Name\n", PaletteImportMode::Replace)
+            .unwrap();
+        assert_eq!(document.palette().len(), 3);
+        assert_eq!(document.palette().get(0), Some(Rgba::TRANSPARENT));
+        assert_eq!(document.palette().get(1), Some(Rgba::rgb(0xaa, 0xbb, 0xcc)));
+        assert_eq!(document.palette().get(2), Some(Rgba::rgb(0xdd, 0xee, 0)));
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[1], TRANSPARENT_INDEX);
+        assert_eq!(document.get(2, 2).unwrap(), TRANSPARENT_INDEX);
+
+        document
+            .import_palette("aabbcc\nddee00\n", PaletteImportMode::Replace)
+            .unwrap();
+        document.undo().unwrap();
+        assert_eq!(document.palette().colors(), before.as_slice());
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[1], 8);
+        assert_eq!(document.frame_pixels(1).unwrap()[2 + 2 * 16], 8);
+        assert!(document.can_undo());
+
+        document.redo().unwrap();
+        assert_eq!(document.palette().len(), 3);
+        assert_eq!(document.get(2, 2).unwrap(), TRANSPARENT_INDEX);
+    }
+
+    #[test]
+    fn merge_import_skips_duplicates_and_groups_appends() {
+        let mut document = doc();
+        let ink = document.palette().get(1).unwrap();
+        let hex = format!("{:02x}{:02x}{:02x}", ink.r, ink.g, ink.b);
+        document
+            .import_palette(
+                &format!("{hex}\nff0000\nff0000\n"),
+                PaletteImportMode::Merge,
+            )
+            .unwrap();
+        assert_eq!(document.palette().len(), 10);
+        assert_eq!(document.palette().get(9), Some(Rgba::rgb(255, 0, 0)));
+
+        document.undo().unwrap();
+        assert_eq!(document.palette().len(), 9);
+        assert!(!document.can_undo());
+
+        document
+            .import_palette(&hex, PaletteImportMode::Merge)
+            .unwrap();
+        assert!(!document.can_undo());
+        assert_eq!(document.palette().len(), 9);
+
+        let mut overflow = String::new();
+        for index in 0..248 {
+            overflow.push_str(&format!("{:02x}{:02x}00\n", index, 255 - index));
+        }
+        assert_eq!(
+            document
+                .import_palette(&overflow, PaletteImportMode::Merge)
+                .unwrap_err(),
+            KernelError::PaletteTooLarge { len: 257 }
+        );
+        assert_eq!(document.palette().len(), 9);
+        assert!(!document.can_undo());
+    }
+
+    #[test]
+    fn import_rejects_a_bad_file_without_changing_pixels() {
+        let mut document = doc();
+        document.paint(0, 0, 3).unwrap();
+        document.clear_history();
+        assert_eq!(
+            document
+                .import_palette("GIMP Palette\n256 0 0\n", PaletteImportMode::Merge)
+                .unwrap_err(),
+            KernelError::PaletteFile
+        );
+        assert_eq!(
+            document
+                .import_palette("GIMP Palette\n#\n", PaletteImportMode::Replace)
+                .unwrap_err(),
+            KernelError::EmptyPalette
+        );
+        assert_eq!(document.get(0, 0).unwrap(), 3);
+        assert_eq!(document.palette().len(), 9);
+        assert!(!document.can_undo());
+    }
+
+    #[test]
+    fn gpl_replace_and_a_gesture_share_one_undo_step() {
+        let mut document = doc();
+        let gpl = "GIMP Palette\nName: Demo\nColumns: 1\n#\n255 0 0 Red\n0 128 255 Blue\n";
+        document.begin_gesture().unwrap();
+        document
+            .import_palette(gpl, PaletteImportMode::Replace)
+            .unwrap();
+        document.paint(4, 4, 2).unwrap();
+        document.end_gesture();
+
+        assert_eq!(document.palette().len(), 3);
+        assert_eq!(document.get(4, 4).unwrap(), 2);
+        document.undo().unwrap();
+        assert_eq!(document.palette().len(), 9);
+        assert_eq!(document.get(4, 4).unwrap(), TRANSPARENT_INDEX);
         assert!(!document.can_undo());
     }
 }

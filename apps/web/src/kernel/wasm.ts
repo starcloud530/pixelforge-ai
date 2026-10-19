@@ -1,7 +1,13 @@
 import init, { PixelDocument } from "../../../../crates/pixelforge-kernel-wasm/pkg/pixelforge_kernel_wasm.js";
 import wasmUrl from "../../../../crates/pixelforge-kernel-wasm/pkg/pixelforge_kernel_wasm_bg.wasm?url";
 import { seedDemo } from "./demo";
-import { kernelErrorFromUnknown, type KernelSnapshot, type PixelKernel, type Rgba } from "./types";
+import {
+  kernelErrorFromUnknown,
+  type KernelSnapshot,
+  type PaletteImportMode,
+  type PixelKernel,
+  type Rgba,
+} from "./types";
 
 let ready = false;
 let starting: Promise<void> | null = null;
@@ -77,6 +83,7 @@ class WasmKernel implements PixelKernel {
       activeFrame: this.doc.activeFrame(),
       frameDelays: [...this.doc.frameDelays()],
       playing: this.doc.playing(),
+      paletteLocked: this.doc.paletteLocked(),
       pixels: this.doc.pixels(),
     };
   }
@@ -108,6 +115,18 @@ class WasmKernel implements PixelKernel {
   addPaletteColor(r: number, g: number, b: number): number {
     try {
       return this.doc.addPaletteColor(r, g, b);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  setPaletteLocked(locked: boolean): void {
+    this.doc.setPaletteLocked(locked);
+  }
+
+  importPalette(text: string, mode: PaletteImportMode): void {
+    try {
+      this.doc.importPalette(text, mode);
     } catch (error) {
       rethrow(error);
     }

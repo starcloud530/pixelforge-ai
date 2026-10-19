@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { PixelCanvas, type OnionLayer } from "./canvas/PixelCanvas";
 import { createKernel, openProject } from "./kernel/client";
-import { kernelErrorFromUnknown, type PixelKernel, type Rgba } from "./kernel/types";
+import {
+  kernelErrorFromUnknown,
+  type PaletteImportMode,
+  type PixelKernel,
+  type Rgba,
+} from "./kernel/types";
 import { Timeline } from "./timeline/Timeline";
 
 function swatchInk(color: Rgba): string {
@@ -58,7 +63,10 @@ export function App() {
   const [projectError, setProjectError] = useState<string | null>(null);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [paletteError, setPaletteError] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<PaletteImportMode>("replace");
   const fileInput = useRef<HTMLInputElement>(null);
+  const paletteInput = useRef<HTMLInputElement>(null);
 
   const snapshot = useMemo(() => kernel.snapshot(), [kernel, revision]);
   const onionLayers = useMemo(() => {
@@ -122,7 +130,7 @@ export function App() {
   function editPaletteColor(value: string) {
     const next = rgbFromHex(value);
     const current = snapshot.palette[colorIndex];
-    if (!next || !current || colorIndex === 0) {
+    if (!next || !current || colorIndex === 0 || snapshot.paletteLocked) {
       return;
     }
     if (next.r === current.r && next.g === current.g && next.b === current.b) {
@@ -261,6 +269,34 @@ export function App() {
     fileInput.current?.click();
   }
 
+  function requestPaletteImport() {
+    paletteInput.current?.click();
+  }
+
+  function onPaletteFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    const mode = importMode;
+    void file.text().then(
+      (text) => {
+        try {
+          edit(() => {
+            kernel.importPalette(text, mode);
+          });
+          setPaletteError(null);
+        } catch (error) {
+          setPaletteError(`无法导入色板：${errorText(error)}`);
+        }
+      },
+      () => {
+        setPaletteError("无法读取这个色板文件。");
+      },
+    );
+  }
+
   function onProjectFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -279,6 +315,7 @@ export function App() {
           setProjectError(null);
           setExportNote(null);
           setExportError(null);
+          setPaletteError(null);
           touch();
         } catch (error) {
           setProjectError(`无法打开工程：${errorText(error)}`);
@@ -515,6 +552,7 @@ export function App() {
                     type="color"
                     aria-label={`编辑索引 ${colorIndex} 的颜色`}
                     value={hexFromRgb(paintColor)}
+                    disabled={snapshot.paletteLocked}
                     onChange={(event) => editPaletteColor(event.target.value)}
                     onBlur={closePaletteGesture}
                   />
@@ -522,9 +560,13 @@ export function App() {
                 </label>
                 <button
                   type="button"
-                  disabled={snapshot.palette.length >= 256}
+                  disabled={snapshot.paletteLocked || snapshot.palette.length >= 256}
                   title={
-                    snapshot.palette.length >= 256 ? "调色板最多 256 色" : "在色板末尾加一个颜色"
+                    snapshot.paletteLocked
+                      ? "色板已锁定"
+                      : snapshot.palette.length >= 256
+                        ? "调色板最多 256 色"
+                        : "在色板末尾加一个颜色"
                   }
                   onClick={() => {
                     edit(() => {
@@ -538,9 +580,67 @@ export function App() {
                 </button>
               </div>
             ) : null}
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={snapshot.paletteLocked}
+                onChange={(event) => {
+                  closePaletteGesture();
+                  stopPlayback();
+                  kernel.setPaletteLocked(event.target.checked);
+                  setPaletteError(null);
+                  touch();
+                }}
+              />
+              锁定色板
+            </label>
+            <div className="tool-row" role="group" aria-label="导入调色板">
+              <button
+                type="button"
+                className={importMode === "replace" ? "is-active" : ""}
+                aria-pressed={importMode === "replace"}
+                disabled={snapshot.paletteLocked}
+                onClick={() => setImportMode("replace")}
+              >
+                替换
+              </button>
+              <button
+                type="button"
+                className={importMode === "merge" ? "is-active" : ""}
+                aria-pressed={importMode === "merge"}
+                disabled={snapshot.paletteLocked}
+                onClick={() => setImportMode("merge")}
+              >
+                合并
+              </button>
+              <button
+                type="button"
+                disabled={snapshot.paletteLocked}
+                title={snapshot.paletteLocked ? "色板已锁定" : "从 .gpl 或十六进制列表导入"}
+                onClick={requestPaletteImport}
+              >
+                导入
+              </button>
+            </div>
+            <input
+              ref={paletteInput}
+              className="file-input"
+              type="file"
+              accept=".gpl,.hex,.txt,text/plain"
+              aria-label="导入调色板文件"
+              onChange={onPaletteFile}
+            />
+            {paletteError ? (
+              <p className="alert" role="alert">
+                {paletteError}
+              </p>
+            ) : null}
             <p className="hint">
-              点一个索引，画笔就用它。改这个索引的颜色会立刻重绘所有用到它的格子，撤销可以退回。索引
-              0 不能改，画笔也不能写入它。
+              点一个索引，画笔就写入这个索引。改色会重绘所有用到它的格子。锁定后不能改色、追加或导入，画笔仍用当前索引，锁定会写进工程文件。
+            </p>
+            <p className="hint">
+              导入支持 GIMP 调色板（.gpl）和十六进制列表（每行 RRGGBB 或 #RRGGBB）。索引 0
+              保持透明。替换会把用到被丢掉索引的格子变回透明；合并只追加还没有的颜色。一步撤销可以退回。
             </p>
           </section>
 
@@ -709,6 +809,7 @@ export function App() {
                 setProjectError(null);
                 setExportNote(null);
                 setExportError(null);
+                setPaletteError(null);
                 touch();
               }}
             >
@@ -763,8 +864,8 @@ export function App() {
 
       <footer className="footnote">
         <p>
-          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、时间轴、撤销、工程文件和 PNG
-          导出都进同一份 WebAssembly 文档。洋葱皮只叠在视图上，播放时先藏起。导入色板和锁定色板还在后面的 issue 里。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔只写入调色板索引。锁定色板，以及从 .gpl
+          或十六进制列表导入，都进同一份 WebAssembly 文档。洋葱皮只叠在视图上，播放时先藏起。
         </p>
       </footer>
     </div>

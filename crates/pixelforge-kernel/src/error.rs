@@ -22,6 +22,14 @@ pub enum KernelError {
     PaletteTooLarge { len: usize },
     /// Entry 0 has to stay transparent so erase has one meaning.
     TransparentSlot,
+    /// The palette is locked, so recolor, append, and import are refused.
+    /// Paint of an existing index is still allowed.
+    PaletteLocked,
+    /// Text is not a GIMP palette (`.gpl`) or a hex list.
+    PaletteFile,
+    /// [`crate::Document::import_palette`] was asked for an unknown mode.
+    /// The wasm bridge accepts `replace` and `merge`.
+    PaletteImportMode,
     /// Frame index is outside the frame list.
     FrameIndex { index: usize, len: usize },
     /// The document always keeps one frame.
@@ -86,6 +94,9 @@ impl KernelError {
             Self::EmptyPalette => "EmptyPalette",
             Self::PaletteTooLarge { .. } => "PaletteTooLarge",
             Self::TransparentSlot => "TransparentSlot",
+            Self::PaletteLocked => "PaletteLocked",
+            Self::PaletteFile => "PaletteFile",
+            Self::PaletteImportMode => "PaletteImportMode",
             Self::FrameIndex { .. } => "FrameIndex",
             Self::LastFrame => "LastFrame",
             Self::FrameDelay { .. } => "FrameDelay",
@@ -119,6 +130,13 @@ impl fmt::Display for KernelError {
             }
             Self::TransparentSlot => {
                 write!(f, "palette index 0 must be transparent")
+            }
+            Self::PaletteLocked => write!(f, "palette is locked"),
+            Self::PaletteFile => {
+                write!(f, "palette file is not a GIMP palette or a hex list")
+            }
+            Self::PaletteImportMode => {
+                write!(f, "palette import mode must be replace or merge")
             }
             Self::FrameIndex { index, len } => {
                 write!(f, "frame {index} is outside 0..{len}")
@@ -206,6 +224,10 @@ mod tests {
             KernelError::PaletteIndex { index: 0 }.code(),
             "PaletteIndex"
         );
+        assert_eq!(KernelError::PaletteLocked.code(), "PaletteLocked");
+        assert_eq!(KernelError::PaletteLocked.to_string(), "palette is locked");
+        assert_eq!(KernelError::PaletteFile.code(), "PaletteFile");
+        assert_eq!(KernelError::PaletteImportMode.code(), "PaletteImportMode");
         assert_eq!(
             KernelError::InvalidSize {
                 width: 0,

@@ -1,8 +1,9 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! and per-frame delay. Paint, erase, palette edits, frame edits, and delay
-//! edits write this document and push the same edits onto its undo stack.
+//! and per-frame delay. Paint and erase write palette indices, never raw RGB.
+//! Palette edits, palette lock, palette import, frame edits, and delay edits
+//! write this document and push the same edits onto its undo stack.
 //! Loop playback advances the active frame from those delays. The TypeScript
 //! shell previews this state; it does not own the pixels, the clock, or a
 //! second history.
@@ -22,6 +23,7 @@ mod export;
 mod frame;
 mod history;
 mod palette;
+mod palette_file;
 mod project;
 
 pub use color::Rgba;
@@ -30,6 +32,7 @@ pub use error::{KernelError, ProjectFileError};
 pub use export::{sprite_sheet_layout, SpriteSheetLayout};
 pub use frame::Frame;
 pub use palette::Palette;
+pub use palette_file::PaletteImportMode;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
 
 /// Oldest undo entries past this depth are dropped.

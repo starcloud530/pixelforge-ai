@@ -32,6 +32,11 @@ export interface KernelSnapshot {
   frameDelays: readonly number[];
   /** True while loop playback is advancing the active frame. */
   playing: boolean;
+  /**
+   * True when recolor, append, and palette import are refused.
+   * Paint still writes existing indices. Stored in the project file.
+   */
+  paletteLocked: boolean;
   pixels: Uint8Array;
 }
 
@@ -48,6 +53,19 @@ export interface PixelKernel {
   setPaletteColor(index: number, r: number, g: number, b: number): void;
   /** Appends an opaque color and returns its index. */
   addPaletteColor(r: number, g: number, b: number): number;
+  /**
+   * Locks or unlocks palette edits. Painting still uses current indices.
+   * The same value is not recorded. The flag is stored in the project file.
+   */
+  setPaletteLocked(locked: boolean): void;
+  /**
+   * Imports a GIMP palette (`.gpl`) or a hex list (`RRGGBB` / `#RRGGBB` per line).
+   * `replace` swaps the paint colors and clears indices that no longer exist.
+   * `merge` appends colors the palette does not already have.
+   * Index 0 stays transparent. Either change is one undo step.
+   * A locked palette rejects the import.
+   */
+  importPalette(text: string, mode: PaletteImportMode): void;
   addFrame(): number;
   duplicateFrame(index: number): number;
   deleteFrame(index: number): void;
@@ -97,6 +115,9 @@ export interface PixelKernel {
   spriteSheetRows(): number;
 }
 
+/** `replace` swaps paint colors. `merge` appends colors that are not already present. */
+export type PaletteImportMode = "replace" | "merge";
+
 export type KernelErrorCode =
   | "InvalidSize"
   | "OutOfBounds"
@@ -104,6 +125,9 @@ export type KernelErrorCode =
   | "EmptyPalette"
   | "PaletteTooLarge"
   | "TransparentSlot"
+  | "PaletteLocked"
+  | "PaletteFile"
+  | "PaletteImportMode"
   | "FrameIndex"
   | "LastFrame"
   | "FrameDelay"
@@ -119,6 +143,9 @@ const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "EmptyPalette",
   "PaletteTooLarge",
   "TransparentSlot",
+  "PaletteLocked",
+  "PaletteFile",
+  "PaletteImportMode",
   "FrameIndex",
   "LastFrame",
   "FrameDelay",

@@ -1,8 +1,8 @@
 //! Undo stack of kernel operations.
 //!
 //! Each entry is one document edit: a paint or erase, a palette color change,
-//! a frame-list change, an active-frame change, a per-frame delay change, or
-//! a whole gesture of those.
+//! a palette import, a palette lock, a frame-list change, an active-frame
+//! change, a per-frame delay change, or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
@@ -81,6 +81,20 @@ pub(crate) enum Change {
         index: u8,
         color: Rgba,
     },
+    /// The whole palette was replaced, including the transparent slot.
+    ///
+    /// Pixel remaps that drop orphaned indices are separate [`Change::Pixel`]
+    /// entries in the same operation, recorded before this one. Undo restores
+    /// the palette first, then those indices.
+    PaletteReplace {
+        before: Vec<Rgba>,
+        after: Vec<Rgba>,
+    },
+    /// Whether palette edits and imports are refused.
+    PaletteLocked {
+        before: bool,
+        after: bool,
+    },
 }
 
 impl History {
@@ -140,16 +154,24 @@ impl History {
     }
 
     pub(crate) fn record(&mut self, change: Change) {
-        if self.replaying {
+        self.record_group(vec![change]);
+    }
+
+    /// Records `changes` as one undo step, or folds them into the open gesture.
+    ///
+    /// An empty group is ignored. Used when one edit rewrites the palette and
+    /// the indices that no longer fit it.
+    pub(crate) fn record_group(&mut self, changes: Vec<Change>) {
+        if self.replaying || changes.is_empty() {
             return;
         }
         if let Some(open) = &mut self.open {
-            coalesce(open, change);
+            for change in changes {
+                coalesce(open, change);
+            }
             return;
         }
-        self.commit_new(Operation {
-            changes: vec![change],
-        });
+        self.commit_new(Operation { changes });
     }
 
     /// Closes a dirty gesture (so one undo cancels the stroke), drops an empty
