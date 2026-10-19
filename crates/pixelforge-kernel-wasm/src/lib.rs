@@ -2,10 +2,12 @@
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
 //! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, per-frame
-//! delay, timeline scrub, loop playback, undo / redo, project save / load, and
-//! PNG export. Pixel rules, delays, the playback clock, the undo stack, the
-//! project file, and PNG bytes stay in the kernel. This module only copies
-//! bytes across the boundary
+//! delay, timeline scrub, loop playback, undo / redo, project save / load,
+//! `frameRgba`, and PNG export. Pixel rules, delays, the playback clock, the
+//! undo stack, the project file, and PNG bytes stay in the kernel. `frameRgba`
+//! copies the same RGBA a PNG would encode for that frame; the shell uses it
+//! for onion skin and does not write it back. This module only copies bytes
+//! across the boundary
 //! and turns [`pixelforge_kernel::KernelError`] into a `Code: message` string
 //! the shell maps back onto its `KernelError`.
 
@@ -210,6 +212,14 @@ impl PixelDocument {
         Document::load_project(json)
             .map(|inner| Self { inner })
             .map_err(reject)
+    }
+
+    /// Packed RGBA of one frame, row-major. Same colors as [`Self::export_frame_png`].
+    ///
+    /// The copy is for view compositing. It does not change pixels, history, or the project file.
+    #[wasm_bindgen(js_name = frameRgba)]
+    pub fn frame_rgba(&self, index: u32) -> Result<Vec<u8>, String> {
+        self.inner.frame_rgba(as_index(index)).map_err(reject)
     }
 
     /// RGBA PNG of one frame. Index 0 is transparent. Does not change the document.
@@ -524,5 +534,42 @@ mod tests {
         let sheet = document.export_sprite_sheet();
         assert!(sheet.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(sheet.len() > first.len());
+    }
+
+    #[test]
+    fn frame_rgba_reads_neighbors_without_writing() {
+        let mut document = doc();
+        document.paint(0, 0, 1).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        let saved = document.save_project();
+        let active = document.pixels();
+
+        let first = document.frame_rgba(0).unwrap();
+        let second = document.frame_rgba(1).unwrap();
+        assert_eq!(first.len(), 16 * 16 * 4);
+        assert_eq!(second.len(), first.len());
+        assert_ne!(first, second);
+
+        let palette = document.palette_rgba();
+        assert_eq!(&first[0..4], &palette[4..8]);
+        assert_eq!(&first[4..8], &[0, 0, 0, 0]);
+        assert_eq!(&second[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&second[4..8], &palette[8..12]);
+
+        assert_eq!(document.pixels(), active);
+        assert_eq!(document.active_frame(), 1);
+        assert_eq!(document.save_project(), saved);
+        assert!(document.can_undo());
+        assert!(document
+            .frame_rgba(2)
+            .unwrap_err()
+            .starts_with("FrameIndex:"));
+        assert!(document
+            .export_frame_png(0)
+            .unwrap()
+            .starts_with(b"\x89PNG"));
+        assert!(!first.starts_with(b"\x89PNG"));
     }
 }

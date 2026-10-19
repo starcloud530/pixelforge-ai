@@ -219,6 +219,28 @@ h2 {
   font-size: 0.92rem;
 }
 
+.onion-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.onion-options.is-disabled {
+  opacity: 0.45;
+}
+
+.opacity-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.opacity-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .reset {
   align-self: flex-start;
 }

@@ -36,11 +36,11 @@ PixelForge AI 是自建的像素工作室平台与工具：画布像素、调色
 
 像素网格、索引色、帧、时间轴和导出是确定性的数据与算法。内核用 Rust，界面上的手绘和 Agent 的工具调用执行同一份实现。
 
-画布合成、洋葱皮所需的帧缓冲、sprite sheet 排布留在内核里。工程文件的读写和 Tool API 都从这份内核长出来，界面和自动化共用一个数据源。
+索引帧缓冲、导出和洋葱皮共用的 RGBA 解析，以及 sprite sheet 排布留在内核里。洋葱皮的半透明叠加是外壳上的视图，不写回这些缓冲。工程文件的读写和 Tool API 都从这份内核长出来，界面和自动化共用一个数据源。
 
 *The pixel grid, indexed color, frames, timeline, and export are deterministic data and algorithms. A Rust kernel runs both manual edits and agent tool calls.*
 
-*Compositing, the frame buffers onion skin needs, and sprite-sheet packing stay in the kernel. Project I/O and the Tool API grow from that same kernel, so the UI and automation share one source of truth.*
+*Indexed frame buffers, the RGBA resolution shared by export and onion skin, and sprite-sheet packing stay in the kernel. The semi-transparent onion composite is a shell view and is not written back into those buffers. Project I/O and the Tool API grow from that same kernel, so the UI and automation share one source of truth.*
 
 ### TypeScript 外壳
 

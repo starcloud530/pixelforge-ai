@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { PixelCanvas } from "./canvas/PixelCanvas";
+import { PixelCanvas, type OnionLayer } from "./canvas/PixelCanvas";
 import { createKernel, openProject } from "./kernel/client";
 import { kernelErrorFromUnknown, type PixelKernel, type Rgba } from "./kernel/types";
 import { Timeline } from "./timeline/Timeline";
@@ -31,6 +31,10 @@ type Tool = "paint" | "erase";
 
 const SCALES = [8, 16, 24] as const;
 const PROJECT_FILENAME = "pixelforge-project.json";
+/** Default onion-skin opacity. Strong enough to trace, light enough to keep the current frame in front. */
+const DEFAULT_ONION_OPACITY = 40;
+const MIN_ONION_OPACITY = 10;
+const MAX_ONION_OPACITY = 80;
 
 function framePngName(index: number): string {
   return `pixelforge-${index.toString().padStart(3, "0")}.png`;
@@ -47,12 +51,36 @@ export function App() {
   const [colorIndex, setColorIndex] = useState(7);
   const [scale, setScale] = useState<number>(16);
   const [showGrid, setShowGrid] = useState(true);
+  const [onionOn, setOnionOn] = useState(true);
+  const [onionPrevious, setOnionPrevious] = useState(true);
+  const [onionNext, setOnionNext] = useState(true);
+  const [onionOpacity, setOnionOpacity] = useState(DEFAULT_ONION_OPACITY);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const snapshot = useMemo(() => kernel.snapshot(), [kernel, revision]);
+  const onionLayers = useMemo(() => {
+    if (!onionOn || snapshot.playing) {
+      return [];
+    }
+    const opacity = onionOpacity / 100;
+    const layers: OnionLayer[] = [];
+    if (onionPrevious && snapshot.activeFrame > 0) {
+      layers.push({
+        rgba: kernel.frameRgba(snapshot.activeFrame - 1),
+        opacity,
+      });
+    }
+    if (onionNext && snapshot.activeFrame + 1 < snapshot.frameCount) {
+      layers.push({
+        rgba: kernel.frameRgba(snapshot.activeFrame + 1),
+        opacity,
+      });
+    }
+    return layers;
+  }, [kernel, snapshot, onionOn, onionPrevious, onionNext, onionOpacity]);
   const canUndo = kernel.canUndo();
   const canRedo = kernel.canRedo();
   const paletteCount = snapshot.palette.length;
@@ -629,6 +657,50 @@ export function App() {
               />
               显示格子线
             </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={onionOn}
+                onChange={(event) => setOnionOn(event.target.checked)}
+              />
+              洋葱皮
+            </label>
+            <div className={onionOn ? "onion-options" : "onion-options is-disabled"}>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={onionPrevious}
+                  disabled={!onionOn}
+                  onChange={(event) => setOnionPrevious(event.target.checked)}
+                />
+                前一帧
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={onionNext}
+                  disabled={!onionOn}
+                  onChange={(event) => setOnionNext(event.target.checked)}
+                />
+                后一帧
+              </label>
+              <label className="opacity-field">
+                <span>不透明度 {onionOpacity}%</span>
+                <input
+                  type="range"
+                  min={MIN_ONION_OPACITY}
+                  max={MAX_ONION_OPACITY}
+                  step={5}
+                  value={onionOpacity}
+                  disabled={!onionOn}
+                  aria-label="洋葱皮不透明度"
+                  onChange={(event) => setOnionOpacity(Number(event.target.value))}
+                />
+              </label>
+            </div>
+            <p className="hint">
+              前后帧半透明叠在当前帧下面，方便对位补间。只改视图：不写入像素、工程文件或 PNG。循环播放时先藏起，停下后再显示。第一帧没有前一帧，最后一帧没有后一帧。
+            </p>
             <button
               type="button"
               className="reset"
@@ -650,6 +722,8 @@ export function App() {
             snapshot={snapshot}
             scale={scale}
             showGrid={showGrid}
+            onionLayers={onionLayers}
+            onionEnabled={onionOn}
             onStrokeStart={() => {
               stopPlayback();
               if (kernel.gestureOpen()) {
@@ -690,7 +764,7 @@ export function App() {
       <footer className="footnote">
         <p>
           视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、时间轴、撤销、工程文件和 PNG
-          导出都进同一份 WebAssembly 文档。洋葱皮、导入色板和锁定色板还在后面的 issue 里。
+          导出都进同一份 WebAssembly 文档。洋葱皮只叠在视图上，播放时先藏起。导入色板和锁定色板还在后面的 issue 里。
         </p>
       </footer>
     </div>

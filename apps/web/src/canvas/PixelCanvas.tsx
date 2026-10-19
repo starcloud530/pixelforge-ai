@@ -1,15 +1,28 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent } from "react";
-import type { KernelSnapshot } from "../kernel/types";
+import type { KernelSnapshot, Rgba } from "../kernel/types";
 
 interface Cell {
   x: number;
   y: number;
 }
 
+/**
+ * One neighbor frame, already resolved to RGBA by the kernel.
+ * `opacity` is 0–1 and applies only while this view is painted.
+ */
+export interface OnionLayer {
+  rgba: Uint8Array;
+  opacity: number;
+}
+
 interface PixelCanvasProps {
   snapshot: KernelSnapshot;
   scale: number;
   showGrid: boolean;
+  /** Previous frame first, then the next. Drawn under the editable frame. */
+  onionLayers: readonly OnionLayer[];
+  /** True when the user left onion skin on. Playback passes an empty `onionLayers`. */
+  onionEnabled: boolean;
   onStrokeStart: () => void;
   onStrokeEnd: () => void;
   onPrimary: (x: number, y: number) => void;
@@ -18,13 +31,16 @@ interface PixelCanvasProps {
 
 /**
  * Draws the kernel's indexed buffer at 1:1, then scales it with
- * nearest-neighbor sampling. The grid lines are a view aid. They are not
- * the document.
+ * nearest-neighbor sampling. Grid lines and onion-skin layers are view aids.
+ * They are not the document: onion frames are composited under the current
+ * frame and never written back.
  */
 export function PixelCanvas({
   snapshot,
   scale,
   showGrid,
+  onionLayers,
+  onionEnabled,
   onStrokeStart,
   onStrokeEnd,
   onPrimary,
@@ -39,8 +55,8 @@ export function PixelCanvas({
     if (!view) {
       return;
     }
-    paintView(view, snapshot, scale, showGrid, hover);
-  }, [snapshot, scale, showGrid, hover]);
+    paintView(view, snapshot, scale, showGrid, onionLayers, hover);
+  }, [snapshot, scale, showGrid, onionLayers, hover]);
 
   function cellFromEvent(event: PointerEvent<HTMLCanvasElement>): Cell | null {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -129,6 +145,8 @@ export function PixelCanvas({
         帧 {snapshot.activeFrame + 1}/{snapshot.frameCount}
         {frameDelay !== undefined ? ` · ${frameDelay} ms` : ""}
         {snapshot.playing ? " · 播放中" : ""}
+        {onionEnabled && snapshot.playing ? " · 洋葱皮已隐藏" : ""}
+        {onionLayers.length > 0 ? " · 洋葱皮" : ""}
         {" · "}
         {hover && hoverIndex !== null
           ? `指针 ${hover.x},${hover.y} · 索引 ${hoverIndex}`
@@ -143,6 +161,7 @@ function paintView(
   snapshot: KernelSnapshot,
   scale: number,
   showGrid: boolean,
+  onionLayers: readonly OnionLayer[],
   hover: Cell | null,
 ) {
   const cssWidth = snapshot.width * scale;
@@ -165,20 +184,20 @@ function paintView(
   if (!sourceCtx) {
     return;
   }
-  const image = sourceCtx.createImageData(snapshot.width, snapshot.height);
-  for (let i = 0; i < snapshot.pixels.length; i += 1) {
-    const color = snapshot.palette[snapshot.pixels[i]] ?? { r: 0, g: 0, b: 0, a: 0 };
-    const offset = i * 4;
-    image.data[offset] = color.r;
-    image.data[offset + 1] = color.g;
-    image.data[offset + 2] = color.b;
-    image.data[offset + 3] = color.a;
-  }
-  sourceCtx.putImageData(image, 0, 0);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  for (const layer of onionLayers) {
+    if (!putRgba(sourceCtx, snapshot.width, snapshot.height, layer.rgba)) {
+      continue;
+    }
+    ctx.globalAlpha = clampOpacity(layer.opacity);
+    ctx.drawImage(source, 0, 0, cssWidth, cssHeight);
+  }
+  ctx.globalAlpha = 1;
+  putIndexed(sourceCtx, snapshot);
   ctx.drawImage(source, 0, 0, cssWidth, cssHeight);
 
   if (showGrid && scale >= 8) {
@@ -203,4 +222,45 @@ function paintView(
     ctx.lineWidth = 1;
     ctx.strokeRect(hover.x * scale + 1.5, hover.y * scale + 1.5, scale - 3, scale - 3);
   }
+}
+
+function putIndexed(
+  target: CanvasRenderingContext2D,
+  snapshot: KernelSnapshot,
+): void {
+  const image = target.createImageData(snapshot.width, snapshot.height);
+  for (let i = 0; i < snapshot.pixels.length; i += 1) {
+    writeColor(image.data, i * 4, snapshot.palette[snapshot.pixels[i]]);
+  }
+  target.putImageData(image, 0, 0);
+}
+
+/** Returns false when the buffer is not one RGBA byte per pixel. */
+function putRgba(
+  target: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  rgba: Uint8Array,
+): boolean {
+  if (rgba.length !== width * height * 4) {
+    return false;
+  }
+  const image = target.createImageData(width, height);
+  image.data.set(rgba);
+  target.putImageData(image, 0, 0);
+  return true;
+}
+
+function writeColor(data: Uint8ClampedArray, offset: number, color: Rgba | undefined): void {
+  data[offset] = color?.r ?? 0;
+  data[offset + 1] = color?.g ?? 0;
+  data[offset + 2] = color?.b ?? 0;
+  data[offset + 3] = color?.a ?? 0;
+}
+
+function clampOpacity(opacity: number): number {
+  if (Number.isNaN(opacity)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, opacity));
 }
