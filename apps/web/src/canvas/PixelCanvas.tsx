@@ -106,8 +106,10 @@ export function PixelCanvas({
   const hoverIndex =
     hover === null ? null : snapshot.pixels[hover.y * snapshot.width + hover.x];
 
+  const frameDelay = snapshot.frameDelays[snapshot.activeFrame];
+
   return (
-    <div className="canvas-column">
+    <>
       <div className="stage">
         <canvas
           ref={viewRef}
@@ -125,12 +127,14 @@ export function PixelCanvas({
         {snapshot.width}×{snapshot.height}
         {" · "}
         帧 {snapshot.activeFrame + 1}/{snapshot.frameCount}
+        {frameDelay !== undefined ? ` · ${frameDelay} ms` : ""}
+        {snapshot.playing ? " · 播放中" : ""}
         {" · "}
         {hover && hoverIndex !== null
           ? `指针 ${hover.x},${hover.y} · 索引 ${hoverIndex}`
           : "指针在画布外"}
       </p>
-    </div>
+    </>
   );
 }
 

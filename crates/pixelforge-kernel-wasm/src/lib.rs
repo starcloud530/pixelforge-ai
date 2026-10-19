@@ -1,8 +1,9 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, undo /
-//! redo, and project save / load. Pixel rules, the undo stack, and the project
+//! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, per-frame
+//! delay, timeline scrub, loop playback, undo / redo, and project save / load.
+//! Pixel rules, delays, the playback clock, the undo stack, and the project
 //! file stay in the kernel. This module only copies bytes across the boundary
 //! and turns [`pixelforge_kernel::KernelError`] into a `Code: message` string
 //! the shell maps back onto its `KernelError`.
@@ -108,6 +109,53 @@ impl PixelDocument {
     #[wasm_bindgen(js_name = setActiveFrame)]
     pub fn set_active_frame(&mut self, index: u32) -> Result<(), String> {
         self.inner.set_active_frame(as_index(index)).map_err(reject)
+    }
+
+    /// Milliseconds this frame stays up during loop playback.
+    #[wasm_bindgen(js_name = frameDelay)]
+    pub fn frame_delay(&self, index: u32) -> Result<u32, String> {
+        self.inner.frame_delay(as_index(index)).map_err(reject)
+    }
+
+    /// Delay of every frame, in timeline order.
+    #[wasm_bindgen(js_name = frameDelays)]
+    pub fn frame_delays(&self) -> Vec<u32> {
+        self.inner.frame_delays()
+    }
+
+    /// Sets one frame's delay in milliseconds. Same value is not recorded.
+    #[wasm_bindgen(js_name = setFrameDelay)]
+    pub fn set_frame_delay(&mut self, index: u32, delay_ms: u32) -> Result<(), String> {
+        self.inner
+            .set_frame_delay(as_index(index), delay_ms)
+            .map_err(reject)
+    }
+
+    /// Starts loop playback at the beginning of the active frame.
+    pub fn play(&mut self) {
+        self.inner.play();
+    }
+
+    /// Stops loop playback.
+    pub fn stop(&mut self) {
+        self.inner.stop();
+    }
+
+    /// True while [`Self::tick`] is advancing frames.
+    pub fn playing(&self) -> bool {
+        self.inner.playing()
+    }
+
+    /// Advances the preview clock. Returns whether the active frame changed.
+    /// The change is not an undo entry.
+    pub fn tick(&mut self, delta_ms: u32) -> bool {
+        self.inner.tick(delta_ms)
+    }
+
+    /// Stops playback and selects the frame under `ratio_ppm` (0..=1_000_000).
+    /// A drag should be one gesture so the selection is one undo step.
+    pub fn scrub(&mut self, ratio_ppm: u32) -> Result<(), String> {
+        self.inner.scrub(ratio_ppm).map_err(reject)
     }
 
     #[wasm_bindgen(js_name = beginGesture)]
@@ -361,6 +409,55 @@ mod tests {
         assert_eq!(
             PixelDocument::load_project("{").unwrap_err(),
             "ProjectFile: project file is not valid version 1 JSON"
+        );
+    }
+
+    #[test]
+    fn delay_scrub_and_loop_stay_in_the_kernel() {
+        let mut document = doc();
+        assert_eq!(document.frame_delays(), vec![100]);
+        document.add_frame();
+        document.set_frame_delay(0, 80).unwrap();
+        document.set_frame_delay(1, 40).unwrap();
+        document.clear_history();
+        assert_eq!(document.frame_delays(), vec![80, 40]);
+        assert!(!document.can_undo());
+
+        document.play();
+        assert!(document.playing());
+        assert!(!document.tick(79));
+        assert_eq!(document.active_frame(), 0);
+        assert!(document.tick(1));
+        assert_eq!(document.active_frame(), 1);
+        assert!(document.tick(40));
+        assert_eq!(document.active_frame(), 0);
+        assert!(!document.can_undo());
+
+        document.begin_gesture().unwrap();
+        document.scrub(0).unwrap();
+        document.scrub(900_000).unwrap();
+        document.end_gesture();
+        assert!(!document.playing());
+        assert_eq!(document.active_frame(), 1);
+        document.undo().unwrap();
+        assert_eq!(document.active_frame(), 0);
+        assert!(!document.can_undo());
+
+        document.set_frame_delay(0, 180).unwrap();
+        let loaded = PixelDocument::load_project(&document.save_project()).unwrap();
+        assert_eq!(loaded.frame_delays(), vec![180, 40]);
+        assert_eq!(loaded.active_frame(), 0);
+        assert!(!loaded.playing());
+        assert!(!loaded.can_undo());
+
+        let legacy = PixelDocument::load_project(
+            r#"{"format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0}],"frames":[{"pixels":[0]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.frame_delays(), vec![100]);
+        assert_eq!(
+            document.set_frame_delay(0, 0).unwrap_err(),
+            "FrameDelay: frame delay 0 ms is outside 1..=65535"
         );
     }
 

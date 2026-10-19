@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { PixelCanvas } from "./canvas/PixelCanvas";
 import { createKernel, openProject } from "./kernel/client";
 import { kernelErrorFromUnknown, type PixelKernel, type Rgba } from "./kernel/types";
+import { Timeline } from "./timeline/Timeline";
 
 function swatchInk(color: Rgba): string {
   const luminance = (0.299 * color.r + 0.587 * color.g + 0.114 * color.b) / 255;
@@ -96,7 +97,78 @@ export function App() {
     touch();
   }
 
+  function stopPlayback() {
+    if (kernel.playing()) {
+      kernel.stop();
+    }
+  }
+
+  function togglePlayback() {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+    }
+    if (kernel.playing()) {
+      kernel.stop();
+    } else {
+      kernel.play();
+    }
+    touch();
+  }
+
+  function stepFrame(delta: number) {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+    }
+    stopPlayback();
+    const shot = kernel.snapshot();
+    const next = Math.min(shot.frameCount - 1, Math.max(0, shot.activeFrame + delta));
+    kernel.setActiveFrame(next);
+    touch();
+  }
+
+  function onScrubStart() {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+    }
+    stopPlayback();
+    kernel.beginGesture();
+  }
+
+  function onScrub(ratioPpm: number) {
+    kernel.scrub(ratioPpm);
+    touch();
+  }
+
+  function onScrubEnd() {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+    }
+    touch();
+  }
+
+  function onDelayFocus() {
+    if (kernel.gestureOpen()) {
+      kernel.endGesture();
+    }
+    stopPlayback();
+    touch();
+  }
+
+  function onDelayChange(delayMs: number) {
+    stopPlayback();
+    if (!kernel.gestureOpen()) {
+      kernel.beginGesture();
+    }
+    kernel.setFrameDelay(kernel.snapshot().activeFrame, delayMs);
+    touch();
+  }
+
+  function onDelayBlur() {
+    closePaletteGesture();
+  }
+
   function edit(run: () => void) {
+    stopPlayback();
     if (kernel.gestureOpen()) {
       kernel.endGesture();
     }
@@ -149,10 +221,14 @@ export function App() {
   const redoRef = useRef(redo);
   const saveRef = useRef(saveProjectFile);
   const openRef = useRef(requestOpen);
+  const toggleRef = useRef(togglePlayback);
+  const stepRef = useRef(stepFrame);
   undoRef.current = undo;
   redoRef.current = redo;
   saveRef.current = saveProjectFile;
   openRef.current = requestOpen;
+  toggleRef.current = togglePlayback;
+  stepRef.current = stepFrame;
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -163,6 +239,21 @@ export function App() {
         (target instanceof HTMLInputElement && target.type !== "color")
       ) {
         return;
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.code === "Space" && !event.shiftKey) {
+          if (target instanceof HTMLButtonElement) {
+            return;
+          }
+          event.preventDefault();
+          toggleRef.current();
+          return;
+        }
+        if (event.code === "ArrowLeft" || event.code === "ArrowRight") {
+          event.preventDefault();
+          stepRef.current(event.code === "ArrowRight" ? 1 : -1);
+          return;
+        }
       }
       const shortcut = event.ctrlKey || event.metaKey;
       if (!shortcut || event.altKey) {
@@ -194,6 +285,25 @@ export function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!snapshot.playing) {
+      return;
+    }
+    let last = performance.now();
+    let handle = 0;
+    const step = (now: number) => {
+      const delta = Math.max(0, now - last);
+      last = now;
+      const ms = Math.min(0xffff_ffff, Math.round(delta));
+      if (ms > 0 && kernel.tick(ms)) {
+        setRevision((value) => value + 1);
+      }
+      handle = window.requestAnimationFrame(step);
+    };
+    handle = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(handle);
+  }, [kernel, snapshot.playing]);
 
   return (
     <div className="app">
@@ -376,6 +486,7 @@ export function App() {
                     className={selected ? "is-active" : ""}
                     onClick={() => {
                       closePaletteGesture();
+                      stopPlayback();
                       kernel.setActiveFrame(index);
                       touch();
                     }}
@@ -414,6 +525,7 @@ export function App() {
                 title={snapshot.frameCount === 1 ? "至少保留一帧" : "删除当前帧"}
                 onClick={() => {
                   closePaletteGesture();
+                  stopPlayback();
                   kernel.deleteFrame(snapshot.activeFrame);
                   touch();
                 }}
@@ -421,7 +533,9 @@ export function App() {
                 删除
               </button>
             </div>
-            <p className="hint">增删、复制和切换当前帧记在内核的撤销栈上。最后一帧不能删。</p>
+            <p className="hint">
+              增删、复制、切换和改时长都记在内核的撤销栈上。画布下方的时间轴按每帧时长循环播放。最后一帧不能删。
+            </p>
           </section>
 
           <section>
@@ -461,36 +575,52 @@ export function App() {
           </section>
         </aside>
 
-        <PixelCanvas
-          snapshot={snapshot}
-          scale={scale}
-          showGrid={showGrid}
-          onStrokeStart={() => {
-            if (kernel.gestureOpen()) {
-              kernel.endGesture();
-            }
-            kernel.beginGesture();
-          }}
-          onStrokeEnd={() => kernel.endGesture()}
-          onPrimary={(x, y) => {
-            if (tool === "erase") {
+        <div className="canvas-column">
+          <PixelCanvas
+            snapshot={snapshot}
+            scale={scale}
+            showGrid={showGrid}
+            onStrokeStart={() => {
+              stopPlayback();
+              if (kernel.gestureOpen()) {
+                kernel.endGesture();
+              }
+              kernel.beginGesture();
+            }}
+            onStrokeEnd={() => kernel.endGesture()}
+            onPrimary={(x, y) => {
+              if (tool === "erase") {
+                kernel.erase(x, y);
+              } else {
+                kernel.paint(x, y, colorIndex);
+              }
+              touch();
+            }}
+            onSecondary={(x, y) => {
               kernel.erase(x, y);
-            } else {
-              kernel.paint(x, y, colorIndex);
-            }
-            touch();
-          }}
-          onSecondary={(x, y) => {
-            kernel.erase(x, y);
-            touch();
-          }}
-        />
+              touch();
+            }}
+          />
+          <Timeline
+            frameCount={snapshot.frameCount}
+            activeFrame={snapshot.activeFrame}
+            delays={snapshot.frameDelays}
+            playing={snapshot.playing}
+            onTogglePlay={togglePlayback}
+            onScrubStart={onScrubStart}
+            onScrub={onScrub}
+            onScrubEnd={onScrubEnd}
+            onDelayFocus={onDelayFocus}
+            onDelayChange={onDelayChange}
+            onDelayBlur={onDelayBlur}
+          />
+        </div>
       </div>
 
       <footer className="footnote">
         <p>
-          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、帧列表、撤销和工程文件都进同一份
-          WebAssembly 文档。导入色板和锁定色板还在后面的 issue 里。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、时间轴、撤销和工程文件都进同一份
+          WebAssembly 文档。洋葱皮、导入色板和锁定色板还在后面的 issue 里。
         </p>
       </footer>
     </div>

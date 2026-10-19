@@ -5,16 +5,22 @@ use crate::frame::Frame;
 use crate::history::{Change, History};
 use crate::palette::Palette;
 use crate::Rgba;
+use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::MAX_CANVAS_EDGE;
+use crate::MAX_FRAME_DELAY_MS;
+use crate::MIN_FRAME_DELAY_MS;
+use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, frames, and the undo stack.
+/// Indexed pixel document: size, palette, frames, delays, and the undo stack.
 ///
 /// UI gestures and, later, Tool API calls meet here. Paint, erase, palette
-/// edits, and frame edits record kernel operations on this document. Undo
-/// restores those operations; it does not patch a buffer owned by the shell.
-/// Project open and save encode this document, not the undo stack. PNG export
-/// is not implemented.
+/// edits, frame edits, and delay edits record kernel operations on this
+/// document. Undo restores those operations; it does not patch a buffer owned
+/// by the shell. Loop playback is preview state: [`Self::tick`] moves the
+/// active frame from each frame's delay and does not push undo entries.
+/// Project open and save encode pixels, palette, frames, and delays, not the
+/// undo stack or the playback clock. PNG export is not implemented.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,
@@ -23,6 +29,24 @@ pub struct Document {
     frames: Vec<Frame>,
     active: usize,
     history: History,
+    playback: Playback,
+}
+
+/// Preview clock. Not stored in the project file and not part of an undo entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Playback {
+    playing: bool,
+    /// Milliseconds already shown of the active frame.
+    elapsed_ms: u32,
+}
+
+impl Playback {
+    fn stopped() -> Self {
+        Self {
+            playing: false,
+            elapsed_ms: 0,
+        }
+    }
 }
 
 impl Document {
@@ -38,9 +62,10 @@ impl Document {
             width,
             height,
             palette,
-            frames: vec![Frame::blank(len)],
+            frames: vec![Frame::blank(len, DEFAULT_FRAME_DELAY_MS)],
             active: 0,
             history: History::new(),
+            playback: Playback::stopped(),
         })
     }
 
@@ -141,7 +166,8 @@ impl Document {
     /// Appends a blank frame and returns its index. The active frame stays put.
     pub fn add_frame(&mut self) -> usize {
         let index = self.frames.len();
-        self.frames.push(Frame::blank(self.pixel_count()));
+        self.frames
+            .push(Frame::blank(self.pixel_count(), DEFAULT_FRAME_DELAY_MS));
         self.history.record(Change::AddFrame { index });
         index
     }
@@ -190,6 +216,7 @@ impl Document {
             Ordering::Equal => index.min(self.frames.len() - 1),
             Ordering::Less => active_before,
         };
+        self.clamp_elapsed();
         self.history.record(Change::RemoveFrame {
             index,
             frame,
@@ -214,11 +241,145 @@ impl Document {
         }
         let before = self.active;
         self.active = index;
+        self.playback.elapsed_ms = 0;
         self.history.record(Change::ActiveFrame {
             before,
             after: index,
         });
         Ok(())
+    }
+
+    /// Milliseconds the frame stays on screen during [`Self::tick`].
+    pub fn frame_delay(&self, index: usize) -> Result<u32, KernelError> {
+        self.frames
+            .get(index)
+            .map(Frame::delay_ms)
+            .ok_or(KernelError::FrameIndex {
+                index,
+                len: self.frames.len(),
+            })
+    }
+
+    /// Delay of every frame, in timeline order.
+    pub fn frame_delays(&self) -> Vec<u32> {
+        self.frames.iter().map(Frame::delay_ms).collect()
+    }
+
+    /// Sum of every frame delay. Loop playback wraps at this length.
+    pub fn duration_ms(&self) -> u64 {
+        self.frames
+            .iter()
+            .map(|frame| u64::from(frame.delay_ms()))
+            .sum()
+    }
+
+    /// Sets one frame's delay in milliseconds.
+    ///
+    /// The same value is not recorded. A drag or a typing session should sit
+    /// inside one gesture; those writes fold into a single undo step.
+    pub fn set_frame_delay(&mut self, index: usize, delay_ms: u32) -> Result<(), KernelError> {
+        if index >= self.frames.len() {
+            return Err(KernelError::FrameIndex {
+                index,
+                len: self.frames.len(),
+            });
+        }
+        if !(MIN_FRAME_DELAY_MS..=MAX_FRAME_DELAY_MS).contains(&delay_ms) {
+            return Err(KernelError::FrameDelay { delay_ms });
+        }
+        let before = self.frames[index].delay_ms();
+        if before == delay_ms {
+            return Ok(());
+        }
+        self.frames[index].set_delay_ms(delay_ms);
+        if index == self.active && self.playback.elapsed_ms >= delay_ms {
+            self.playback.elapsed_ms = 0;
+        }
+        self.history.record(Change::FrameDelay {
+            index,
+            before,
+            after: delay_ms,
+        });
+        Ok(())
+    }
+
+    /// True while [`Self::tick`] advances frames.
+    pub fn playing(&self) -> bool {
+        self.playback.playing
+    }
+
+    /// Starts loop playback at the beginning of the active frame.
+    ///
+    /// A second call while already playing leaves the clock where it is.
+    pub fn play(&mut self) {
+        if self.playback.playing {
+            return;
+        }
+        self.playback.elapsed_ms = 0;
+        self.playback.playing = true;
+    }
+
+    /// Stops loop playback and clears the time already shown on this frame.
+    pub fn stop(&mut self) {
+        self.playback = Playback::stopped();
+    }
+
+    /// Advances the preview clock by `delta_ms`.
+    ///
+    /// Returns whether the active frame changed. The change is not an undo
+    /// entry. A stopped document ignores `delta_ms`. Time past the end of the
+    /// last frame wraps to the start of the first.
+    pub fn tick(&mut self, delta_ms: u32) -> bool {
+        if !self.playback.playing || delta_ms == 0 {
+            return false;
+        }
+        let duration = self.duration_ms();
+        if duration == 0 {
+            return false;
+        }
+        let time = self.playback_time_ms().saturating_add(u64::from(delta_ms)) % duration;
+        let index = self.frame_at_time(time);
+        let changed = index != self.active;
+        self.active = index;
+        let elapsed = time.saturating_sub(self.frame_start_ms(index));
+        self.playback.elapsed_ms = u32::try_from(elapsed).unwrap_or(MAX_FRAME_DELAY_MS);
+        changed
+    }
+
+    /// Frame under `ratio_ppm` along the timeline.
+    ///
+    /// `0` is the start of frame 0. [`TIMELINE_RATIO_PPM`] is the end of the
+    /// last frame. Each frame occupies a share of the line proportional to
+    /// its delay. Values past the scale clamp to the last frame.
+    pub fn frame_at_ratio(&self, ratio_ppm: u32) -> usize {
+        let last = self.frames.len().saturating_sub(1);
+        if last == 0 {
+            return 0;
+        }
+        let ppm = u64::from(ratio_ppm.min(TIMELINE_RATIO_PPM));
+        if ppm == 0 {
+            return 0;
+        }
+        if ppm == u64::from(TIMELINE_RATIO_PPM) {
+            return last;
+        }
+        let duration = self.duration_ms();
+        if duration == 0 {
+            return 0;
+        }
+        let time = ppm.saturating_mul(duration) / u64::from(TIMELINE_RATIO_PPM);
+        self.frame_at_time(time.min(duration - 1))
+    }
+
+    /// Stops playback and selects the frame under `ratio_ppm`.
+    ///
+    /// Selecting the frame that is already active is not recorded. A scrub
+    /// drag should sit inside one gesture so the selection collapses to a
+    /// single undo step.
+    pub fn scrub(&mut self, ratio_ppm: u32) -> Result<(), KernelError> {
+        self.stop();
+        let index = self.frame_at_ratio(ratio_ppm);
+        self.set_active_frame(index)
     }
 
     /// Groups later successful edits into one undo step until [`Self::end_gesture`].
@@ -255,6 +416,7 @@ impl Document {
     /// An open gesture with edits is sealed and then reverted, so one undo
     /// cancels the in-progress stroke. An empty open gesture is dropped.
     pub fn undo(&mut self) -> Result<(), KernelError> {
+        self.stop();
         let operation = self.history.take_undo()?;
         self.history.set_replaying(true);
         for change in operation.changes().iter().rev() {
@@ -268,6 +430,7 @@ impl Document {
     /// Reapplies the latest undone operation. Errors if the undo stack's redo
     /// side is empty, or if a gesture in progress already has edits.
     pub fn redo(&mut self) -> Result<(), KernelError> {
+        self.stop();
         let operation = self.history.take_redo()?;
         self.history.set_replaying(true);
         for change in operation.changes() {
@@ -310,6 +473,7 @@ impl Document {
             frames,
             active,
             history: History::new(),
+            playback: Playback::stopped(),
         }
     }
 
@@ -350,7 +514,8 @@ impl Document {
             Change::AddFrame { index } => {
                 if forward {
                     debug_assert_eq!(*index, self.frames.len());
-                    self.frames.push(Frame::blank(self.pixel_count()));
+                    self.frames
+                        .push(Frame::blank(self.pixel_count(), DEFAULT_FRAME_DELAY_MS));
                 } else {
                     debug_assert_eq!(self.frames.len() - 1, *index);
                     self.frames.remove(*index);
@@ -387,6 +552,22 @@ impl Document {
             }
             Change::ActiveFrame { before, after } => {
                 self.active = if forward { *after } else { *before };
+                self.playback.elapsed_ms = 0;
+            }
+            Change::FrameDelay {
+                index,
+                before,
+                after,
+            } => {
+                let current = self.frames[*index].delay_ms();
+                let (expected, next) = if forward {
+                    (*before, *after)
+                } else {
+                    (*after, *before)
+                };
+                debug_assert_eq!(current, expected, "undo stack diverged from frame delays");
+                self.frames[*index].set_delay_ms(next);
+                self.clamp_elapsed();
             }
             Change::PaletteColor {
                 index,
@@ -446,6 +627,36 @@ impl Document {
         }
     }
 
+    fn clamp_elapsed(&mut self) {
+        let delay = self.frames[self.active].delay_ms();
+        if self.playback.elapsed_ms >= delay {
+            self.playback.elapsed_ms = 0;
+        }
+    }
+
+    fn playback_time_ms(&self) -> u64 {
+        self.frame_start_ms(self.active)
+            .saturating_add(u64::from(self.playback.elapsed_ms))
+    }
+
+    fn frame_start_ms(&self, index: usize) -> u64 {
+        self.frames[..index]
+            .iter()
+            .map(|frame| u64::from(frame.delay_ms()))
+            .sum()
+    }
+
+    fn frame_at_time(&self, time_ms: u64) -> usize {
+        let mut cursor = 0u64;
+        for (index, frame) in self.frames.iter().enumerate() {
+            cursor = cursor.saturating_add(u64::from(frame.delay_ms()));
+            if time_ms < cursor {
+                return index;
+            }
+        }
+        self.frames.len().saturating_sub(1)
+    }
+
     fn pixel_count(&self) -> usize {
         pixel_len(self.width, self.height)
     }
@@ -478,6 +689,7 @@ fn pixel_len(width: u16, height: u16) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{DEFAULT_FRAME_DELAY_MS, MAX_FRAME_DELAY_MS, TIMELINE_RATIO_PPM};
 
     fn doc() -> Document {
         Document::new(16, 16).unwrap()
@@ -640,5 +852,145 @@ mod tests {
             document.duplicate_frame(2),
             Err(KernelError::FrameIndex { index: 2, len: 2 })
         ));
+    }
+
+    #[test]
+    fn frame_delay_undo_redo_and_duplicate() {
+        let mut document = doc();
+        assert_eq!(document.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
+        assert_eq!(document.duration_ms(), u64::from(DEFAULT_FRAME_DELAY_MS));
+
+        document.set_frame_delay(0, 250).unwrap();
+        document.set_frame_delay(0, 250).unwrap();
+        assert_eq!(document.frame_delay(0).unwrap(), 250);
+
+        let copy = document.duplicate_frame(0).unwrap();
+        assert_eq!(copy, 1);
+        assert_eq!(document.frame_delay(1).unwrap(), 250);
+        assert_eq!(document.frame_delay(0).unwrap(), 250);
+
+        document.undo().unwrap();
+        assert_eq!(document.frame_count(), 1);
+        document.undo().unwrap();
+        assert_eq!(document.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
+        assert!(!document.can_undo());
+
+        document.redo().unwrap();
+        assert_eq!(document.frame_delay(0).unwrap(), 250);
+        document.redo().unwrap();
+        assert_eq!(document.frame_count(), 2);
+        assert_eq!(document.frame_delay(1).unwrap(), 250);
+
+        assert_eq!(
+            document.set_frame_delay(0, 0).unwrap_err(),
+            KernelError::FrameDelay { delay_ms: 0 }
+        );
+        assert_eq!(
+            document
+                .set_frame_delay(0, MAX_FRAME_DELAY_MS + 1)
+                .unwrap_err(),
+            KernelError::FrameDelay {
+                delay_ms: MAX_FRAME_DELAY_MS + 1
+            }
+        );
+        assert_eq!(document.frame_delay(0).unwrap(), 250);
+        assert!(matches!(
+            document.set_frame_delay(4, 20),
+            Err(KernelError::FrameIndex { index: 4, len: 2 })
+        ));
+    }
+
+    #[test]
+    fn delay_gesture_is_one_step_and_a_return_records_nothing() {
+        let mut document = doc();
+        document.begin_gesture().unwrap();
+        document.set_frame_delay(0, 120).unwrap();
+        document.set_frame_delay(0, 180).unwrap();
+        document.end_gesture();
+
+        document.undo().unwrap();
+        assert_eq!(document.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
+        document.redo().unwrap();
+        assert_eq!(document.frame_delay(0).unwrap(), 180);
+
+        document.undo().unwrap();
+        assert!(document.can_redo());
+        document.begin_gesture().unwrap();
+        document.set_frame_delay(0, 150).unwrap();
+        document.set_frame_delay(0, DEFAULT_FRAME_DELAY_MS).unwrap();
+        document.end_gesture();
+        assert!(!document.can_undo());
+        assert!(document.can_redo());
+        assert_eq!(document.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
+    }
+
+    #[test]
+    fn scrub_uses_delays_and_one_drag_is_one_undo() {
+        let mut document = doc();
+        document.add_frame();
+        document.add_frame();
+        document.set_frame_delay(1, 300).unwrap();
+        document.clear_history();
+        assert_eq!(document.frame_at_ratio(0), 0);
+        assert_eq!(document.frame_at_ratio(198_000), 0);
+        assert_eq!(document.frame_at_ratio(200_000), 1);
+        assert_eq!(document.frame_at_ratio(800_000), 2);
+        assert_eq!(document.frame_at_ratio(TIMELINE_RATIO_PPM), 2);
+
+        document.play();
+        assert!(document.playing());
+        document.begin_gesture().unwrap();
+        document.scrub(0).unwrap();
+        document.scrub(250_000).unwrap();
+        document.scrub(900_000).unwrap();
+        document.end_gesture();
+
+        assert!(!document.playing());
+        assert_eq!(document.active_frame(), 2);
+        document.undo().unwrap();
+        assert_eq!(document.active_frame(), 0);
+        assert!(!document.can_undo());
+    }
+
+    #[test]
+    fn playback_loops_on_each_frame_delay_without_recording_undo() {
+        let mut document = doc();
+        document.add_frame();
+        document.set_frame_delay(0, 100).unwrap();
+        document.set_frame_delay(1, 40).unwrap();
+        document.clear_history();
+
+        assert!(!document.playing());
+        document.play();
+        assert!(document.playing());
+        document.play();
+        assert!(!document.tick(0));
+        assert!(!document.tick(99));
+        assert_eq!(document.active_frame(), 0);
+        assert!(document.tick(1));
+        assert_eq!(document.active_frame(), 1);
+        assert!(document.tick(40));
+        assert_eq!(document.active_frame(), 0);
+        assert!(!document.can_undo());
+        assert!(!document.can_redo());
+
+        assert!(document.tick(120));
+        assert_eq!(document.active_frame(), 1);
+        assert!(document.tick(20));
+        assert_eq!(document.active_frame(), 0);
+
+        document.stop();
+        assert!(!document.playing());
+        assert!(!document.tick(500));
+        assert_eq!(document.active_frame(), 0);
+
+        document.set_active_frame(1).unwrap();
+        document.play();
+        assert!(!document.tick(10));
+        assert_eq!(document.active_frame(), 1);
+        document.undo().unwrap();
+        assert!(!document.playing());
+        assert_eq!(document.active_frame(), 0);
+        assert!(!document.can_undo());
     }
 }

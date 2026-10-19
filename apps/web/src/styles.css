@@ -242,6 +242,87 @@ h2 {
   min-width: 0;
 }
 
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem 0.8rem;
+}
+
+.delay-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+}
+
+.delay-field input[type="number"] {
+  width: 5.4rem;
+  padding: 0.35rem 0.45rem;
+  background: #2a3038;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.timeline-track {
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #14161a;
+  touch-action: none;
+  user-select: none;
+  cursor: ew-resize;
+}
+
+.timeline-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.timeline-frame {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 2.7rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  overflow: hidden;
+  border-right: 1px solid var(--line);
+  background: #2a3038;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.timeline-frame:last-child {
+  border-right: 0;
+}
+
+.timeline-frame small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.timeline-frame.is-active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: #3a3128;
+}
+
+.timeline-track.is-playing .timeline-frame.is-active {
+  background: #4a3824;
+}
+
 .stage {
   display: block;
   max-width: 100%;

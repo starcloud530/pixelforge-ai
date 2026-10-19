@@ -3,8 +3,10 @@
 //! The kernel owns this format. The shell and, later, the Tool API call
 //! [`Document::save_project`] and [`Document::load_project`] instead of
 //! writing a second encoder. The file stores canvas size, the palette, every
-//! frame's indices, and the active frame. The undo stack is not part of the
-//! file, so a loaded document undoes back to the opened pixels.
+//! frame's indices and delay, and the active frame. The undo stack and the
+//! playback clock are not part of the file, so a loaded document undoes back
+//! to the opened pixels and is not playing. A frame written before delays
+//! existed omits `delayMs` and loads as [`crate::DEFAULT_FRAME_DELAY_MS`].
 
 use serde::{Deserialize, Serialize};
 
@@ -13,13 +15,23 @@ use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
 use crate::palette::Palette;
 use crate::Rgba;
+use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::MAX_CANVAS_EDGE;
+use crate::MAX_FRAME_DELAY_MS;
+use crate::MIN_FRAME_DELAY_MS;
 
 /// `format` field written by [`Document::save_project`].
 pub const PROJECT_FORMAT: &str = "pixelforge-project";
 
 /// Only version [`Document::load_project`] accepts.
+///
+/// Per-frame `delayMs` was added without a version bump. Files that omit it
+/// still load: each missing delay becomes [`crate::DEFAULT_FRAME_DELAY_MS`].
 pub const PROJECT_VERSION: u32 = 1;
+
+fn default_delay_ms() -> u64 {
+    u64::from(DEFAULT_FRAME_DELAY_MS)
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -46,6 +58,9 @@ struct ColorFile {
 #[serde(deny_unknown_fields)]
 struct FrameFile {
     pixels: Vec<u64>,
+    /// Milliseconds. Missing in files saved before delays existed.
+    #[serde(default = "default_delay_ms", rename = "delayMs")]
+    delay_ms: u64,
 }
 
 impl Document {
@@ -75,6 +90,7 @@ impl Document {
                         .copied()
                         .map(u64::from)
                         .collect(),
+                    delay_ms: u64::from(self.frame_delay(index).expect("index walks frame_count")),
                 })
                 .collect(),
         };
@@ -139,7 +155,8 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
             }
             pixels.push(u8::try_from(index_value).expect("index is below the palette length"));
         }
-        frames.push(Frame::from_pixels(pixels));
+        let delay_ms = frame_delay_from_file(index, frame.delay_ms)?;
+        frames.push(Frame::from_pixels(pixels, delay_ms));
     }
     if file.active_frame >= u64::try_from(frames.len()).expect("frame count fits in u64") {
         return Err(invalid(ProjectFileError::ActiveFrame {
@@ -151,6 +168,17 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     Ok(Document::from_stored(
         width, height, palette, frames, active,
     ))
+}
+
+fn frame_delay_from_file(index: usize, delay: u64) -> Result<u32, KernelError> {
+    if (u64::from(MIN_FRAME_DELAY_MS)..=u64::from(MAX_FRAME_DELAY_MS)).contains(&delay) {
+        Ok(u32::try_from(delay).expect("delay range fits in u32"))
+    } else {
+        Err(invalid(ProjectFileError::FrameDelay {
+            frame: index,
+            delay,
+        }))
+    }
 }
 
 fn canvas_size(width: u64, height: u64) -> Result<(u16, u16), KernelError> {

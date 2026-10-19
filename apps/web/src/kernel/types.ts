@@ -6,6 +6,18 @@ export interface Rgba {
   a: number;
 }
 
+/** Matches `DEFAULT_FRAME_DELAY_MS` in the Rust kernel. */
+export const DEFAULT_FRAME_DELAY_MS = 100;
+/** Matches `MIN_FRAME_DELAY_MS` in the Rust kernel. */
+export const MIN_FRAME_DELAY_MS = 1;
+/** Matches `MAX_FRAME_DELAY_MS` in the Rust kernel. */
+export const MAX_FRAME_DELAY_MS = 65_535;
+/**
+ * Matches `TIMELINE_RATIO_PPM` in the Rust kernel.
+ * `0` is the start of the timeline and this value is the end of the last frame.
+ */
+export const TIMELINE_RATIO_PPM = 1_000_000;
+
 /**
  * Read-only view of the kernel document.
  * `pixels` are palette indices, row-major, length `width * height`.
@@ -16,6 +28,10 @@ export interface KernelSnapshot {
   palette: readonly Rgba[];
   frameCount: number;
   activeFrame: number;
+  /** Per-frame delay in milliseconds, timeline order. */
+  frameDelays: readonly number[];
+  /** True while loop playback is advancing the active frame. */
+  playing: boolean;
   pixels: Uint8Array;
 }
 
@@ -36,6 +52,23 @@ export interface PixelKernel {
   duplicateFrame(index: number): number;
   deleteFrame(index: number): void;
   setActiveFrame(index: number): void;
+  /** Sets one frame's on-screen duration in milliseconds. */
+  setFrameDelay(index: number, delayMs: number): void;
+  /** Starts loop playback at the beginning of the active frame. */
+  play(): void;
+  /** Stops loop playback. */
+  stop(): void;
+  playing(): boolean;
+  /**
+   * Advances the kernel playback clock by `deltaMs`.
+   * Returns whether the active frame changed. The change is not an undo entry.
+   */
+  tick(deltaMs: number): boolean;
+  /**
+   * Stops playback and selects the frame under `ratioPpm` (0..=TIMELINE_RATIO_PPM).
+   * A drag should be one gesture so the selection is one undo step.
+   */
+  scrub(ratioPpm: number): void;
   beginGesture(): void;
   endGesture(): void;
   gestureOpen(): boolean;
@@ -56,6 +89,7 @@ export type KernelErrorCode =
   | "TransparentSlot"
   | "FrameIndex"
   | "LastFrame"
+  | "FrameDelay"
   | "NothingToUndo"
   | "NothingToRedo"
   | "OpenGesture"
@@ -70,6 +104,7 @@ const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "TransparentSlot",
   "FrameIndex",
   "LastFrame",
+  "FrameDelay",
   "NothingToUndo",
   "NothingToRedo",
   "OpenGesture",
