@@ -411,8 +411,123 @@ fn rejects_unknown_tools_and_bad_requests_without_mutating() {
 }
 
 #[test]
+fn fill_rect_is_one_undo_step_and_rejects_a_partial_rectangle() {
+    let mut document = doc();
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 1, "y": 2, "width": 3, "height": 2, "colorIndex": 4}),
+    );
+    let painted = tool(&mut document, "inspect", json!({}));
+    for y in 2..4 {
+        for x in 1..4 {
+            assert_eq!(painted["pixels"][y * 16 + x], json!(4));
+        }
+    }
+    assert_eq!(painted["pixels"][2 * 16], json!(0));
+    assert_eq!(painted["pixels"][2 * 16 + 4], json!(0));
+    assert_eq!(painted["canUndo"], json!(true));
+
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    tool(&mut document, "undo", json!({}));
+    let kept = tool(&mut document, "inspect", json!({}));
+    assert_eq!(kept["pixels"][0], json!(0));
+    assert_eq!(kept["pixels"][2 * 16 + 1], json!(4));
+    tool(&mut document, "undo", json!({}));
+    let cleared = tool(&mut document, "inspect", json!({}));
+    assert!(cleared["pixels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|index| index == &json!(0)));
+    assert_eq!(cleared["canUndo"], json!(false));
+    assert_eq!(cleared["canRedo"], json!(true));
+
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 0, "y": 0, "width": 2, "height": 1, "colorIndex": 2}),
+    );
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 0, "y": 0, "width": 2, "height": 1, "colorIndex": 2}),
+    );
+    tool(&mut document, "undo", json!({}));
+    let once = tool(&mut document, "inspect", json!({}));
+    assert_eq!(once["pixels"][0], json!(0));
+    assert_eq!(once["canUndo"], json!(false));
+
+    tool(&mut document, "beginGesture", json!({}));
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 0, "y": 1, "width": 2, "height": 1, "colorIndex": 3}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 4, "y": 1, "colorIndex": 5}),
+    );
+    tool(&mut document, "endGesture", json!({}));
+    tool(&mut document, "undo", json!({}));
+    let gestured = tool(&mut document, "inspect", json!({}));
+    assert_eq!(gestured["pixels"][16], json!(0));
+    assert_eq!(gestured["pixels"][16 + 4], json!(0));
+    assert_eq!(gestured["canUndo"], json!(false));
+
+    let err = tool_err(
+        &mut document,
+        "fillRect",
+        json!({"x": 14, "y": 0, "width": 4, "height": 1, "colorIndex": 1}),
+    );
+    assert_eq!(err["code"], json!("OutOfBounds"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][14],
+        json!(0)
+    );
+    let zero = tool_err(
+        &mut document,
+        "fillRect",
+        json!({"x": 0, "y": 0, "width": 0, "height": 2, "colorIndex": 1}),
+    );
+    assert_eq!(zero["code"], json!("InvalidParams"));
+    assert_eq!(
+        zero["message"],
+        json!("fillRect: width must be an integer from 1 to 65535")
+    );
+    let extra = tool_err(
+        &mut document,
+        "fillRect",
+        json!({"x": 0, "y": 0, "width": 1, "height": 1, "colorIndex": 1, "rgb": 1}),
+    );
+    assert_eq!(extra["message"], json!("fillRect: unknown field rgb"));
+    let index = tool_err(
+        &mut document,
+        "fillRect",
+        json!({"x": 0, "y": 0, "width": 1, "height": 1, "colorIndex": 0}),
+    );
+    assert_eq!(index["code"], json!("PaletteIndex"));
+
+    tool(&mut document, "setPaletteLocked", json!({"locked": true}));
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 2, "y": 2, "width": 2, "height": 1, "colorIndex": 6}),
+    );
+    let locked = tool(&mut document, "inspect", json!({}));
+    assert_eq!(locked["paletteLocked"], json!(true));
+    assert_eq!(locked["pixels"][2 * 16 + 2], json!(6));
+    assert_eq!(locked["pixels"][2 * 16 + 3], json!(6));
+}
+
+#[test]
 fn every_catalog_name_is_a_known_tool() {
-    assert_eq!(TOOL_NAMES.len(), 20);
+    assert_eq!(TOOL_NAMES.len(), 21);
     for name in TOOL_NAMES {
         let mut document = doc();
         let response = call(&mut document, json!({ "tool": name }));

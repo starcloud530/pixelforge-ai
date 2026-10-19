@@ -28,6 +28,7 @@ pub const TOOL_API_VERSION: u32 = 1;
 pub const TOOL_NAMES: &[&str] = &[
     "inspect",
     "paint",
+    "fillRect",
     "erase",
     "setPaletteColor",
     "addPaletteColor",
@@ -282,6 +283,13 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
+        "fillRect" => {
+            let (x, y, width, height, color_index) = parse_fill_rect(params)?;
+            document
+                .fill_rect(x, y, width, height, color_index)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(empty())
+        }
         "erase" => {
             let (x, y) = parse_cell(tool, params)?;
             document.erase(x, y).map_err(ToolFailure::Kernel)?;
@@ -466,6 +474,21 @@ fn parse_paint(params: Value) -> Result<(u16, u16, u8), ToolFailure> {
     Ok((x, y, color_index))
 }
 
+fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8), ToolFailure> {
+    let map = expect_object("fillRect", params)?;
+    reject_params(
+        "fillRect",
+        &map,
+        &["x", "y", "width", "height", "colorIndex"],
+    )?;
+    let x = require_u16("fillRect", &map, "x")?;
+    let y = require_u16("fillRect", &map, "y")?;
+    let width = require_u16_at_least("fillRect", &map, "width", 1)?;
+    let height = require_u16_at_least("fillRect", &map, "height", 1)?;
+    let color_index = require_u8("fillRect", &map, "colorIndex")?;
+    Ok((x, y, width, height, color_index))
+}
+
 fn parse_cell(tool: &str, params: Value) -> Result<(u16, u16), ToolFailure> {
     let map = expect_object(tool, params)?;
     reject_params(tool, &map, &["x", "y"])?;
@@ -570,10 +593,31 @@ fn require_u8(tool: &str, map: &Map<String, Value>, key: &str) -> Result<u8, Too
 }
 
 fn require_u16(tool: &str, map: &Map<String, Value>, key: &str) -> Result<u16, ToolFailure> {
-    Ok(
-        u16::try_from(require_int(tool, map, key, U16_MAX)?)
-            .expect("value was bounded by u16::MAX"),
-    )
+    require_u16_at_least(tool, map, key, 0)
+}
+
+fn require_u16_at_least(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+    min: u64,
+) -> Result<u16, ToolFailure> {
+    match map.get(key) {
+        None => Err(invalid_params(tool, &format!("missing {key}"))),
+        Some(Value::Number(number)) => match number.as_u64() {
+            Some(value) if (min..=U16_MAX).contains(&value) => {
+                Ok(u16::try_from(value).expect("value was bounded by u16::MAX"))
+            }
+            _ => Err(invalid_params(
+                tool,
+                &format!("{key} must be an integer from {min} to {U16_MAX}"),
+            )),
+        },
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be an integer from {min} to {U16_MAX}"),
+        )),
+    }
 }
 
 fn require_u32(tool: &str, map: &Map<String, Value>, key: &str) -> Result<u32, ToolFailure> {

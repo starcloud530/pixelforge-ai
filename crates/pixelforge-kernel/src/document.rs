@@ -15,7 +15,7 @@ use crate::TRANSPARENT_INDEX;
 
 /// Indexed pixel document: size, palette, frames, delays, and the undo stack.
 ///
-/// UI gestures and, later, Tool API calls meet here. Paint, erase, palette
+/// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill, palette
 /// edits, frame edits, and delay edits record kernel operations on this
 /// document. Undo restores those operations; it does not patch a buffer owned
 /// by the shell. Loop playback is preview state: [`Self::tick`] moves the
@@ -289,6 +289,92 @@ impl Document {
         } else {
             Ok(())
         }
+    }
+
+    /// Fills an axis-aligned rectangle on the active frame with one palette index.
+    ///
+    /// `x` and `y` are the inclusive top-left cell. `width` and `height` are
+    /// the size in cells. Every cell must lie on the canvas; a zero edge, an
+    /// origin outside the canvas, or a far edge that falls outside is refused
+    /// and writes nothing. The cell stores `color_index`, not RGB. Cells that
+    /// already hold that index are skipped. The cells that do change are one
+    /// undo step, or part of the open gesture when one is open. A fill that
+    /// changes nothing is not recorded. A locked palette does not block this
+    /// write. Index 0 is rejected; use [`Self::erase`] on single cells.
+    pub fn fill_rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+    ) -> Result<(), KernelError> {
+        if !self.palette.contains_paint_index(color_index) {
+            return Err(KernelError::PaletteIndex { index: color_index });
+        }
+        let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
+        let frame = self.active;
+        let mut changes = Vec::new();
+        for row in y..=y1 {
+            let row_offset = pixel_len(self.width, row);
+            for col in x..=x1 {
+                let offset = row_offset + usize::from(col);
+                let before = self.frames[frame].pixels()[offset];
+                if before == color_index {
+                    continue;
+                }
+                self.frames[frame].set(offset, color_index);
+                changes.push(Change::Pixel {
+                    frame,
+                    offset,
+                    before,
+                    after: color_index,
+                });
+            }
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Inclusive bottom-right of a rectangle that lies entirely on the canvas.
+    ///
+    /// A zero edge or a span that does not fit is [`KernelError::OutOfBounds`]
+    /// and names a cell that is not on the canvas when one exists.
+    fn inclusive_rect(
+        &self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(u16, u16), KernelError> {
+        let outside = |x: u16, y: u16| KernelError::OutOfBounds {
+            x,
+            y,
+            width: self.width,
+            height: self.height,
+        };
+        if width == 0 || height == 0 {
+            return Err(outside(x, y));
+        }
+        let x1 = x.checked_add(width - 1);
+        let y1 = y.checked_add(height - 1);
+        let x_ok = x1.is_some_and(|end| x < self.width && end < self.width);
+        let y_ok = y1.is_some_and(|end| y < self.height && end < self.height);
+        if x_ok && y_ok {
+            return Ok((
+                x1.expect("x span was checked"),
+                y1.expect("y span was checked"),
+            ));
+        }
+        let bad_x = if x >= self.width { x } else { self.width };
+        let bad_y = if y >= self.height {
+            y
+        } else if y1.is_some_and(|end| end < self.height) {
+            y
+        } else {
+            self.height
+        };
+        Err(outside(bad_x, bad_y))
     }
 
     /// Sets one cell back to [`TRANSPARENT_INDEX`].
@@ -921,6 +1007,82 @@ mod tests {
         ));
         assert_eq!(document.get(1, 1).unwrap(), 2);
         assert_eq!(document.get(0, 0).unwrap(), TRANSPARENT_INDEX);
+    }
+
+    #[test]
+    fn fill_rect_is_one_undo_and_refuses_a_partial_rectangle() {
+        let mut document = doc();
+        document.fill_rect(1, 2, 3, 2, 4).unwrap();
+        for y in 2..4 {
+            for x in 1..4 {
+                assert_eq!(document.get(x, y).unwrap(), 4);
+            }
+        }
+        assert_eq!(document.get(0, 2).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(4, 2).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(1, 4).unwrap(), TRANSPARENT_INDEX);
+        document.paint(0, 0, 1).unwrap();
+        document.undo().unwrap();
+        assert_eq!(document.get(0, 0).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(1, 2).unwrap(), 4);
+        document.undo().unwrap();
+        assert!(document
+            .pixels()
+            .iter()
+            .all(|index| *index == TRANSPARENT_INDEX));
+        assert!(!document.can_undo());
+        document.redo().unwrap();
+        assert_eq!(document.get(2, 3).unwrap(), 4);
+        assert_eq!(document.get(0, 0).unwrap(), TRANSPARENT_INDEX);
+
+        document.fill_rect(1, 2, 3, 2, 4).unwrap();
+        document.undo().unwrap();
+        assert_eq!(document.get(1, 2).unwrap(), TRANSPARENT_INDEX);
+
+        document.fill_rect(14, 0, 2, 2, 5).unwrap();
+        assert_eq!(document.get(15, 1).unwrap(), 5);
+        let before = document.pixels().to_vec();
+        assert!(matches!(
+            document.fill_rect(14, 0, 4, 1, 2),
+            Err(KernelError::OutOfBounds { x: 16, y: 0, .. })
+        ));
+        assert_eq!(document.pixels(), before.as_slice());
+        assert_eq!(
+            document
+                .fill_rect(0, 0, 1, 1, TRANSPARENT_INDEX)
+                .unwrap_err(),
+            KernelError::PaletteIndex { index: 0 }
+        );
+        assert_eq!(
+            document.fill_rect(20, 0, 1, 1, 0).unwrap_err(),
+            KernelError::PaletteIndex { index: 0 }
+        );
+        assert!(document.fill_rect(0, 0, 0, 2, 1).is_err());
+        assert_eq!(document.pixels(), before.as_slice());
+
+        document.set_palette_locked(true);
+        document.fill_rect(0, 1, 2, 1, 3).unwrap();
+        assert_eq!(document.get(0, 1).unwrap(), 3);
+        assert_eq!(document.get(1, 1).unwrap(), 3);
+        assert!(document.palette_locked());
+
+        let other = document.add_frame();
+        document.set_active_frame(other).unwrap();
+        assert!(document
+            .pixels()
+            .iter()
+            .all(|index| *index == TRANSPARENT_INDEX));
+        assert_eq!(document.frame_pixels(0).unwrap()[16], 3);
+
+        document.begin_gesture().unwrap();
+        document.fill_rect(0, 0, 2, 1, 6).unwrap();
+        document.paint(3, 0, 7).unwrap();
+        document.end_gesture();
+        document.undo().unwrap();
+        assert_eq!(document.get(0, 0).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(3, 0).unwrap(), TRANSPARENT_INDEX);
+        assert!(document.can_redo());
+        assert_eq!(document.frame_pixels(0).unwrap()[16], 3);
     }
 
     #[test]

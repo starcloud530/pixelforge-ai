@@ -29,29 +29,67 @@ cargo run -p pixelforge-cli -- --help
 
 ## 输出 Output
 
-stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人看的短句，例如 `pixelforge: wrote hero.json`。不要解析 stderr。
+stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人看的短句，例如 `pixelforge: wrote hero.json`。`preview` 和 `--preview` 还会把当前帧的 ASCII 图画到 stderr，那一块要读，用来看形状；其余 stderr 不要当接口解析。`preview` 的 stdout 里，`result.rows` 是同一张图，一行一个字符串。
 
 `call` 打出的就是 Tool API 响应，和 [tool-api.md](tool-api.md) 一致。`export` 子命令把 PNG 写到磁盘，stdout 里是路径和网格尺寸，不带 base64。要用 base64，就 `call` 工具 `exportPngSequence` 或 `exportSpriteSheet`，那两个工具不写文件。
 
 退出码：`0` 全部 `ok: true`。`1` 某个工具 `ok: false`，stdout 仍是那个错误对象。`2` 工具没跑起来（文件打不开、工程损坏、请求文件不是 JSON）。缺了必填参数时 clap 把说明打到 stderr，也是退出码 `2`，这时没有 JSON 行。
 
-*Stdout is compact JSON, one response per line. Stderr is a short note such as `pixelforge: wrote hero.json`. Parse stdout. `call` prints the Tool API response from [tool-api.md](tool-api.md). The `export` subcommand writes PNG files and prints paths and the grid size, without base64. Base64 comes from `call` with `exportPngSequence` or `exportSpriteSheet`, and those calls do not write files.*
+*Stdout is compact JSON, one response per line. Stderr is a short note such as `pixelforge: wrote hero.json`. Parse stdout. `preview` and `--preview` also write an ASCII picture of the active frame to stderr; read that picture. `preview` puts the same rows in `result.rows`. `call` prints the Tool API response from [tool-api.md](tool-api.md). The `export` subcommand writes PNG files and prints paths and the grid size, without base64. Base64 comes from `call` with `exportPngSequence` or `exportSpriteSheet`, and those calls do not write files.*
 
 *Exit `0` means every tool returned `ok: true`. Exit `1` means a tool returned `ok: false` and stdout still holds that error object. Exit `2` means the tool did not run (unreadable file, bad project, request file is not JSON). A missing flag is also exit `2`: clap writes the usage text to stderr and there is no JSON line.*
 
 ## 不变量 Invariants
 
-- 格子存的是调色板索引。索引 0 是透明。`paint` 写入已经存在的 `1..=255` 索引，不写 RGB。
+- 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的 `1..=255` 索引，不写 RGB。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
-- `palette lock` 之后仍可画已有索引，但不能改色、追加或导入。
+- `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加或导入。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈，下一个进程是空栈，和在编辑器里重新打开这份文件一样。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。洋葱皮只是视图，没有把它写回像素的工具。
 
-*Cells store palette indices. Index 0 is transparent. `paint` writes an existing index, never RGB. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
+*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
 *One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. Onion skin is a view and has no tool.*
+
+## 画布尺寸 Canvas size
+
+在 `pixelforge new` 里定尺寸。画布不能事后改大。太小的全身会变成示意图。
+
+*Choose the size in `pixelforge new`. The canvas cannot be enlarged later. A full body on a tiny grid looks like a diagram.*
+
+| 题材 Subject | 尺寸 Size |
+| --- | --- |
+| 俯视小怪、图标、地块 Top-down minion, icon, tile | 16–32 |
+| 全身游戏精灵 Full-body game sprite | 大约 32–64 about 32–64 |
+| 站立立绘 / 变身故事 Standing 立绘 / transformation story | 至少 64×96，优先 **64×128** 或 **96×128** at least 64×96; prefer **64×128** or **96×128** |
+| 胸像、脸部特写 Bust or face-focused portrait | 至少 64×64 at least 64×64 |
+
+**48×64 的全身会显得示意图化**：头只有几格，姿势读不出来，下一帧也放不下破损、衣服或第二套剪影。不要用 16×16 或 32×32 起一张站立立绘。
+
+*A **48×64 full body looks schematic**: the head is a few pixels, the pose cannot read, and later frames have nowhere to put damage, cloth, or a second silhouette. Do not start a standing figure at 16×16 or 32×32.*
+
+## 先看再改 Observe, then revise
+
+不要蒙着把所有帧画完。每个大阶段结束都要看图再改：剪影、平涂、细节、姿势。
+
+*Do not paint every frame blind. After each major stage — silhouette, flats, details, pose — look, then fix.*
+
+1. 用 `fill-rect` 和一次短的 `call` 画完这一阶段。
+2. `pixelforge preview --project …`，或者 `export png` 然后打开 PNG。
+3. 读 stderr 上的 ASCII（或 `result.rows`），或者读 PNG。
+4. 改完形状再进入下一阶段。
+
+*Draw that stage with `fill-rect` and a short `call` batch. Then `pixelforge preview --project …`, or `export png` and open the PNG. Read the ASCII grid or the PNG. Fix the shape before the next stage.*
+
+字形：`.` 是透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 会写出那些索引和 `#rrggbb`）。stdout 仍然是 JSON。
+
+*Glyphs: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the stderr legend names those indices and a `#rrggbb`). Stdout stays JSON.*
+
+平涂优先 `fillRect`，一次 `pixelforge call` 里放多个 `--request`，不要为了一块纯色打出几千次 `paint`。一块 `fillRect` 已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
+
+*Prefer `fillRect` for a solid region, and one `pixelforge call` with several `--request` flags, over thousands of lone `paint` calls. A single `fillRect` is already one undo step. Wrap several rects in `beginGesture` / `endGesture` when they should undo together.*
 
 ## 配方 Recipes
 
@@ -65,12 +103,33 @@ stdout 是 `inspect` 的响应。文件是 version 1 `pixelforge-project`。`new
 
 *Stdout is the `inspect` response. The file is version 1 `pixelforge-project`. `new` refuses to replace a file that already exists.*
 
-### 画一格、擦一格 Paint and erase
+### 画一格、填一块、擦一格 Paint, fill, and erase
 
 ```bash
+pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3 --preview
 pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
 pixelforge erase --project hero.json --x 1 --y 2
+pixelforge preview --project hero.json
 ```
+
+`fill-rect` 在当前帧上用一个调色板索引填一块轴对齐矩形。`x`、`y` 是左上角。`width` 和 `height` 至少为 1，整块必须落在画布里；只要有一格会出界，一格都不写。色板锁定时仍然可以填。`call` 里的工具名是 `fillRect`。
+
+*`fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x` and `y` are the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.*
+
+```bash
+pixelforge call --project hero.json \
+  --request '{"tool":"beginGesture"}' \
+  --request '{"tool":"fillRect","params":{"x":8,"y":4,"width":16,"height":20,"colorIndex":1}}' \
+  --request '{"tool":"fillRect","params":{"x":10,"y":24,"width":12,"height":28,"colorIndex":2}}' \
+  --request '{"tool":"endGesture"}' \
+  --preview
+```
+
+### 站立立绘 Standing 立绘
+
+都市人变成丧尸这类站立图，用 `new --width 64 --height 128`（或 96×128）。先用 `fill-rect` 铺头、躯干、腿，`preview`，再改剪影。衣服和皮肤继续用矩形，再 `preview`。眼睛、牙、破布才用 `paint`。`duplicateFrame` 做丧尸姿势，同一套「画一段、看一眼、再改」。某一阶段要当真正的图像看时，`export png` 再打开那张 PNG。不要自己编 RGB，也不要为一块平涂逐格 `paint`。
+
+*For a standing portrait such as a city person turning into a zombie, `new --width 64 --height 128` (or 96×128). Block the head, torso, and legs with `fill-rect`, `preview`, then correct the silhouette. Add cloth and skin as more rects, `preview` again, then `paint` only the details (eyes, teeth, torn cloth). `duplicateFrame` for the zombie pose and repeat the same look-then-fix loop. `export png` when a stage should be read as a real image. Do not invent RGB, and do not emit a `paint` per pixel for a flat area.*
 
 ### 一笔撤销 A stroke as one undo
 

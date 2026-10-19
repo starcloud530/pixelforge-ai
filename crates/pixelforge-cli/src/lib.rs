@@ -9,6 +9,7 @@ mod cli;
 mod export_files;
 mod failure;
 mod output;
+mod preview;
 mod requests;
 mod session;
 
@@ -21,7 +22,7 @@ use pixelforge_kernel::{TOOL_API_VERSION, TOOL_NAMES};
 use serde_json::{json, Value};
 
 use crate::cli::{
-    Cli, Command, ExportCmd, FrameCmd, ImportMode, PaintArgs, PaletteCmd, ProjectArgs,
+    Cli, Command, ExportCmd, FillRectArgs, FrameCmd, ImportMode, PaintArgs, PaletteCmd, ProjectArgs,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -45,13 +46,18 @@ fn execute(cli: Cli) -> i32 {
             height,
             output,
         } => cmd_new(width, height, &output),
-        Command::Inspect { doc } => apply(&doc, vec![request("inspect", json!({}))]),
+        Command::Inspect { doc, preview } => {
+            apply_with(&doc, vec![request("inspect", json!({}))], preview)
+        }
+        Command::Preview { doc } => cmd_preview(&doc),
         Command::Call {
             doc,
             request,
             request_file,
-        } => cmd_call(&doc, request, request_file.as_deref()),
+            preview,
+        } => cmd_call(&doc, request, request_file.as_deref(), preview),
         Command::Paint(args) => cmd_paint(args),
+        Command::FillRect(args) => cmd_fill_rect(args),
         Command::Erase(args) => apply(
             &args.doc,
             vec![request("erase", json!({"x": args.x, "y": args.y}))],
@@ -88,7 +94,7 @@ fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
 }
 
 fn cmd_paint(args: PaintArgs) -> i32 {
-    apply(
+    apply_with(
         &args.doc,
         vec![request(
             "paint",
@@ -98,7 +104,44 @@ fn cmd_paint(args: PaintArgs) -> i32 {
                 "colorIndex": args.color_index,
             }),
         )],
+        args.preview,
     )
+}
+
+fn cmd_fill_rect(args: FillRectArgs) -> i32 {
+    apply_with(
+        &args.doc,
+        vec![request(
+            "fillRect",
+            json!({
+                "x": args.x,
+                "y": args.y,
+                "width": args.width,
+                "height": args.height,
+                "colorIndex": args.color_index,
+            }),
+        )],
+        args.preview,
+    )
+}
+
+fn cmd_preview(doc: &ProjectArgs) -> i32 {
+    let session = match Session::open(&doc.project) {
+        Ok(session) => session,
+        Err(failure) => return emit(failure),
+    };
+    let frame = preview::render(session.document());
+    let body = json!({
+        "ok": true,
+        "apiVersion": TOOL_API_VERSION,
+        "result": preview::result_json(&frame),
+    });
+    let line = serde_json::to_string(&body).expect("preview is JSON");
+    if !print_line(&line) {
+        return 2;
+    }
+    preview::eprint_frame(&frame);
+    0
 }
 
 fn cmd_palette(command: PaletteCmd) -> i32 {
@@ -147,6 +190,7 @@ fn cmd_import(doc: &ProjectArgs, mode: ImportMode, file: &Path) -> i32 {
             "importPalette",
             json!({"text": text, "mode": mode.as_str()}),
         )],
+        false,
     )
 }
 
@@ -197,7 +241,7 @@ fn cmd_export(command: ExportCmd) -> i32 {
     }
 }
 
-fn cmd_call(doc: &ProjectArgs, inline: Vec<String>, file: Option<&Path>) -> i32 {
+fn cmd_call(doc: &ProjectArgs, inline: Vec<String>, file: Option<&Path>, preview: bool) -> i32 {
     let mut requests = Vec::new();
     for request in inline {
         let trimmed = request.trim().trim_start_matches('\u{feff}');
@@ -225,7 +269,7 @@ fn cmd_call(doc: &ProjectArgs, inline: Vec<String>, file: Option<&Path>) -> i32 
             Err(failure) => return emit(failure),
         }
     }
-    apply(doc, requests)
+    apply_with(doc, requests, preview)
 }
 
 fn read_stdin_requests() -> Result<Vec<String>, CliFailure> {
@@ -258,14 +302,18 @@ fn cmd_tools() -> i32 {
 }
 
 fn apply(doc: &ProjectArgs, requests: Vec<String>) -> i32 {
+    apply_with(doc, requests, false)
+}
+
+fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
     let mut session = match Session::open(&doc.project) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
-    apply_session(&mut session, requests)
+    apply_session(&mut session, requests, preview)
 }
 
-fn apply_session(session: &mut Session, requests: Vec<String>) -> i32 {
+fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) -> i32 {
     let mut status = 0;
     for request in &requests {
         let response = session.call(request);
@@ -283,6 +331,10 @@ fn apply_session(session: &mut Session, requests: Vec<String>) -> i32 {
         Ok(true) => eprintln!("pixelforge: wrote {}", session.path().display()),
         Ok(false) => {}
         Err(failure) => return emit(failure),
+    }
+    if preview {
+        let frame = preview::render(session.document());
+        preview::eprint_frame(&frame);
     }
     status
 }

@@ -1,0 +1,168 @@
+//! ASCII view of the active frame.
+//!
+//! Cells stay palette indices. This module only picks a glyph so an agent can
+//! see the shape in the terminal. Index 0 is `.`. Indices 1–9 are digits,
+//! 10–35 are `A`–`Z`, 36–61 are `a`–`z`, and 62 and above share `*`.
+
+use pixelforge_kernel::{Document, Rgba};
+use serde_json::{json, Value};
+
+pub struct AsciiFrame {
+    pub width: u16,
+    pub height: u16,
+    pub active_frame: usize,
+    pub rows: Vec<String>,
+    pub legend: Vec<LegendEntry>,
+}
+
+pub struct LegendEntry {
+    pub glyph: char,
+    pub index: u8,
+    pub color: Rgba,
+}
+
+pub fn glyph(index: u8) -> char {
+    match index {
+        0 => '.',
+        1..=9 => char::from(b'0' + index),
+        10..=35 => char::from(b'A' + (index - 10)),
+        36..=61 => char::from(b'a' + (index - 36)),
+        _ => '*',
+    }
+}
+
+pub fn render(document: &Document) -> AsciiFrame {
+    let width = document.width();
+    let height = document.height();
+    let pixels = document.pixels();
+    let row_len = usize::from(width);
+    let mut seen = [false; 256];
+    let mut rows = Vec::with_capacity(usize::from(height));
+    for y in 0..usize::from(height) {
+        let mut row = String::with_capacity(row_len);
+        for index in &pixels[y * row_len..(y + 1) * row_len] {
+            seen[usize::from(*index)] = true;
+            row.push(glyph(*index));
+        }
+        rows.push(row);
+    }
+    let palette = document.palette_colors();
+    let mut legend = Vec::new();
+    for (index, used) in seen.into_iter().enumerate() {
+        if !used {
+            continue;
+        }
+        let index = u8::try_from(index).expect("palette index fits in u8");
+        let color = palette
+            .get(usize::from(index))
+            .copied()
+            .unwrap_or(Rgba::TRANSPARENT);
+        legend.push(LegendEntry {
+            glyph: glyph(index),
+            index,
+            color,
+        });
+    }
+    AsciiFrame {
+        width,
+        height,
+        active_frame: document.active_frame(),
+        rows,
+        legend,
+    }
+}
+
+pub fn result_json(frame: &AsciiFrame) -> Value {
+    let legend = frame
+        .legend
+        .iter()
+        .map(|entry| {
+            json!({
+                "glyph": entry.glyph.to_string(),
+                "index": entry.index,
+                "r": entry.color.r,
+                "g": entry.color.g,
+                "b": entry.color.b,
+                "a": entry.color.a,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "width": frame.width,
+        "height": frame.height,
+        "activeFrame": frame.active_frame,
+        "rows": frame.rows,
+        "legend": legend,
+    })
+}
+
+/// Prints the grid to stderr. Stdout stays JSON.
+pub fn eprint_frame(frame: &AsciiFrame) {
+    eprintln!(
+        "pixelforge: preview {}x{} frame {}",
+        frame.width, frame.height, frame.active_frame
+    );
+    for row in &frame.rows {
+        eprintln!("{row}");
+    }
+    eprintln!("pixelforge: legend {}", legend_line(frame));
+}
+
+fn legend_line(frame: &AsciiFrame) -> String {
+    frame
+        .legend
+        .iter()
+        .map(legend_token)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn legend_token(entry: &LegendEntry) -> String {
+    if entry.index == 0 {
+        return ". = 0".to_string();
+    }
+    let hex = format!(
+        "#{:02x}{:02x}{:02x}",
+        entry.color.r, entry.color.g, entry.color.b
+    );
+    if entry.glyph == '*' {
+        format!("*={} {hex}", entry.index)
+    } else {
+        format!("{}={hex}", entry.glyph)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glyphs_cover_the_studio_palette_and_stay_one_column() {
+        assert_eq!(glyph(0), '.');
+        assert_eq!(glyph(1), '1');
+        assert_eq!(glyph(9), '9');
+        assert_eq!(glyph(10), 'A');
+        assert_eq!(glyph(35), 'Z');
+        assert_eq!(glyph(36), 'a');
+        assert_eq!(glyph(61), 'z');
+        assert_eq!(glyph(62), '*');
+        assert_eq!(glyph(255), '*');
+    }
+
+    #[test]
+    fn render_marks_a_filled_rect_and_lists_its_color() {
+        let mut document = Document::new(4, 2).unwrap();
+        document.fill_rect(1, 0, 2, 1, 3).unwrap();
+        let frame = render(&document);
+        assert_eq!(frame.rows, vec![".33.".to_string(), "....".to_string()]);
+        assert_eq!(frame.active_frame, 0);
+        let three = frame
+            .legend
+            .iter()
+            .find(|entry| entry.index == 3)
+            .expect("index 3 is used");
+        assert_eq!(three.glyph, '3');
+        assert_eq!(three.color.r, 232);
+        assert!(legend_line(&frame).contains("3=#e85d4c"));
+    }
+}
