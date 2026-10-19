@@ -20,6 +20,7 @@ PixelForge AI 是自建的像素工作室平台与工具：画布像素、调色
 | --- | --- | --- |
 | 可视化界面 / 桌面与网页外壳 | **TypeScript** | 画布视图、调色板面板、时间轴与播放预览、撤销交互、网页或桌面外壳 |
 | 核心内核 | **Rust** | 像素网格、调色板、帧与时间轴数据、工程文件、导出、Tool API |
+| 本地 Agent 入口 | **`pixelforge` CLI**（Rust） | 打开磁盘上的 `pixelforge-project`，调用 Tool API，向 stdout 打印 JSON。对话留在仓库外的 Agent |
 | 桌面封装（可选） | **Tauri** | 当桌面外壳需要包住 Rust 内核时使用；打包方式，不是第二套核心 |
 | 智能 | **外部 AI**（例如 GPT-6 Astra） | 通过 Tool API 驱动内核；模型留在提供方 |
 
@@ -27,8 +28,9 @@ PixelForge AI 是自建的像素工作室平台与工具：画布像素、调色
 
 - Godot、GDScript、C# 不进入编辑器或内核。
 - Python AI 服务不是主路径。不自建推理服务来夹在模型和编辑器之间。
+- Agent 入口是 `pixelforge` CLI，不是应用内聊天，也不是 MCP 服务器。
 
-*Out of the stack: Godot, GDScript, and C# do not enter the editor or the kernel. A Python AI service is not the primary path. We do not stand up our own inference service between the model and the editor.*
+*Out of the stack: Godot, GDScript, and C# do not enter the editor or the kernel. A Python AI service is not the primary path. We do not stand up our own inference service between the model and the editor. The agent entry is the `pixelforge` CLI, not an in-app chat and not an MCP server.*
 
 ## 为什么 Why
 
@@ -60,9 +62,9 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 
 ### 外部 AI
 
-产品是工具和平台。GPT-6 Astra 这类模型负责理解意图和多轮修订，通过 Tool API 改像素、换色板、加帧、导出。训练、权重和推理留在模型提供方。
+产品是工具和平台。仓库外的 Agent（Codex、Claude Code，或 GPT-6 Astra 这类模型）负责理解意图和多轮修订，通过本地 `pixelforge` CLI 调用 Tool API，改像素、换色板、加帧、导出。训练、权重和推理留在模型提供方。对话也留在 Agent 那里。网页外壳里的一轮面板是可选演示，不是这条路径。
 
-*The product is tools and a platform. Models such as GPT-6 Astra interpret intent and multi-turn revisions, then change pixels, palettes, frames, and export through the Tool API. Training, weights, and inference stay with the model provider.*
+*The product is tools and a platform. An agent outside this repository (Codex, Claude Code, or a model such as GPT-6 Astra) interprets intent and multi-turn revisions, then changes pixels, palettes, frames, and export by running the local `pixelforge` CLI against the Tool API. Training, weights, and inference stay with the model provider. The conversation stays with the agent. The one-turn panel in the web shell is an optional demo, not this path.*
 
 ## 边界 Boundaries
 
@@ -101,19 +103,23 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 
 我们不训练模型。
 
-外部 AI（例如 GPT-6 Astra，以及日后接入的真像素或像素化模型）是 Tool API 的调用方。一次修订的闭环是：
+外部 Agent（例如 Codex、Claude Code、GPT-6 Astra，以及日后接入的真像素或像素化模型）是 Tool API 的调用方。一次修订的闭环是：
 
-1. 模型提出工具调用（改像素、换色板、加帧、导出）。
-2. Rust 内核执行，并更新工程。
-3. TypeScript 外壳预览结果，人可以撤销或接手同一工程。
+1. Agent 读 [agent-skill.md](agent-skill.md)，对磁盘上的工程文件运行 `pixelforge`。
+2. CLI 把 Tool API JSON 交给 `Document::call_tool`。Rust 内核执行，并写回工程文件。
+3. 人可以在 TypeScript 外壳里打开同一份工程，继续画，或撤销文件里还留得住的那一步。
 
 终稿必须落在内核的索引色网格上。只是「看起来像像素」的图像不能当作终稿写回工程。
 
+网页里的一轮 AI 面板可以演示同一次 `call_tool`，它不是 Agent 的主路径。不在应用内做多轮对话。MCP 不在这一阶段；以后若要接，只做这支 CLI 的薄封装，不另写一套像素路径。
+
 *We do not train models.*
 
-*External AI (for example GPT-6 Astra, and later true-pixel or pixelation models) is a caller of the Tool API. One revision loop is: the model proposes a tool call (edit pixels, swap palette, add frames, export); the Rust kernel applies it and updates the project; the TypeScript shell previews the result, and a person can undo or take over the same project.*
+*An external agent (for example Codex, Claude Code, GPT-6 Astra, and later true-pixel or pixelation models) is a caller of the Tool API. One revision loop is: the agent reads [agent-skill.md](agent-skill.md) and runs `pixelforge` on a project file; the CLI passes Tool API JSON to `Document::call_tool`, and the Rust kernel applies it and writes the project; a person can open that same file in the TypeScript shell, keep drawing, or undo a step the file still holds.*
 
 *Final pixels land on the kernel's indexed grid. An image that only looks pixelated is not written back as the finished asset.*
+
+*The one-turn AI panel in the web shell can demo the same `call_tool`. It is not the primary agent path. An in-app multi-turn chat is not the product. MCP is out of this stage. A later wrapper, if any, would be a thin layer over this CLI, not a second pixel path.*
 
 ## 非目标 Non-goals
 
@@ -121,10 +127,12 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 - **SVG 当作引擎。** 矢量不是文档模型、动画模型或导出真相。若将来接受矢量，只作为参考或导入，写回前必须栅格化到索引色网格。
 - **自训与 Python 主服务。** 不训练自有模型，不以 Python 推理服务作为主架构。
 - **完整游戏引擎，或一句话生成整款游戏。** 与 README 中的产品边界一致。
+- **应用内多轮对话。** 不在外壳里做 [#14](https://github.com/starcloud530/pixelforge-ai/issues/14) 那种嵌入式聊天。外部 Agent 自己保留对话，通过 CLI 改工程。
+- **MCP 服务器。** 这一阶段不做。若以后要接，只做 `pixelforge` CLI 的薄封装。
 
 导出物可以被 Godot、Unity 等引擎导入。导入约定写在导出文档里，那是消费端约定，不是编辑器技术栈。
 
-*Non-goals: a Godot fork (no embedded Godot, no GDScript or C# editor); SVG as the engine (vectors are not the document, animation, or export source of truth; a future vector import would rasterize onto the indexed grid before it is stored); training our own models or a Python inference service as the primary architecture; a full game engine or text-to-a-whole-game.*
+*Non-goals: a Godot fork (no embedded Godot, no GDScript or C# editor); SVG as the engine (vectors are not the document, animation, or export source of truth; a future vector import would rasterize onto the indexed grid before it is stored); training our own models or a Python inference service as the primary architecture; a full game engine or text-to-a-whole-game; an in-app multi-turn chat ([#14](https://github.com/starcloud530/pixelforge-ai/issues/14) — the external agent keeps the conversation and edits the project through the CLI); an MCP server in this stage (a later wrapper would only call the `pixelforge` CLI).*
 
 *Exported files may be imported by engines such as Godot or Unity. Those import conventions belong in export docs. They are a consumer contract, not the editor stack.*
 
@@ -142,12 +150,12 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 | M7–M8 L4 自动驾驶 + 游戏验证 | 2027-05 → 2027-06 | 同一 Tool API 上完成生成结果落格、调色板约束、补帧、导出 | 关键节点可人审 | 外部真像素或像素化模型作为调用方。验收是丧尸/据点道具精灵包，游戏原型消费导出物 |
 | M9 打磨与交付 | 2027-07 | 内核放进安装包 | 安装与运行说明；可选 Tauri 桌面封装 | 沿用已有外部调用，本阶段不新增模型栈。许可证与对外说明另计 |
 
-M1–M2 的验收仍然是手绘闭环，不提前做自动驾驶。M5 之后所有写像素的路径，包括模型和界面，都进 Rust Tool API。
+M1–M2 的验收仍然是手绘闭环，不提前做自动驾驶。M5 之后所有写像素的路径，包括模型和界面，都进 Rust Tool API。仓库外的 Agent 走 `pixelforge` CLI。网页里的一轮面板只是演示。
 
-*M1–M2 still accepts a manual drawing loop. Autopilot waits. From M5 on, every path that writes pixels — model or UI — goes through the Rust Tool API.*
+*M1–M2 still accepts a manual drawing loop. Autopilot waits. From M5 on, every path that writes pixels — model or UI — goes through the Rust Tool API. An agent outside the repository uses the `pixelforge` CLI. The one-turn panel in the web shell is only a demo.*
 
 ## 一句话 In one line
 
-TypeScript 给人看，Rust 记像素，外部模型调工具。
+TypeScript 给人看，Rust 记像素，外部 Agent 通过本地 CLI 调工具。
 
-*TypeScript shows the work, Rust stores the pixels, and external models call the tools.*
+*TypeScript shows the work, Rust stores the pixels, and an external agent calls the tools through the local CLI.*

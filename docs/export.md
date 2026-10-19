@@ -10,9 +10,9 @@
 
 ## PNG 序列 PNG sequence
 
-一帧一个文件，顺序就是时间轴顺序。网页下载的文件名是 `pixelforge-000.png`、`pixelforge-001.png`，至少三位、从 0 起，按文件名排序就是播放顺序。尺寸等于画布，不放大。
+一帧一个文件，顺序就是时间轴顺序。网页下载的文件名是 `pixelforge-000.png`、`pixelforge-001.png`，至少三位、从 0 起，按文件名排序就是播放顺序。尺寸等于画布，不放大。`pixelforge export png` 写出同样的文件名。`pixelforge export sheet` 的网格和这些字节相同，路径由调用方指定。
 
-*One file per frame, in timeline order. The page downloads `pixelforge-000.png`, `pixelforge-001.png`, and so on: at least three digits, starting at 0, so a filename sort is the playback order. The size is the canvas size, with no scale applied.*
+*One file per frame, in timeline order. The page downloads `pixelforge-000.png`, `pixelforge-001.png`, and so on: at least three digits, starting at 0, so a filename sort is the playback order. The size is the canvas size, with no scale applied. `pixelforge export png` writes those same file names. `pixelforge export sheet` uses this same grid and these same bytes; the caller chooses the path.*
 
 ## Sprite sheet
 
