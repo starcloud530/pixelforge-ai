@@ -1,0 +1,423 @@
+//! Drives a document only through [`pixelforge_kernel::Document::call_tool`].
+
+use pixelforge_kernel::{Document, TOOL_API_VERSION, TOOL_NAMES};
+use serde_json::{json, Value};
+
+fn call(document: &mut Document, body: Value) -> Value {
+    let raw = document.call_tool(&body.to_string());
+    serde_json::from_str(&raw).expect("tool response is JSON")
+}
+
+fn tool(document: &mut Document, name: &str, params: Value) -> Value {
+    let response = call(
+        document,
+        json!({
+            "apiVersion": TOOL_API_VERSION,
+            "id": name,
+            "tool": name,
+            "params": params,
+        }),
+    );
+    assert_eq!(response["ok"], json!(true), "{name}: {response}");
+    assert_eq!(response["apiVersion"], json!(TOOL_API_VERSION));
+    assert_eq!(response["id"], json!(name));
+    response["result"].clone()
+}
+
+fn tool_err(document: &mut Document, name: &str, params: Value) -> Value {
+    let response = call(document, json!({ "tool": name, "params": params }));
+    assert_eq!(response["ok"], json!(false), "{name}: {response}");
+    assert_eq!(response["apiVersion"], json!(TOOL_API_VERSION));
+    assert!(response.get("id").is_none(), "{response}");
+    response["error"].clone()
+}
+
+fn doc() -> Document {
+    Document::new(16, 16).expect("16 is a valid canvas edge")
+}
+
+#[test]
+fn paint_frame_export_undo_and_project_round_trip() {
+    let mut document = doc();
+    let before = tool(&mut document, "inspect", json!({}));
+    assert_eq!(before["width"], json!(16));
+    assert_eq!(before["height"], json!(16));
+    assert_eq!(before["paletteLocked"], json!(false));
+    assert_eq!(before["frameCount"], json!(1));
+    assert_eq!(before["activeFrame"], json!(0));
+    assert_eq!(before["delayMs"], json!(100));
+    assert_eq!(before["frameDelays"], json!([100]));
+    assert_eq!(before["canUndo"], json!(false));
+    assert_eq!(before["pixels"].as_array().unwrap().len(), 16 * 16);
+    assert_eq!(
+        before["palette"][0],
+        json!({"r": 0, "g": 0, "b": 0, "a": 0})
+    );
+
+    tool(&mut document, "beginGesture", json!({}));
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 2, "colorIndex": 3}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 2, "y": 2, "colorIndex": 4}),
+    );
+    tool(&mut document, "endGesture", json!({}));
+
+    let painted = tool(&mut document, "inspect", json!({}));
+    assert_eq!(painted["pixels"][2 * 16 + 1], json!(3));
+    assert_eq!(painted["pixels"][2 * 16 + 2], json!(4));
+    assert_eq!(painted["canUndo"], json!(true));
+    assert_eq!(painted["gestureOpen"], json!(false));
+
+    assert_eq!(
+        tool(&mut document, "addFrame", json!({}))["index"],
+        json!(1)
+    );
+    tool(&mut document, "setActiveFrame", json!({"index": 1}));
+    tool(
+        &mut document,
+        "setFrameDelay",
+        json!({"index": 1, "delayMs": 80}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    let copied = tool(&mut document, "duplicateFrame", json!({"index": 1}));
+    assert_eq!(copied["index"], json!(2));
+
+    let active = tool(&mut document, "inspect", json!({}));
+    assert_eq!(active["frameCount"], json!(3));
+    assert_eq!(active["activeFrame"], json!(1));
+    assert_eq!(active["delayMs"], json!(80));
+    assert_eq!(active["frameDelays"], json!([100, 80, 80]));
+    assert_eq!(active["pixels"][0], json!(1));
+
+    let sequence = tool(&mut document, "exportPngSequence", json!({}));
+    let frames = sequence["frames"].as_array().unwrap();
+    assert_eq!(frames.len(), 3);
+    let first = frames[0].as_str().unwrap();
+    let second = frames[1].as_str().unwrap();
+    assert!(first.starts_with("iVBORw0KGgoAAA"), "{first}");
+    assert!(second.starts_with("iVBORw0KGgoAAA"));
+    assert_ne!(first, second);
+    assert_eq!(second, frames[2].as_str().unwrap());
+
+    let sheet = tool(&mut document, "exportSpriteSheet", json!({}));
+    assert_eq!(sheet["columns"], json!(2));
+    assert_eq!(sheet["rows"], json!(2));
+    assert_eq!(sheet["sheetWidth"], json!(32));
+    assert_eq!(sheet["sheetHeight"], json!(32));
+    let png = sheet["png"].as_str().unwrap();
+    assert!(png.starts_with("iVBORw0KGgoAAA"));
+    assert!(png.len() > first.len());
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["canUndo"],
+        json!(true),
+        "export does not push an undo entry"
+    );
+
+    let undone = tool(&mut document, "undo", json!({}));
+    assert_eq!(undone["canRedo"], json!(true));
+    let after_undo = tool(&mut document, "inspect", json!({}));
+    assert_eq!(after_undo["frameCount"], json!(2));
+    assert_eq!(after_undo["pixels"][0], json!(1));
+
+    let redone = tool(&mut document, "redo", json!({}));
+    assert_eq!(redone["canUndo"], json!(true));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["frameCount"],
+        json!(3)
+    );
+
+    let saved = tool(&mut document, "saveProject", json!({}));
+    let project = saved["json"].as_str().unwrap().to_string();
+    assert!(project.contains("\"format\": \"pixelforge-project\""));
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 4, "y": 4, "colorIndex": 2}),
+    );
+    let loaded = tool(&mut document, "loadProject", json!({ "json": project }));
+    assert_eq!(loaded["frameCount"], json!(3));
+    assert_eq!(loaded["activeFrame"], json!(1));
+    assert_eq!(loaded["frameDelays"], json!([100, 80, 80]));
+    assert_eq!(loaded["pixels"][0], json!(1));
+    assert_eq!(loaded["pixels"][4 * 16 + 4], json!(0));
+    assert_eq!(loaded["canUndo"], json!(false));
+    assert_eq!(loaded["canRedo"], json!(false));
+
+    tool(&mut document, "setActiveFrame", json!({"index": 0}));
+    let frame_zero = tool(&mut document, "inspect", json!({}));
+    assert_eq!(frame_zero["pixels"][2 * 16 + 1], json!(3));
+    assert_eq!(frame_zero["pixels"][2 * 16 + 2], json!(4));
+
+    let cleared = tool(&mut document, "undo", json!({}));
+    assert_eq!(cleared["canUndo"], json!(false));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["activeFrame"],
+        json!(1)
+    );
+}
+
+#[test]
+fn rejects_bad_indices_and_a_locked_palette_without_mutating() {
+    let mut document = doc();
+    let palette = tool(&mut document, "inspect", json!({}))["palette"].clone();
+
+    let out_of_bounds = tool_err(
+        &mut document,
+        "paint",
+        json!({"x": 16, "y": 0, "colorIndex": 1}),
+    );
+    assert_eq!(out_of_bounds["code"], json!("OutOfBounds"));
+    let transparent = tool_err(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 0}),
+    );
+    assert_eq!(transparent["code"], json!("PaletteIndex"));
+    let erase = tool_err(&mut document, "erase", json!({"x": 0, "y": 16}));
+    assert_eq!(erase["code"], json!("OutOfBounds"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["canUndo"],
+        json!(false)
+    );
+
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    let still_there = tool_err(&mut document, "erase", json!({"x": 99, "y": 0}));
+    assert_eq!(still_there["code"], json!("OutOfBounds"));
+    tool(&mut document, "undo", json!({}));
+    let cleared = tool(&mut document, "inspect", json!({}));
+    assert_eq!(cleared["pixels"][0], json!(0));
+    assert_eq!(cleared["canUndo"], json!(false));
+    let empty_undo = tool_err(&mut document, "undo", json!({}));
+    assert_eq!(empty_undo["code"], json!("NothingToUndo"));
+
+    tool(&mut document, "setPaletteLocked", json!({"locked": true}));
+    let locked = tool(&mut document, "inspect", json!({}));
+    assert_eq!(locked["paletteLocked"], json!(true));
+    let recolor = tool_err(
+        &mut document,
+        "setPaletteColor",
+        json!({"index": 1, "r": 9, "g": 8, "b": 7}),
+    );
+    assert_eq!(recolor["code"], json!("PaletteLocked"));
+    assert_eq!(recolor["message"], json!("palette is locked"));
+    let append = tool_err(
+        &mut document,
+        "addPaletteColor",
+        json!({"r": 1, "g": 2, "b": 3}),
+    );
+    assert_eq!(append["code"], json!("PaletteLocked"));
+    let import = tool_err(
+        &mut document,
+        "importPalette",
+        json!({"text": "ff0000\n", "mode": "replace"}),
+    );
+    assert_eq!(import["code"], json!("PaletteLocked"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["palette"],
+        palette
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 0, "colorIndex": 2}),
+    );
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][1],
+        json!(2)
+    );
+
+    tool(&mut document, "setPaletteLocked", json!({"locked": false}));
+    let added = tool(
+        &mut document,
+        "addPaletteColor",
+        json!({"r": 1, "g": 2, "b": 3}),
+    );
+    assert_eq!(added["index"], json!(9));
+    tool(
+        &mut document,
+        "importPalette",
+        json!({"text": "#112233 ink\n112233\n", "mode": "merge"}),
+    );
+    let merged = tool(&mut document, "inspect", json!({}));
+    assert_eq!(merged["palette"].as_array().unwrap().len(), 11);
+    assert_eq!(
+        merged["palette"][10],
+        json!({"r": 17, "g": 34, "b": 51, "a": 255})
+    );
+    let mode = tool_err(
+        &mut document,
+        "importPalette",
+        json!({"text": "ff0000\n", "mode": "nope"}),
+    );
+    assert_eq!(mode["code"], json!("PaletteImportMode"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["palette"]
+            .as_array()
+            .unwrap()
+            .len(),
+        11
+    );
+
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 3, "y": 0, "colorIndex": 5}),
+    );
+    tool(
+        &mut document,
+        "importPalette",
+        json!({"text": "ff0000\n", "mode": "replace"}),
+    );
+    let replaced = tool(&mut document, "inspect", json!({}));
+    assert_eq!(replaced["palette"].as_array().unwrap().len(), 2);
+    assert_eq!(replaced["pixels"][3], json!(0));
+    tool(&mut document, "undo", json!({}));
+    let restored = tool(&mut document, "inspect", json!({}));
+    assert_eq!(restored["pixels"][3], json!(5));
+    assert!(restored["palette"].as_array().unwrap().len() > 2);
+
+    let last = tool_err(&mut document, "deleteFrame", json!({"index": 0}));
+    assert_eq!(last["code"], json!("LastFrame"));
+    assert_eq!(
+        tool(&mut document, "addFrame", json!({}))["index"],
+        json!(1)
+    );
+    let missing_frame = tool_err(&mut document, "deleteFrame", json!({"index": 4}));
+    assert_eq!(missing_frame["code"], json!("FrameIndex"));
+    tool(&mut document, "deleteFrame", json!({"index": 1}));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["frameCount"],
+        json!(1)
+    );
+    let delay = tool_err(
+        &mut document,
+        "setFrameDelay",
+        json!({"index": 0, "delayMs": 0}),
+    );
+    assert_eq!(delay["code"], json!("FrameDelay"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["delayMs"],
+        json!(100)
+    );
+}
+
+#[test]
+fn one_gesture_undoes_both_pixels() {
+    let mut document = doc();
+    tool(&mut document, "beginGesture", json!({}));
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 0, "colorIndex": 2}),
+    );
+    let open = tool_err(&mut document, "beginGesture", json!({}));
+    assert_eq!(open["code"], json!("OpenGesture"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["gestureOpen"],
+        json!(true)
+    );
+    tool(&mut document, "endGesture", json!({}));
+    tool(&mut document, "undo", json!({}));
+    let cleared = tool(&mut document, "inspect", json!({}));
+    assert_eq!(cleared["pixels"][0], json!(0));
+    assert_eq!(cleared["pixels"][1], json!(0));
+    assert_eq!(cleared["canUndo"], json!(false));
+    assert_eq!(cleared["canRedo"], json!(true));
+}
+
+#[test]
+fn rejects_unknown_tools_and_bad_requests_without_mutating() {
+    let mut document = doc();
+    let response = call(
+        &mut document,
+        json!({"id": "step-1", "tool": "paintPixels"}),
+    );
+    assert_eq!(response["ok"], json!(false));
+    assert_eq!(response["id"], json!("step-1"));
+    assert_eq!(response["error"]["code"], json!("UnknownTool"));
+    assert_eq!(
+        response["error"]["message"],
+        json!("unknown tool \"paintPixels\"")
+    );
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["canUndo"],
+        json!(false)
+    );
+
+    let missing = tool_err(&mut document, "paint", json!({"x": 0, "y": 0}));
+    assert_eq!(missing["code"], json!("InvalidParams"));
+    assert_eq!(missing["message"], json!("paint: missing colorIndex"));
+    let extra = tool_err(
+        &mut document,
+        "erase",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    assert_eq!(extra["message"], json!("erase: unknown field colorIndex"));
+    let typed = tool_err(&mut document, "setPaletteLocked", json!({"locked": 1}));
+    assert_eq!(
+        typed["message"],
+        json!("setPaletteLocked: locked must be a boolean")
+    );
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][0],
+        json!(0)
+    );
+
+    let broken = call(&mut document, json!("paint"));
+    assert_eq!(broken["error"]["code"], json!("InvalidRequest"));
+    assert_eq!(
+        broken["error"]["message"],
+        json!("request must be a JSON object")
+    );
+    let junk = document.call_tool("not json");
+    let junk: Value = serde_json::from_str(&junk).unwrap();
+    assert_eq!(junk["error"]["message"], json!("request is not JSON"));
+
+    let version = call(
+        &mut document,
+        json!({"apiVersion": 2, "id": 7, "tool": "inspect"}),
+    );
+    assert_eq!(version["id"], json!(7));
+    assert_eq!(version["error"]["code"], json!("UnsupportedVersion"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["frameCount"],
+        json!(1)
+    );
+
+    let project = tool_err(&mut document, "loadProject", json!({"json": "{"}));
+    assert_eq!(project["code"], json!("ProjectFile"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["width"],
+        json!(16)
+    );
+}
+
+#[test]
+fn every_catalog_name_is_a_known_tool() {
+    assert_eq!(TOOL_NAMES.len(), 20);
+    for name in TOOL_NAMES {
+        let mut document = doc();
+        let response = call(&mut document, json!({ "tool": name }));
+        let code = response["error"]["code"].as_str();
+        assert_ne!(code, Some("UnknownTool"), "{name}: {response}");
+        assert_ne!(code, Some("InvalidRequest"), "{name}: {response}");
+    }
+}

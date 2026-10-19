@@ -113,6 +113,12 @@ export interface PixelKernel {
   spriteSheetColumns(): number;
   /** Rows in the sprite sheet: `ceil(frameCount / columns)`. */
   spriteSheetRows(): number;
+  /**
+   * One Tool API call on this same document.
+   * `request` and the return value are JSON. A refused tool stays in the body
+   * (`ok: false`) and is not thrown. See `docs/tool-api.md`.
+   */
+  callTool(request: string): string;
 }
 
 /** `replace` swaps paint colors. `merge` appends colors that are not already present. */

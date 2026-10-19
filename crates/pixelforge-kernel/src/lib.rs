@@ -12,9 +12,11 @@
 //! [`Document::save_project`] and [`Document::load_project`]. PNG sequence and
 //! sprite-sheet export resolve the indexed palette to RGBA.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
-//! as onion skin; it is not part of the document. The Tool API is a later
-//! layer. See `docs/tech-stack.md`, `docs/dev-setup.md`, and `docs/export.md`.
-//! The browser shell calls this crate through `pixelforge-kernel-wasm`.
+//! as onion skin; it is not part of the document. [`Document::call_tool`] is
+//! the stable Tool API: named JSON tools that dispatch onto this document and
+//! its undo stack. See `docs/tech-stack.md`, `docs/dev-setup.md`,
+//! `docs/export.md`, and `docs/tool-api.md`. The browser shell calls this
+//! crate through `pixelforge-kernel-wasm`.
 
 mod color;
 mod document;
@@ -25,6 +27,7 @@ mod history;
 mod palette;
 mod palette_file;
 mod project;
+mod tool_api;
 
 pub use color::Rgba;
 pub use document::Document;
@@ -34,6 +37,7 @@ pub use frame::Frame;
 pub use palette::Palette;
 pub use palette_file::PaletteImportMode;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
+pub use tool_api::{TOOL_API_VERSION, TOOL_NAMES};
 
 /// Oldest undo entries past this depth are dropped.
 pub const MAX_UNDO: usize = 100;

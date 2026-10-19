@@ -1,15 +1,17 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, palette edits, palette lock, palette import, frame-list methods, per-frame
-//! delay, timeline scrub, loop playback, undo / redo, project save / load,
-//! `frameRgba`, and PNG export. Pixel rules, delays, the playback clock, the
-//! undo stack, the project file, and PNG bytes stay in the kernel. `frameRgba`
-//! copies the same RGBA a PNG would encode for that frame; the shell uses it
-//! for onion skin and does not write it back. This module only copies bytes
-//! across the boundary
-//! and turns [`pixelforge_kernel::KernelError`] into a `Code: message` string
-//! the shell maps back onto its `KernelError`.
+//! `snapshot()`, `paint`, `erase`, palette edits, palette lock, palette import,
+//! frame-list methods, per-frame delay, timeline scrub, loop playback, undo /
+//! redo, project save / load, `frameRgba`, and PNG export. `callTool` is the
+//! same Tool API as [`pixelforge_kernel::Document::call_tool`]: one JSON
+//! request in, one JSON response out, on this document. Pixel rules, delays,
+//! the playback clock, the undo stack, the project file, and PNG bytes stay in
+//! the kernel. `frameRgba` copies the same RGBA a PNG would encode for that
+//! frame; the shell uses it for onion skin and does not write it back. This
+//! module only copies bytes across the boundary and turns
+//! [`pixelforge_kernel::KernelError`] into a `Code: message` string the shell
+//! maps back onto its `KernelError`. Tool API failures stay in the JSON body.
 
 use pixelforge_kernel::{Document, KernelError};
 use wasm_bindgen::prelude::*;
@@ -32,6 +34,17 @@ impl PixelDocument {
         Document::new(width, height)
             .map(|inner| Self { inner })
             .map_err(reject)
+    }
+
+    /// Runs one Tool API request against this document.
+    ///
+    /// `request` is JSON `{ "tool", "params" }`. The return value is always
+    /// JSON `{ "ok", "apiVersion", "result" | "error" }`. A refused tool stays
+    /// in that object and is not thrown. Mutations use the same document as
+    /// `paint` and `undo`. See `docs/tool-api.md`.
+    #[wasm_bindgen(js_name = callTool)]
+    pub fn call_tool(&mut self, request: &str) -> String {
+        self.inner.call_tool(request)
     }
 
     pub fn width(&self) -> u16 {
@@ -646,5 +659,27 @@ mod tests {
             document.import_palette("ff0000\n", "nope").unwrap_err(),
             "PaletteImportMode: palette import mode must be replace or merge"
         );
+    }
+
+    #[test]
+    fn call_tool_writes_the_same_document() {
+        let mut document = doc();
+        let painted =
+            document.call_tool(r#"{"tool":"paint","params":{"x":1,"y":0,"colorIndex":2}}"#);
+        assert!(painted.contains("\"ok\":true"), "{painted}");
+        assert_eq!(document.pixels()[1], 2);
+        assert!(document.can_undo());
+
+        let missing = document.call_tool(r#"{"tool":"setActiveFrame","params":{"index":3}}"#);
+        assert!(missing.contains("\"code\":\"FrameIndex\""), "{missing}");
+        assert_eq!(document.active_frame(), 0);
+        assert_eq!(document.pixels()[1], 2);
+
+        document.call_tool(r#"{"tool":"setPaletteLocked","params":{"locked":true}}"#);
+        let locked = document
+            .call_tool(r#"{"tool":"setPaletteColor","params":{"index":1,"r":1,"g":2,"b":3}}"#);
+        assert!(locked.contains("\"code\":\"PaletteLocked\""), "{locked}");
+        assert_eq!(&document.palette_rgba()[4..8], &[26, 28, 36, 255]);
+        assert_eq!(document.pixels()[1], 2);
     }
 }

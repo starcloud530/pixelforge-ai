@@ -58,19 +58,19 @@ Google Playground and Unity Spark aim at text → full games. We aim at text or 
 
 ## 状态 Status
 
-早期，开发中（WIP）。
+早期，开发中（WIP）。M5 Tool API 已在 Rust 内核提供稳定的机器可读接口，目录见 [docs/tool-api.md](docs/tool-api.md)。外部模型尚未接入。
 
-Early / work in progress.
+Early / work in progress. The M5 Tool API is a stable machine-readable surface in the Rust kernel; the catalog is [docs/tool-api.md](docs/tool-api.md). An external model is not wired up yet.
 
 ## 开发 Development
 
 本地骨架分成两层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮、帧的增删复制，以及记录这些操作的撤销栈），TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。`crates/pixelforge-kernel-wasm` 用 wasm-bindgen 把这份内核编进浏览器。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。
 
-外壳的画笔、橡皮、调色板编辑、帧列表（新增空白帧、复制当前帧、删除当前帧且至少留一帧）、帧时间轴（拖动选帧、每帧时长、循环播放）、撤销/重做、工程打开/保存，以及透明 PNG 序列和网格 sprite sheet 导出，都调用 wasm 里的同一份 Rust `Document`。画笔只写入调色板索引。色板可以锁定（写入工程文件），也可以从 GIMP 调色板（`.gpl`）或十六进制列表导入，替换或合并进当前色板，并记在撤销栈上。洋葱皮把前一帧和后一帧半透明叠在当前帧下面，方便补间；循环播放时先藏起，停下后再显示。它只存在于视图，不写入像素、工程文件或 PNG。导入 Godot / Unity 的约定见 [docs/export.md](docs/export.md)。格式说明见 [docs/dev-setup.md](docs/dev-setup.md)。
+外壳的画笔、橡皮、调色板编辑、帧列表（新增空白帧、复制当前帧、删除当前帧且至少留一帧）、帧时间轴（拖动选帧、每帧时长、循环播放）、撤销/重做、工程打开/保存，以及透明 PNG 序列和网格 sprite sheet 导出，都调用 wasm 里的同一份 Rust `Document`。画笔只写入调色板索引。色板可以锁定（写入工程文件），也可以从 GIMP 调色板（`.gpl`）或十六进制列表导入，替换或合并进当前色板，并记在撤销栈上。Agent 不走这些手势：`Document::call_tool`（wasm 上是 `callTool`）用 JSON 调用同一份文档和撤销栈，目录见 [docs/tool-api.md](docs/tool-api.md)。洋葱皮把前一帧和后一帧半透明叠在当前帧下面，方便补间；循环播放时先藏起，停下后再显示。它只存在于视图，不写入像素、工程文件或 PNG。导入 Godot / Unity 的约定见 [docs/export.md](docs/export.md)。格式说明见 [docs/dev-setup.md](docs/dev-setup.md)。
 
 Local skeleton: a Rust kernel in `crates/pixelforge-kernel` (canvas size, indexed pixels, palette, paint/erase, frame add/delete/duplicate, per-frame delay, and an undo stack of those operations) and a TypeScript shell in `apps/web` (Vite + React, nearest-neighbor view of the indexed grid). `crates/pixelforge-kernel-wasm` compiles that kernel into the browser with wasm-bindgen. Build and run: [docs/dev-setup.md](docs/dev-setup.md).
 
-Paint, erase, palette edits, the frame list (add a blank frame, duplicate the current frame, delete the current frame but never below one), the frame timeline (scrub, per-frame delay, and loop playback), undo/redo, project open/save, and transparent PNG-sequence plus grid sprite-sheet export in the shell call the same Rust `Document` inside wasm. Paint writes palette indices. The palette can be locked (the flag is stored in the project file) and imported from a GIMP palette (`.gpl`) or a hex list, replacing or merging into the document palette as one undo step. Onion skin composites the previous and next frames under the current frame at partial opacity. Loop playback hides that overlay and shows it again when playback stops. The overlay is view-only: it is not written into pixels, the project file, or PNG export. Godot / Unity import conventions: [docs/export.md](docs/export.md). Palette file formats: [docs/dev-setup.md](docs/dev-setup.md).
+Paint, erase, palette edits, the frame list (add a blank frame, duplicate the current frame, delete the current frame but never below one), the frame timeline (scrub, per-frame delay, and loop playback), undo/redo, project open/save, and transparent PNG-sequence plus grid sprite-sheet export in the shell call the same Rust `Document` inside wasm. Paint writes palette indices. The palette can be locked (the flag is stored in the project file) and imported from a GIMP palette (`.gpl`) or a hex list, replacing or merging into the document palette as one undo step. An agent does not go through those gestures: `Document::call_tool` (wasm `callTool`) runs JSON tools against that same document and undo stack. Catalog: [docs/tool-api.md](docs/tool-api.md). Onion skin composites the previous and next frames under the current frame at partial opacity. Loop playback hides that overlay and shows it again when playback stops. The overlay is view-only: it is not written into pixels, the project file, or PNG export. Godot / Unity import conventions: [docs/export.md](docs/export.md). Palette file formats: [docs/dev-setup.md](docs/dev-setup.md).
 
 ## 许可证 License
 
