@@ -32,6 +32,14 @@ type Tool = "paint" | "erase";
 const SCALES = [8, 16, 24] as const;
 const PROJECT_FILENAME = "pixelforge-project.json";
 
+function framePngName(index: number): string {
+  return `pixelforge-${index.toString().padStart(3, "0")}.png`;
+}
+
+function sheetPngName(columns: number, rows: number): string {
+  return `pixelforge-sheet-${columns}x${rows}.png`;
+}
+
 export function App() {
   const [kernel, setKernel] = useState<PixelKernel>(() => createKernel());
   const [revision, setRevision] = useState(0);
@@ -40,6 +48,8 @@ export function App() {
   const [scale, setScale] = useState<number>(16);
   const [showGrid, setShowGrid] = useState(true);
   const [projectError, setProjectError] = useState<string | null>(null);
+  const [exportNote, setExportNote] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const snapshot = useMemo(() => kernel.snapshot(), [kernel, revision]);
@@ -186,6 +196,39 @@ export function App() {
     setProjectError(null);
   }
 
+  function exportPngSequence() {
+    const count = kernel.snapshot().frameCount;
+    try {
+      for (let index = 0; index < count; index += 1) {
+        downloadBytes(framePngName(index), kernel.exportFramePng(index), "image/png");
+      }
+      const last = framePngName(count - 1);
+      setExportError(null);
+      setExportNote(
+        count === 1
+          ? `已下载 ${framePngName(0)}。索引 0 是透明像素。`
+          : `已下载 ${count} 个 PNG：${framePngName(0)} 到 ${last}。索引 0 是透明像素。`,
+      );
+    } catch (error) {
+      setExportNote(null);
+      setExportError(`无法导出 PNG 序列：${errorText(error)}`);
+    }
+  }
+
+  function exportSpriteSheet() {
+    try {
+      const columns = kernel.spriteSheetColumns();
+      const rows = kernel.spriteSheetRows();
+      const name = sheetPngName(columns, rows);
+      downloadBytes(name, kernel.exportSpriteSheet(), "image/png");
+      setExportError(null);
+      setExportNote(`已下载 ${name}。${columns}×${rows} 格，从左到右再换行。`);
+    } catch (error) {
+      setExportNote(null);
+      setExportError(`无法导出 sprite sheet：${errorText(error)}`);
+    }
+  }
+
   function requestOpen() {
     fileInput.current?.click();
   }
@@ -206,6 +249,8 @@ export function App() {
             current > 0 && current < paletteLength ? current : Math.min(1, paletteLength - 1),
           );
           setProjectError(null);
+          setExportNote(null);
+          setExportError(null);
           touch();
         } catch (error) {
           setProjectError(`无法打开工程：${errorText(error)}`);
@@ -539,6 +584,29 @@ export function App() {
           </section>
 
           <section>
+            <h2>导出</h2>
+            <div className="tool-row" role="group" aria-label="导出">
+              <button type="button" onClick={exportPngSequence}>
+                PNG 序列
+              </button>
+              <button type="button" onClick={exportSpriteSheet}>
+                Sprite sheet
+              </button>
+            </div>
+            <p className="hint">
+              序列是一帧一个透明 PNG，按时间轴顺序，文件名从 {framePngName(0)} 起。Sprite sheet 是{" "}
+              {kernel.spriteSheetColumns()}×{kernel.spriteSheetRows()} 格，从左到右再换行，空位保持透明。时长留在时间轴上，不写进
+              PNG。
+            </p>
+            {exportNote ? <p className="hint">{exportNote}</p> : null}
+            {exportError ? (
+              <p className="alert" role="alert">
+                {exportError}
+              </p>
+            ) : null}
+          </section>
+
+          <section>
             <h2>视图</h2>
             <div className="tool-row" role="group" aria-label="放大倍数">
               {SCALES.map((value) => (
@@ -567,6 +635,8 @@ export function App() {
               onClick={() => {
                 setKernel(createKernel());
                 setProjectError(null);
+                setExportNote(null);
+                setExportError(null);
                 touch();
               }}
             >
@@ -619,8 +689,8 @@ export function App() {
 
       <footer className="footnote">
         <p>
-          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、时间轴、撤销和工程文件都进同一份
-          WebAssembly 文档。洋葱皮、导入色板和锁定色板还在后面的 issue 里。
+          视图把 Rust 内核里的索引像素按最近邻放大。画笔、橡皮、调色板、时间轴、撤销、工程文件和 PNG
+          导出都进同一份 WebAssembly 文档。洋葱皮、导入色板和锁定色板还在后面的 issue 里。
         </p>
       </footer>
     </div>
@@ -628,7 +698,15 @@ export function App() {
 }
 
 function downloadText(filename: string, contents: string): void {
-  const blob = new Blob([contents], { type: "application/json" });
+  downloadBlob(filename, new Blob([contents], { type: "application/json" }));
+}
+
+function downloadBytes(filename: string, bytes: Uint8Array, type: string): void {
+  const copy = new Uint8Array(bytes);
+  downloadBlob(filename, new Blob([copy], { type }));
+}
+
+function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

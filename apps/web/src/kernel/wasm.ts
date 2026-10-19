@@ -220,6 +220,26 @@ class WasmKernel implements PixelKernel {
   saveProject(): string {
     return this.doc.saveProject();
   }
+
+  exportFramePng(index: number): Uint8Array {
+    try {
+      return this.doc.exportFramePng(index);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
+  exportSpriteSheet(): Uint8Array {
+    return this.doc.exportSpriteSheet();
+  }
+
+  spriteSheetColumns(): number {
+    return this.doc.spriteSheetColumns();
+  }
+
+  spriteSheetRows(): number {
+    return this.doc.spriteSheetRows();
+  }
 }
 
 function paletteFromRgba(bytes: Uint8Array): Rgba[] {

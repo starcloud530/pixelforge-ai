@@ -2,9 +2,10 @@
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
 //! `snapshot()`, `paint`, `erase`, palette edits, frame-list methods, per-frame
-//! delay, timeline scrub, loop playback, undo / redo, and project save / load.
-//! Pixel rules, delays, the playback clock, the undo stack, and the project
-//! file stay in the kernel. This module only copies bytes across the boundary
+//! delay, timeline scrub, loop playback, undo / redo, project save / load, and
+//! PNG export. Pixel rules, delays, the playback clock, the undo stack, the
+//! project file, and PNG bytes stay in the kernel. This module only copies
+//! bytes across the boundary
 //! and turns [`pixelforge_kernel::KernelError`] into a `Code: message` string
 //! the shell maps back onto its `KernelError`.
 
@@ -209,6 +210,30 @@ impl PixelDocument {
         Document::load_project(json)
             .map(|inner| Self { inner })
             .map_err(reject)
+    }
+
+    /// RGBA PNG of one frame. Index 0 is transparent. Does not change the document.
+    #[wasm_bindgen(js_name = exportFramePng)]
+    pub fn export_frame_png(&self, index: u32) -> Result<Vec<u8>, String> {
+        self.inner.export_frame_png(as_index(index)).map_err(reject)
+    }
+
+    /// RGBA PNG of the grid sprite sheet. Does not change the document.
+    #[wasm_bindgen(js_name = exportSpriteSheet)]
+    pub fn export_sprite_sheet(&self) -> Vec<u8> {
+        self.inner.export_sprite_sheet()
+    }
+
+    /// Columns in [`Self::export_sprite_sheet`]: `ceil(sqrt(frame_count))`.
+    #[wasm_bindgen(js_name = spriteSheetColumns)]
+    pub fn sprite_sheet_columns(&self) -> u32 {
+        self.inner.sprite_sheet_layout().columns
+    }
+
+    /// Rows in [`Self::export_sprite_sheet`]: `ceil(frame_count / columns)`.
+    #[wasm_bindgen(js_name = spriteSheetRows)]
+    pub fn sprite_sheet_rows(&self) -> u32 {
+        self.inner.sprite_sheet_layout().rows
     }
 }
 
@@ -474,5 +499,30 @@ mod tests {
         assert_eq!(loaded.pixels()[0], added);
         assert!(!loaded.can_undo());
         assert!(!loaded.can_redo());
+    }
+
+    #[test]
+    fn export_pngs_come_from_the_kernel() {
+        let mut document = doc();
+        document.paint(0, 0, 1).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+
+        let first = document.export_frame_png(0).unwrap();
+        let second = document.export_frame_png(1).unwrap();
+        assert!(first.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(second.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_ne!(first, second);
+        assert!(document
+            .export_frame_png(2)
+            .unwrap_err()
+            .starts_with("FrameIndex:"));
+
+        assert_eq!(document.sprite_sheet_columns(), 2);
+        assert_eq!(document.sprite_sheet_rows(), 1);
+        let sheet = document.export_sprite_sheet();
+        assert!(sheet.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert!(sheet.len() > first.len());
     }
 }

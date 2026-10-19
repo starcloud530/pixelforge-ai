@@ -78,6 +78,17 @@ export interface PixelKernel {
   canRedo(): boolean;
   /** Version 1 `pixelforge-project` JSON. The kernel owns the bytes. */
   saveProject(): string;
+  /**
+   * RGBA PNG for one frame, timeline order. Index 0 is transparent.
+   * The kernel owns the encoding. The shell only downloads the bytes.
+   */
+  exportFramePng(index: number): Uint8Array;
+  /** RGBA PNG of the grid sprite sheet. The kernel owns the packing. */
+  exportSpriteSheet(): Uint8Array;
+  /** Columns in the sprite sheet: `ceil(sqrt(frameCount))`. */
+  spriteSheetColumns(): number;
+  /** Rows in the sprite sheet: `ceil(frameCount / columns)`. */
+  spriteSheetRows(): number;
 }
 
 export type KernelErrorCode =
