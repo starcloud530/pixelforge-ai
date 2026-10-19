@@ -7,8 +7,10 @@
 //! is left unchanged on failure, except that [`Document::load_project`]
 //! replaces it only after the file parses.
 //!
-//! This module does not call a model. External AI is a later caller of this
-//! surface. The catalog is `docs/tool-api.md`.
+//! This module does not call a model and does not read an API key. The
+//! TypeScript driver in `docs/ai-driver.md` is the caller that talks to an
+//! external model, then enters through [`Document::call_tool`]. The catalog
+//! is `docs/tool-api.md`.
 
 use serde::Serialize;
 use serde_json::{Map, Number, Value};
