@@ -221,6 +221,14 @@ class WasmKernel implements PixelKernel {
     return this.doc.saveProject();
   }
 
+  frameRgba(index: number): Uint8Array {
+    try {
+      return this.doc.frameRgba(index);
+    } catch (error) {
+      rethrow(error);
+    }
+  }
+
   exportFramePng(index: number): Uint8Array {
     try {
       return this.doc.exportFramePng(index);

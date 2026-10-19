@@ -6,6 +6,8 @@
 //!
 //! A sequence is one PNG per frame, in timeline order. A sprite sheet packs
 //! those same frames into one PNG. See [`sprite_sheet_layout`] for the grid.
+//! [`Document::frame_rgba`] returns that same resolved buffer for a view such
+//! as onion skin. It is not stored and is not encoded into the file.
 
 use png::{BitDepth, ColorType, Encoder};
 
@@ -80,10 +82,21 @@ pub fn sprite_sheet_layout(
 }
 
 impl Document {
+    /// Packed `r, g, b, a` for one frame, row-major, length `width * height * 4`.
+    ///
+    /// Same palette resolution as [`Self::export_frame_png`]: index 0 is
+    /// transparent, and every other index keeps the alpha stored on the palette.
+    /// Onion skin reads this buffer and composites it in the shell. The bytes
+    /// are not stored on the document, so they cannot land in the project file
+    /// or in an export unless a caller writes them there.
+    pub fn frame_rgba(&self, index: usize) -> Result<Vec<u8>, KernelError> {
+        let pixels = self.frame_pixels(index)?;
+        Ok(expand_indexed(self.palette_colors(), pixels))
+    }
+
     /// RGBA PNG of one frame. Index 0 and any zero-alpha palette entry are transparent.
     pub fn export_frame_png(&self, index: usize) -> Result<Vec<u8>, KernelError> {
-        let pixels = self.frame_pixels(index)?;
-        let rgba = expand_indexed(self.palette_colors(), pixels);
+        let rgba = self.frame_rgba(index)?;
         Ok(encode_rgba_png(
             u32::from(self.width()),
             u32::from(self.height()),
@@ -264,6 +277,30 @@ mod tests {
             document.export_frame_png(1).unwrap_err(),
             KernelError::FrameIndex { index: 1, len: 1 }
         );
+        assert_eq!(document.frame_rgba(0).unwrap(), rgba);
+        assert_eq!(
+            document.frame_rgba(1).unwrap_err(),
+            KernelError::FrameIndex { index: 1, len: 1 }
+        );
+    }
+
+    #[test]
+    fn frame_rgba_matches_each_frame_png_and_leaves_the_document() {
+        let mut document = doc();
+        document.paint(0, 0, 1).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(3, 1, 2).unwrap();
+        let before = document.clone();
+
+        let first = document.frame_rgba(0).unwrap();
+        let second = document.frame_rgba(1).unwrap();
+        let (_, _, png_first) = decode_rgba(&document.export_frame_png(0).unwrap());
+        let (_, _, png_second) = decode_rgba(&document.export_frame_png(1).unwrap());
+        assert_eq!(first, png_first);
+        assert_eq!(second, png_second);
+        assert_ne!(first, second);
+        assert_eq!(document, before);
     }
 
     #[test]

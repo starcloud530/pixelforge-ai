@@ -9,10 +9,11 @@
 //!
 //! Project files are version 1 `pixelforge-project` JSON from
 //! [`Document::save_project`] and [`Document::load_project`]. PNG sequence and
-//! sprite-sheet export resolve the indexed palette to RGBA. The Tool API is a
-//! later layer. See `docs/tech-stack.md`, `docs/dev-setup.md`, and
-//! `docs/export.md`. The browser shell calls this crate through
-//! `pixelforge-kernel-wasm`.
+//! sprite-sheet export resolve the indexed palette to RGBA.
+//! [`Document::frame_rgba`] returns that same buffer for view compositing such
+//! as onion skin; it is not part of the document. The Tool API is a later
+//! layer. See `docs/tech-stack.md`, `docs/dev-setup.md`, and `docs/export.md`.
+//! The browser shell calls this crate through `pixelforge-kernel-wasm`.
 
 mod color;
 mod document;
