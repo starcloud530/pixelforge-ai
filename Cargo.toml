@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/pixelforge-kernel", "crates/pixelforge-kernel-wasm"]
+members = [
+    "crates/pixelforge-kernel",
+    "crates/pixelforge-kernel-wasm",
+    "crates/pixelforge-cli",
+]
 
 [workspace.package]
 edition = "2021"
