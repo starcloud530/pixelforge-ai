@@ -34,6 +34,7 @@ docs/tech-stack.md         已锁定的技术栈
 docs/dev-setup.md          本文件
 docs/export.md             PNG 序列、sprite sheet，以及 Godot / Unity 导入约定
 docs/tool-api.md           Tool API 目录：工具名、参数、结果、错误
+docs/ai-driver.md          外部模型一轮编排：密钥、端点、Tool API
 ```
 
 ## Rust 内核
@@ -69,7 +70,12 @@ cargo check --workspace
 ```bash
 pnpm install
 pnpm dev
+pnpm test
 ```
+
+`pnpm test` 用假的 HTTP 响应跑一轮外部模型编排，工具调用打进 Node 里的同一份 wasm `Document`。不访问网络。密钥、端点和界面上的「运行一轮」见 [ai-driver.md](ai-driver.md)。
+
+*`pnpm test` runs one external-model turn against a fake HTTP response. Tool calls hit the same wasm `Document` under Node. There is no network. The key, endpoint, and the 运行一轮 panel are in [ai-driver.md](ai-driver.md).*
 
 `pnpm dev`、`pnpm build`、`pnpm typecheck` 会先跑根目录的 `pnpm build:wasm`：
 
