@@ -32,6 +32,7 @@ pnpm-workspace.yaml
 apps/web                   Vite + React 外壳
 docs/tech-stack.md         已锁定的技术栈
 docs/dev-setup.md          本文件
+docs/export.md             PNG 序列、sprite sheet，以及 Godot / Unity 导入约定
 ```
 
 ## Rust 内核
@@ -54,10 +55,11 @@ cargo check --workspace
 - 循环播放。`play` / `stop` / `tick` 按每帧时长推进当前帧，这一步不进撤销栈。`scrub` 按时间轴比例选帧，拖动应包在一次 gesture 里
 - 撤销 / 重做。栈上记的是内核操作，上限 `MAX_UNDO`（100），包括改色、追加颜色、画笔、橡皮、帧编辑和改时长。一次 `begin_gesture` … `end_gesture` 合成一步，所以拖动一笔、拖动取色器、拖动时间轴或连续改时长只占一条记录。没有改动的格子、颜色和时长不入栈。
 - 工程文件 `pixelforge-project` version 1。`Document::save_project` / `Document::load_project` 往返画布尺寸、调色板、每一帧的索引和时长、以及当前帧。撤销栈和播放时钟不进文件。改过或追加的颜色会写进文件。
+- PNG 导出。`Document::export_png_sequence` 按时间轴给每一帧一张透明 RGBA PNG。`Document::export_sprite_sheet` 把这些帧打进一张网格图：列数是 `ceil(sqrt(帧数))`，行数是 `ceil(帧数 / 列数)`，从左到右再换行，末尾空位透明。索引 0 导出为透明。导出不进撤销栈。Godot / Unity 的导入约定见 [export.md](export.md)。
 
-PNG / sprite sheet 和 Tool API 还不在这个 crate 里。
+Tool API 还不在这个 crate 里。
 
-*`pixelforge-kernel` creates canvases with an edge from 1 to 256 (including the M1 sizes 16 and 32), stores indexed pixels with 0 as transparent, and ships `Palette::studio_default`. Paint entries can be recolored or extended; index 0 stays transparent. Cells keep their indices, so a recolor updates every frame that uses that entry. `paint` / `erase` only write opaque indices that exist. Each frame has a delay in milliseconds (`DEFAULT_FRAME_DELAY_MS` is 100, including when an older file omits `delayMs`; the accepted range is `1..=65535`). `play` / `stop` / `tick` loop the active frame from those delays and do not push undo entries. `scrub` selects the frame under a timeline ratio; a drag should be one gesture. Those edits, plus frame add / duplicate / delete, the active-frame change, and delay edits, push kernel operations onto an undo stack capped at `MAX_UNDO` (100). `begin_gesture` … `end_gesture` collapses one drag — a stroke, a color-picker drag, a timeline scrub, or a run of delay edits — into one step. Cells, colors, and delays that do not change are not recorded. `Document::save_project` / `Document::load_project` round-trip canvas size, the palette (including recolored and appended entries), every frame's indices and delay, and the active frame as `pixelforge-project` version 1 JSON. The undo stack and the playback clock are not in the file. The web shell calls those operations through the wasm bridge. PNG / sprite-sheet export and the Tool API are not in this crate.*
+*`pixelforge-kernel` creates canvases with an edge from 1 to 256 (including the M1 sizes 16 and 32), stores indexed pixels with 0 as transparent, and ships `Palette::studio_default`. Paint entries can be recolored or extended; index 0 stays transparent. Cells keep their indices, so a recolor updates every frame that uses that entry. `paint` / `erase` only write opaque indices that exist. Each frame has a delay in milliseconds (`DEFAULT_FRAME_DELAY_MS` is 100, including when an older file omits `delayMs`; the accepted range is `1..=65535`). `play` / `stop` / `tick` loop the active frame from those delays and do not push undo entries. `scrub` selects the frame under a timeline ratio; a drag should be one gesture. Those edits, plus frame add / duplicate / delete, the active-frame change, and delay edits, push kernel operations onto an undo stack capped at `MAX_UNDO` (100). `begin_gesture` … `end_gesture` collapses one drag — a stroke, a color-picker drag, a timeline scrub, or a run of delay edits — into one step. Cells, colors, and delays that do not change are not recorded. `Document::save_project` / `Document::load_project` round-trip canvas size, the palette (including recolored and appended entries), every frame's indices and delay, and the active frame as `pixelforge-project` version 1 JSON. The undo stack and the playback clock are not in the file. The web shell calls those operations through the wasm bridge. `Document::export_png_sequence` writes one transparent RGBA PNG per frame in timeline order. `Document::export_sprite_sheet` packs those frames into one grid: columns are `ceil(sqrt(frame_count))`, rows are `ceil(frame_count / columns)`, left to right then wrapping, with transparent padding cells. Index 0 exports as transparent. Export does not push an undo entry. Godot / Unity import conventions are in [export.md](export.md). The Tool API is not in this crate.*
 
 ## 网页外壳
 
@@ -88,22 +90,23 @@ wasm-pack build crates/pixelforge-kernel-wasm --target web --out-dir pkg
 5. 色板从 `snapshot().palette` 画出。点一个索引就把它设为画笔颜色。取色器调用 `setPaletteColor`，追加颜色调用 `addPaletteColor`。取色器拖动包在同一次 gesture 里，所以一步撤销退回整次改色。
 6. 撤销 / 重做按钮，以及 Ctrl/⌘+Z、Ctrl/⌘+Shift+Z、Ctrl/⌘+Y，调用同一份文档的 `undo` / `redo`。示例图在种下去之后清掉历史，撤销停在示例上。
 7. 「保存」和 Ctrl/⌘+S 调用 `saveProject()`，下载 `pixelforge-project.json`。「打开」和 Ctrl/⌘+O 读入文本，交给 `loadProject()`，用返回的文档换掉当前画布。打不开时画布保持原样。改过的颜色随调色板一起保存。
+8. 「PNG 序列」对每一帧调用 `exportFramePng()`，下载 `pixelforge-000.png` 起的文件。「Sprite sheet」调用 `exportSpriteSheet()`，下载 `pixelforge-sheet-{列}x{行}.png`。网格的列数和行数来自内核。外壳不自己编码 PNG。
 
 左键走当前工具，右键擦除。放大倍数只改视图，不改文档尺寸。
 
 *Open <http://localhost:5173>. `pnpm dev`, `pnpm build`, and `pnpm typecheck` first run `pnpm build:wasm` at the repo root (`wasm-pack build crates/pixelforge-kernel-wasm --target web`). Output lands in `crates/pixelforge-kernel-wasm/pkg/`, which is gitignored. `pnpm build` then typechecks and runs the Vite production build. `pnpm typecheck` is wasm plus types only.*
 
-*The canvas awaits `initKernel()`, asks `createKernel()` for a Rust document, reads palette indices from `snapshot().pixels`, and reads palette bytes from the kernel too. It blits them into a 1:1 bitmap and scales that bitmap with `imageSmoothingEnabled = false`. A pointer-down starts a gesture; paint, erase, frame add / duplicate / delete / select, timeline scrub, and delay edits call the kernel; pointer-up ends the gesture. Playback calls `play` / `tick` / `stop`, and the clock stays in the kernel. The palette swatches come from `snapshot().palette`. Choosing a swatch selects the paint index. The color input calls `setPaletteColor`, and adding a color calls `addPaletteColor`. A color-picker drag, a timeline scrub, and a delay edit each stay inside one gesture, so one undo restores that whole edit. Undo and redo — buttons, Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, and Ctrl/⌘+Y — call that same document. The demo sprite clears history after seeding, so undo stops at that sprite. Save and Ctrl/⌘+S call `saveProject()` and download `pixelforge-project.json`. Open and Ctrl/⌘+O pass the file text to `loadProject()` and replace the canvas with that document. A rejected file leaves the canvas alone. Recolored and appended palette entries, and per-frame delays, travel with the file. Scale changes the view, not the document size.*
+*The canvas awaits `initKernel()`, asks `createKernel()` for a Rust document, reads palette indices from `snapshot().pixels`, and reads palette bytes from the kernel too. It blits them into a 1:1 bitmap and scales that bitmap with `imageSmoothingEnabled = false`. A pointer-down starts a gesture; paint, erase, frame add / duplicate / delete / select, timeline scrub, and delay edits call the kernel; pointer-up ends the gesture. Playback calls `play` / `tick` / `stop`, and the clock stays in the kernel. The palette swatches come from `snapshot().palette`. Choosing a swatch selects the paint index. The color input calls `setPaletteColor`, and adding a color calls `addPaletteColor`. A color-picker drag, a timeline scrub, and a delay edit each stay inside one gesture, so one undo restores that whole edit. Undo and redo — buttons, Ctrl/⌘+Z, Ctrl/⌘+Shift+Z, and Ctrl/⌘+Y — call that same document. The demo sprite clears history after seeding, so undo stops at that sprite. Save and Ctrl/⌘+S call `saveProject()` and download `pixelforge-project.json`. Open and Ctrl/⌘+O pass the file text to `loadProject()` and replace the canvas with that document. A rejected file leaves the canvas alone. Recolored and appended palette entries, and per-frame delays, travel with the file. PNG sequence calls `exportFramePng()` once per frame and downloads `pixelforge-000.png` onward. Sprite sheet calls `exportSpriteSheet()` and downloads `pixelforge-sheet-{columns}x{rows}.png`. Column and row counts come from the kernel. The shell does not encode PNG itself. Scale changes the view, not the document size.*
 
 ## 内核桥 Kernel bridge
 
-`crates/pixelforge-kernel-wasm` 依赖 `pixelforge-kernel`，用 `wasm-bindgen` 暴露 `Document`：尺寸、调色板 RGBA、`setPaletteColor`、`addPaletteColor`、当前帧像素、`paint`、`erase`、帧的增、复制、删、切换、每帧时长、`scrub`、`play` / `tick` / `stop`、`undo` / `redo`，以及 `saveProject` / `loadProject`。网页里没有第二份撤销栈，也没有第二份调色板、播放时钟或工程文件编码。
+`crates/pixelforge-kernel-wasm` 依赖 `pixelforge-kernel`，用 `wasm-bindgen` 暴露 `Document`：尺寸、调色板 RGBA、`setPaletteColor`、`addPaletteColor`、当前帧像素、`paint`、`erase`、帧的增、复制、删、切换、每帧时长、`scrub`、`play` / `tick` / `stop`、`undo` / `redo`、`saveProject` / `loadProject`，以及 `exportFramePng` / `exportSpriteSheet`。网页里没有第二份撤销栈，也没有第二份调色板、播放时钟、工程文件编码或 PNG 编码器。
 
 `apps/web/src/kernel/wasm.ts` 加载 `pkg/` 里的胶水模块。`initKernel()` 只初始化一次。`createKernel()` 返回 wasm 文档。视图继续只认 `PixelKernel` 和 `snapshot()`。
 
 JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint` 种进去，像素落在 Rust 文档里。界面和以后的外部模型都应该改这份内核状态，而不是另写一块像素缓冲。
 
-*`crates/pixelforge-kernel-wasm` depends on `pixelforge-kernel` and exposes `Document` through wasm-bindgen: size, palette RGBA, `setPaletteColor`, `addPaletteColor`, the active frame's pixels, `paint`, `erase`, frame add / duplicate / delete / select, per-frame delay, `scrub`, `play` / `tick` / `stop`, `undo` / `redo`, and `saveProject` / `loadProject`. The page does not keep a second undo stack, a second palette, a second playback clock, or a second project-file codec.*
+*`crates/pixelforge-kernel-wasm` depends on `pixelforge-kernel` and exposes `Document` through wasm-bindgen: size, palette RGBA, `setPaletteColor`, `addPaletteColor`, the active frame's pixels, `paint`, `erase`, frame add / duplicate / delete / select, per-frame delay, `scrub`, `play` / `tick` / `stop`, `undo` / `redo`, `saveProject` / `loadProject`, and `exportFramePng` / `exportSpriteSheet`. The page does not keep a second undo stack, a second palette, a second playback clock, a second project-file codec, or a second PNG encoder.*
 
 *`apps/web/src/kernel/wasm.ts` loads the glue in `pkg/`. `initKernel()` initializes the module once. `createKernel()` returns the wasm document. The view stays on `PixelKernel` and `snapshot()`.*
 
@@ -121,7 +124,9 @@ JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint`
 | [#5](https://github.com/starcloud530/pixelforge-ai/issues/5) 多帧 | Rust 增帧、复制、删除；外壳经 wasm 切换、新增、复制、删除当前帧。每帧时长和循环预览在 [#8](https://github.com/starcloud530/pixelforge-ai/issues/8) | 洋葱皮 |
 | [#6](https://github.com/starcloud530/pixelforge-ai/issues/6) 工程文件 | version 1 JSON：尺寸、调色板、全部帧、当前帧。外壳经 wasm 下载和打开 | 撤销栈不写入文件 |
 
-*This slice does not close issues #2, #4, and #5. Undo/redo (#3), palette recolor and append, project open/save (#6), and the frame timeline (#8: scrub, per-frame delay, loop preview) go through the wasm kernel. Palette import and locking, and onion skin, are still open.*
+[#10](https://github.com/starcloud530/pixelforge-ai/issues/10) 的 PNG 序列和网格 sprite sheet 已由内核编码，外壳只下载。约定见 [export.md](export.md)。[#9](https://github.com/starcloud530/pixelforge-ai/issues/9) 洋葱皮还没做。
+
+*This slice does not close issues #2, #4, and #5. Undo/redo (#3), palette recolor and append, project open/save (#6), the frame timeline (#8: scrub, per-frame delay, loop preview), and PNG sequence plus grid sprite-sheet export (#10) go through the wasm kernel. Palette import and locking, and onion skin (#9), are still open.*
 
 ## 工程文件 Project file
 
