@@ -20,17 +20,32 @@ const DEMO_ROWS = [
   "................",
 ];
 
+/** Two poses so loop playback has something to cycle. Delays are kernel defaults until adjusted. */
 export function seedDemo(kernel: PixelKernel): void {
+  paintPose(kernel, 0);
+  const next = kernel.addFrame();
+  kernel.setActiveFrame(next);
+  paintPose(kernel, 1);
+  kernel.setFrameDelay(0, 180);
+  kernel.setFrameDelay(1, 180);
+  kernel.setActiveFrame(0);
+}
+
+function paintPose(kernel: PixelKernel, yOffset: number): void {
   DEMO_ROWS.forEach((row, y) => {
     if (row.length !== 16) {
       throw new Error(`demo row ${y} has length ${row.length}`);
+    }
+    const targetY = y + yOffset;
+    if (targetY < 0 || targetY >= 16) {
+      return;
     }
     for (let x = 0; x < row.length; x += 1) {
       const cell = row[x];
       if (cell === ".") {
         continue;
       }
-      kernel.paint(x, y, Number(cell));
+      kernel.paint(x, targetY, Number(cell));
     }
   });
 }

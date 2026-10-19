@@ -26,6 +26,8 @@ pub enum KernelError {
     FrameIndex { index: usize, len: usize },
     /// The document always keeps one frame.
     LastFrame,
+    /// Delay is outside [`crate::MIN_FRAME_DELAY_MS`]..=[`crate::MAX_FRAME_DELAY_MS`].
+    FrameDelay { delay_ms: u32 },
     /// [`crate::Document::undo`] found an empty undo stack.
     NothingToUndo,
     /// [`crate::Document::redo`] found an empty redo stack.
@@ -70,6 +72,8 @@ pub enum ProjectFileError {
         index: u64,
         palette_len: usize,
     },
+    /// `delayMs` is outside [`crate::MIN_FRAME_DELAY_MS`]..=[`crate::MAX_FRAME_DELAY_MS`].
+    FrameDelay { frame: usize, delay: u64 },
 }
 
 impl KernelError {
@@ -84,6 +88,7 @@ impl KernelError {
             Self::TransparentSlot => "TransparentSlot",
             Self::FrameIndex { .. } => "FrameIndex",
             Self::LastFrame => "LastFrame",
+            Self::FrameDelay { .. } => "FrameDelay",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -119,6 +124,12 @@ impl fmt::Display for KernelError {
                 write!(f, "frame {index} is outside 0..{len}")
             }
             Self::LastFrame => write!(f, "cannot delete the only frame"),
+            Self::FrameDelay { delay_ms } => write!(
+                f,
+                "frame delay {delay_ms} ms is outside {}..={}",
+                crate::MIN_FRAME_DELAY_MS,
+                crate::MAX_FRAME_DELAY_MS
+            ),
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
@@ -161,6 +172,12 @@ impl fmt::Display for ProjectFileError {
                 f,
                 "frame {frame} uses palette index {index}, palette length is {palette_len}"
             ),
+            Self::FrameDelay { frame, delay } => write!(
+                f,
+                "frame {frame} delay {delay} ms is outside {}..={}",
+                crate::MIN_FRAME_DELAY_MS,
+                crate::MAX_FRAME_DELAY_MS
+            ),
         }
     }
 }
@@ -174,6 +191,7 @@ mod tests {
     #[test]
     fn codes_match_variant_names() {
         assert_eq!(KernelError::LastFrame.code(), "LastFrame");
+        assert_eq!(KernelError::FrameDelay { delay_ms: 0 }.code(), "FrameDelay");
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
         assert_eq!(

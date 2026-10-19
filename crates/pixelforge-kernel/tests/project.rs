@@ -1,6 +1,6 @@
 use pixelforge_kernel::{
-    Document, KernelError, Palette, ProjectFileError, Rgba, PROJECT_FORMAT, PROJECT_VERSION,
-    TRANSPARENT_INDEX,
+    Document, KernelError, Palette, ProjectFileError, Rgba, DEFAULT_FRAME_DELAY_MS, PROJECT_FORMAT,
+    PROJECT_VERSION, TRANSPARENT_INDEX,
 };
 
 fn tiny() -> Document {
@@ -62,13 +62,15 @@ fn save_writes_version_1_json() {
       "pixels": [
         0,
         1
-      ]
+      ],
+      "delayMs": 100
     },
     {
       "pixels": [
         2,
         0
-      ]
+      ],
+      "delayMs": 100
     }
   ]
 }
@@ -139,7 +141,54 @@ fn documented_example_loads() {
     assert_eq!(loaded.frame_pixels(0).unwrap(), &[0, 1]);
     assert_eq!(loaded.frame_pixels(1).unwrap(), &[1, 0]);
     assert_eq!(loaded.palette().colors()[1], Rgba::rgb(232, 93, 76));
+    assert_eq!(loaded.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
+    assert_eq!(loaded.frame_delay(1).unwrap(), DEFAULT_FRAME_DELAY_MS);
+    assert!(!loaded.playing());
     assert!(!loaded.can_undo());
+}
+
+#[test]
+fn delay_round_trips_and_missing_delay_defaults() {
+    let mut document = tiny();
+    document.set_frame_delay(0, 80).unwrap();
+    document.set_frame_delay(1, 240).unwrap();
+    document.play();
+    let saved = document.save_project();
+    assert!(saved.contains("\"delayMs\": 80"));
+    assert!(saved.contains("\"delayMs\": 240"));
+    assert!(!saved.contains("playing"));
+    assert!(!saved.contains("history"));
+
+    let loaded = Document::load_project(&saved).unwrap();
+    assert_eq!(loaded.frame_delay(0).unwrap(), 80);
+    assert_eq!(loaded.frame_delay(1).unwrap(), 240);
+    assert!(!loaded.playing());
+    assert!(!loaded.can_undo());
+    assert_eq!(loaded.save_project(), saved);
+
+    let mut undone = document;
+    undone.stop();
+    undone.undo().unwrap();
+    undone.undo().unwrap();
+    let loaded = Document::load_project(&undone.save_project()).unwrap();
+    assert_eq!(loaded.frame_delay(0).unwrap(), DEFAULT_FRAME_DELAY_MS);
+    assert_eq!(loaded.frame_delay(1).unwrap(), DEFAULT_FRAME_DELAY_MS);
+
+    assert_eq!(
+        rejected(&project(
+            r#""format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0}],"frames":[{"pixels":[0],"delayMs":0}]"#
+        )),
+        ProjectFileError::FrameDelay { frame: 0, delay: 0 }
+    );
+    assert_eq!(
+        rejected(&project(
+            r#""format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0}],"frames":[{"pixels":[0],"delayMs":65536}]"#
+        )),
+        ProjectFileError::FrameDelay {
+            frame: 0,
+            delay: 65_536
+        }
+    );
 }
 
 #[test]

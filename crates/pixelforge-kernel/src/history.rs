@@ -1,7 +1,8 @@
 //! Undo stack of kernel operations.
 //!
 //! Each entry is one document edit: a paint or erase, a palette color change,
-//! a frame-list change, an active-frame change, or a whole gesture of those.
+//! a frame-list change, an active-frame change, a per-frame delay change, or
+//! a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
@@ -62,6 +63,12 @@ pub(crate) enum Change {
     ActiveFrame {
         before: usize,
         after: usize,
+    },
+    /// How long frame `index` stays on screen during playback, in milliseconds.
+    FrameDelay {
+        index: usize,
+        before: u32,
+        after: u32,
     },
     /// RGB of a paint entry was replaced. Index 0 is never stored here.
     PaletteColor {
@@ -187,13 +194,15 @@ impl History {
     }
 }
 
-/// Folds a later write into the earlier one when they name the same pixel or
-/// the same palette entry.
+/// Folds a later write into the earlier one when they name the same pixel,
+/// the same palette entry, the same frame delay, or the active frame.
 ///
 /// Pixel folding stops at a frame-structure change, because that can make the
 /// offset a different cell. Palette folding does not: frame edits do not
 /// renumber colors, and a later recolor of the same index still means "this
-/// entry changed from its original RGB".
+/// entry changed from its original RGB". Delay folding stops at a structural
+/// frame edit, because that can renumber the frame. Active-frame folding only
+/// merges a run of selections, so one timeline drag is one undo step.
 fn coalesce(changes: &mut Vec<Change>, change: Change) {
     match change {
         Change::Pixel {
@@ -207,6 +216,12 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
             before,
             after,
         } => coalesce_palette(changes, index, before, after),
+        Change::FrameDelay {
+            index,
+            before,
+            after,
+        } => coalesce_delay(changes, index, before, after),
+        Change::ActiveFrame { before, after } => coalesce_active(changes, before, after),
         other => changes.push(other),
     }
 }
@@ -275,4 +290,53 @@ fn coalesce_palette(changes: &mut Vec<Change>, index: u8, before: Rgba, after: R
         before,
         after,
     });
+}
+
+fn coalesce_delay(changes: &mut Vec<Change>, index: usize, before: u32, after: u32) {
+    let mut cursor = changes.len();
+    while cursor > 0 {
+        cursor -= 1;
+        match &mut changes[cursor] {
+            Change::FrameDelay {
+                index: existing,
+                before: original,
+                after: slot,
+            } if *existing == index => {
+                debug_assert_eq!(*slot, before, "delay history skipped a write");
+                *slot = after;
+                if *original == *slot {
+                    changes.remove(cursor);
+                }
+                return;
+            }
+            Change::FrameDelay { .. } => continue,
+            Change::AddFrame { .. } | Change::InsertFrame { .. } | Change::RemoveFrame { .. } => {
+                break
+            }
+            _ => continue,
+        }
+    }
+
+    changes.push(Change::FrameDelay {
+        index,
+        before,
+        after,
+    });
+}
+
+fn coalesce_active(changes: &mut Vec<Change>, before: usize, after: usize) {
+    if let Some(Change::ActiveFrame {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(*slot, before, "active-frame history skipped a selection");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::ActiveFrame { before, after });
 }

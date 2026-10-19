@@ -48,6 +48,14 @@ fn failed_edits_are_not_recorded() {
     assert!(document.set_active_frame(2).is_err());
     assert!(document.duplicate_frame(1).is_err());
     assert_eq!(
+        document.set_frame_delay(0, 0).unwrap_err(),
+        KernelError::FrameDelay { delay_ms: 0 }
+    );
+    assert!(matches!(
+        document.set_frame_delay(2, 20),
+        Err(KernelError::FrameIndex { index: 2, len: 1 })
+    ));
+    assert_eq!(
         document.set_palette_color(0, 1, 2, 3).unwrap_err(),
         KernelError::TransparentSlot
     );
