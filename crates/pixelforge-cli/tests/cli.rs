@@ -89,7 +89,16 @@ fn help_lists_the_agent_commands() {
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("pixelforge"), "{help}");
     for word in [
-        "new", "call", "paint", "export", "inspect", "Stdout", "Tool API",
+        "new",
+        "call",
+        "paint",
+        "fill-rect",
+        "preview",
+        "--preview",
+        "export",
+        "inspect",
+        "Stdout",
+        "Tool API",
     ] {
         assert!(help.contains(word), "help missing {word}:\n{help}");
     }
@@ -467,6 +476,155 @@ fn tools_lists_the_kernel_catalog() {
         .map(|value| value.as_str().unwrap())
         .collect();
     assert!(names.contains(&"paint"));
+    assert!(names.contains(&"fillRect"));
     assert!(names.contains(&"exportSpriteSheet"));
     assert!(names.contains(&"undo"));
+}
+
+#[test]
+fn fill_rect_and_preview_show_the_active_frame() {
+    let scratch = Scratch::new();
+    let project = scratch.child("portrait.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "16",
+            "--height",
+            "8",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+
+    let filled = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--width",
+        "3",
+        "--height",
+        "2",
+        "--color-index",
+        "4",
+        "--preview",
+    ]));
+    assert_eq!(status(&filled), 0, "{}", stderr(&filled));
+    assert_eq!(json_lines(&filled).len(), 1);
+    assert_eq!(json_lines(&filled)[0]["ok"], true);
+    assert_eq!(json_lines(&filled)[0]["result"], serde_json::json!({}));
+    let notes = stderr(&filled);
+    assert!(notes.contains("preview 16x8 frame 0"), "{notes}");
+    assert!(notes.contains(".444............"), "{notes}");
+    assert!(notes.contains("4=#f4a259"), "{notes}");
+    let doc = load(&project);
+    assert_eq!(doc.get(1, 0).unwrap(), 4);
+    assert_eq!(doc.get(3, 1).unwrap(), 4);
+    assert_eq!(doc.get(4, 0).unwrap(), 0);
+    assert_eq!(doc.get(1, 2).unwrap(), 0);
+
+    let before_preview = fs::read(&project).unwrap();
+    let preview = pixelforge(&arg(&["preview", "--project", project_arg]));
+    assert_eq!(status(&preview), 0, "{}", stderr(&preview));
+    let body = &json_lines(&preview)[0];
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["result"]["width"], 16);
+    assert_eq!(body["result"]["height"], 8);
+    assert_eq!(body["result"]["activeFrame"], 0);
+    assert_eq!(body["result"]["rows"][0], ".444............");
+    assert_eq!(body["result"]["rows"][1], ".444............");
+    assert_eq!(body["result"]["rows"][2], "................");
+    let legend = body["result"]["legend"].as_array().unwrap();
+    assert!(legend
+        .iter()
+        .any(|entry| entry["glyph"] == "4" && entry["index"] == 4));
+    assert!(stderr(&preview).contains(".444............"));
+    assert_eq!(fs::read(&project).unwrap(), before_preview);
+
+    let overflow = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "14",
+        "--y",
+        "0",
+        "--width",
+        "4",
+        "--height",
+        "1",
+        "--color-index",
+        "1",
+    ]));
+    assert_eq!(status(&overflow), 1, "{}", stderr(&overflow));
+    assert_eq!(json_lines(&overflow)[0]["error"]["code"], "OutOfBounds");
+    assert_eq!(fs::read(&project).unwrap(), before_preview);
+
+    let zero = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--width",
+        "0",
+        "--height",
+        "1",
+        "--color-index",
+        "1",
+    ]));
+    assert_eq!(status(&zero), 1, "{}", stderr(&zero));
+    assert_eq!(json_lines(&zero)[0]["error"]["code"], "InvalidParams");
+    assert_eq!(fs::read(&project).unwrap(), before_preview);
+
+    let painted = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "2",
+        "--color-index",
+        "1",
+        "--preview",
+    ]));
+    assert_eq!(status(&painted), 0, "{}", stderr(&painted));
+    assert_eq!(json_lines(&painted).len(), 1);
+    assert!(
+        stderr(&painted).contains("1..............."),
+        "{}",
+        stderr(&painted)
+    );
+
+    let batch = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--preview",
+        "--request",
+        r#"{"tool":"fillRect","params":{"x":0,"y":3,"width":2,"height":1,"colorIndex":2}}"#,
+    ]));
+    assert_eq!(status(&batch), 0, "{}", stderr(&batch));
+    assert_eq!(json_lines(&batch).len(), 1);
+    assert!(
+        stderr(&batch).contains("22.............."),
+        "{}",
+        stderr(&batch)
+    );
+    assert_eq!(load(&project).get(0, 3).unwrap(), 2);
+    assert_eq!(load(&project).get(1, 3).unwrap(), 2);
+
+    let looked = pixelforge(&arg(&["inspect", "--project", project_arg, "--preview"]));
+    assert_eq!(status(&looked), 0, "{}", stderr(&looked));
+    assert_eq!(json_lines(&looked)[0]["result"]["width"], 16);
+    assert!(stderr(&looked).contains("preview 16x8 frame 0"));
 }

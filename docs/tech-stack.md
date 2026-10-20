@@ -80,12 +80,12 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 ### Rust 拥有什么
 
 - 画布尺寸、索引像素、调色板、帧列表、每帧时长、循环标记。
-- 绘制、橡皮、换色、帧增删复制、调色板重映射。
+- 绘制、橡皮、矩形填充、换色、帧增删复制、调色板重映射。
 - 工程文件打开与保存。
 - PNG 序列与网格 sprite sheet 导出。
 - Tool API：稳定、机器可读、与 UI 操作同一数据源。
 
-*Rust owns canvas size, indexed pixels, palette, the frame list, per-frame delay, loop flags, paint and erase, recolor, frame add/delete/duplicate, palette remap, project open/save, PNG-sequence and grid sprite-sheet export, and the Tool API — stable, machine-readable, and the same data source the UI uses.*
+*Rust owns canvas size, indexed pixels, palette, the frame list, per-frame delay, loop flags, paint, erase, rectangle fill, recolor, frame add/delete/duplicate, palette remap, project open/save, PNG-sequence and grid sprite-sheet export, and the Tool API — stable, machine-readable, and the same data source the UI uses.*
 
 ### 共享事实
 

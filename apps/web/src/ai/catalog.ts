@@ -44,6 +44,18 @@ const BY_NAME = {
     },
     ["x", "y", "colorIndex"],
   ),
+  fillRect: tool(
+    "fillRect",
+    "Fill an axis-aligned rectangle on the active frame with one existing palette index. One undo step. A locked palette still allows this. The rectangle must lie entirely inside the canvas. Index 0 is refused.",
+    {
+      x: int("Left column, 0-based.", 0, 65535),
+      y: int("Top row, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      colorIndex: int("Opaque palette index that already exists.", 1, 255),
+    },
+    ["x", "y", "width", "height", "colorIndex"],
+  ),
   erase: tool(
     "erase",
     "Set one cell back to transparent index 0.",
