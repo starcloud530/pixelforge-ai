@@ -34,4 +34,8 @@ impl Frame {
     pub(crate) fn set(&mut self, offset: usize, value: u8) {
         self.pixels[offset] = value;
     }
+
+    pub(crate) fn set_pixels(&mut self, pixels: Vec<u8>) {
+        self.pixels = pixels;
+    }
 }

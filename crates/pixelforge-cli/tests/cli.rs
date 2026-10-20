@@ -100,6 +100,13 @@ fn help_lists_the_agent_commands() {
         "--frame",
         "--preview",
         "--scale",
+        "diff",
+        "flip",
+        "hflip",
+        "resize",
+        "--from-frame",
+        "--horizontal",
+        "--cols",
         "export",
         "inspect",
         "Stdout",
@@ -483,6 +490,10 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"paint"));
     assert!(names.contains(&"fillRect"));
     assert!(names.contains(&"exportSpriteSheet"));
+    assert!(names.contains(&"previewFrame"));
+    assert!(names.contains(&"diffFrames"));
+    assert!(names.contains(&"flipHorizontal"));
+    assert!(names.contains(&"resizeCanvas"));
     assert!(names.contains(&"undo"));
 }
 
@@ -887,4 +898,214 @@ fn erase_copy_move_preview_frame_and_export_scale() {
     ]));
     assert_eq!(status(&bad_scale), 2);
     assert!(json_lines(&bad_scale).is_empty());
+}
+
+#[test]
+fn preview_png_diff_flip_resize_and_sheet_columns() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "4",
+            "--height",
+            "2",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "fill-rect",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--width",
+            "2",
+            "--height",
+            "1",
+            "--color-index",
+            "3",
+        ]))),
+        0
+    );
+
+    let before = fs::read(&project).unwrap();
+    let preview = pixelforge(&arg(&["preview", "--project", project_arg, "--scale", "2"]));
+    assert_eq!(status(&preview), 0, "{}", stderr(&preview));
+    let body = &json_lines(&preview)[0];
+    assert_eq!(body["result"]["rows"][0], "33..");
+    assert_eq!(body["result"]["scale"], 2);
+    assert_eq!(body["result"]["pngWidth"], 8);
+    assert_eq!(body["result"]["pngHeight"], 4);
+    let preview_path = body["result"]["path"].as_str().unwrap();
+    assert_eq!(png_size(&fs::read(preview_path).unwrap()), (8, 4));
+    assert!(stderr(&preview).contains("33.."));
+    assert_eq!(fs::read(&project).unwrap(), before);
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "duplicate",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "3",
+            "--y",
+            "1",
+            "--color-index",
+            "5",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "copy-rect",
+            "--project",
+            project_arg,
+            "--from-frame",
+            "0",
+            "--to-frame",
+            "1",
+            "--src-x",
+            "0",
+            "--src-y",
+            "0",
+            "--width",
+            "2",
+            "--height",
+            "1",
+            "--dst-x",
+            "1",
+            "--dst-y",
+            "0",
+        ]))),
+        0
+    );
+    assert_eq!(load(&project).active_frame(), 0);
+    assert_eq!(load(&project).get(0, 0).unwrap(), 3);
+    assert_eq!(load(&project).frame_pixels(1).unwrap()[1], 3);
+    assert_eq!(load(&project).frame_pixels(1).unwrap()[2], 3);
+    assert_eq!(load(&project).frame_pixels(1).unwrap()[7], 5);
+
+    let before_diff = fs::read(&project).unwrap();
+    let diff_path = scratch.child("walk.diff.png");
+    let diff = pixelforge(&arg(&[
+        "diff",
+        "--project",
+        project_arg,
+        "--frame",
+        "0",
+        "--with",
+        "1",
+        "--scale",
+        "2",
+        "--output",
+        diff_path.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&diff), 0, "{}", stderr(&diff));
+    let diff_body = &json_lines(&diff)[0];
+    assert!(diff_body["result"]["changed"].as_u64().unwrap() > 0);
+    assert_eq!(diff_body["result"]["pngWidth"], 24);
+    assert_eq!(diff_body["result"]["pngHeight"], 4);
+    assert_eq!(png_size(&fs::read(&diff_path).unwrap()), (24, 4));
+    assert!(stderr(&diff).contains("diff frame 0 with 1"));
+    assert_eq!(fs::read(&project).unwrap(), before_diff);
+
+    let bare = pixelforge(&arg(&["flip", "--project", project_arg]));
+    assert_eq!(status(&bare), 2, "{}", stderr(&bare));
+    assert_eq!(fs::read(&project).unwrap(), before_diff);
+
+    assert_eq!(
+        status(&pixelforge(&arg(&["hflip", "--project", project_arg,]))),
+        0
+    );
+    assert_eq!(load(&project).get(2, 0).unwrap(), 3);
+    assert_eq!(load(&project).get(3, 0).unwrap(), 3);
+    assert_eq!(load(&project).get(0, 0).unwrap(), 0);
+    assert_eq!(load(&project).frame_pixels(1).unwrap()[1], 3);
+
+    let sheet_path = scratch.child("row.png");
+    let sheet = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet_path.to_str().unwrap(),
+        "--cols",
+        "2",
+    ]));
+    assert_eq!(status(&sheet), 0, "{}", stderr(&sheet));
+    assert_eq!(json_lines(&sheet)[0]["result"]["columns"], 2);
+    assert_eq!(json_lines(&sheet)[0]["result"]["rows"], 1);
+    assert_eq!(png_size(&fs::read(&sheet_path).unwrap()), (8, 2));
+
+    let resized = pixelforge(&arg(&[
+        "resize",
+        "--project",
+        project_arg,
+        "--width",
+        "6",
+        "--height",
+        "4",
+    ]));
+    assert_eq!(status(&resized), 0, "{}", stderr(&resized));
+    assert_eq!(json_lines(&resized)[0]["result"]["offsetX"], 1);
+    assert_eq!(json_lines(&resized)[0]["result"]["offsetY"], 1);
+    let doc = load(&project);
+    assert_eq!((doc.width(), doc.height()), (6, 4));
+    assert_eq!(doc.get(3, 1).unwrap(), 3);
+    assert_eq!(doc.frame_pixels(1).unwrap()[1 * 6 + 2], 3);
+
+    let undone = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--request",
+        r#"{"tool":"resizeCanvas","params":{"width":8,"height":4,"offsetX":0,"offsetY":0}}"#,
+        "--request",
+        r#"{"tool":"undo"}"#,
+    ]));
+    assert_eq!(status(&undone), 0, "{}", stderr(&undone));
+    assert_eq!(load(&project).width(), 6);
+    assert_eq!(load(&project).get(3, 1).unwrap(), 3);
 }

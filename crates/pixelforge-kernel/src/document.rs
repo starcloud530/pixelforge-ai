@@ -384,7 +384,7 @@ impl Document {
     /// Overlap reads the source before any destination cell is written. The
     /// cells that change are one undo step, or part of the open gesture. A copy
     /// that changes nothing is not recorded. A locked palette does not block
-    /// this write. v1 stays on the active frame.
+    /// this write. The active frame is both the source and the destination.
     pub fn copy_rect(
         &mut self,
         src_x: u16,
@@ -394,7 +394,29 @@ impl Document {
         dst_x: u16,
         dst_y: u16,
     ) -> Result<(), KernelError> {
-        self.blit_rect(src_x, src_y, width, height, dst_x, dst_y, false)
+        let frame = self.active;
+        self.copy_rect_from(frame, src_x, src_y, width, height, frame, dst_x, dst_y)
+    }
+
+    /// Copies indices from `src_frame` onto `dst_frame`. Does not change the
+    /// active frame. Same bounds, overlap, and undo rules as [`Self::copy_rect`].
+    ///
+    /// When the frames differ there is no overlap: the source rectangle is read
+    /// as it is, and the destination rectangle is replaced, including index 0.
+    pub fn copy_rect_from(
+        &mut self,
+        src_frame: usize,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_frame: usize,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), KernelError> {
+        self.blit_between(
+            src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, false,
+        )
     }
 
     /// Moves palette indices from one rectangle to another on the active frame.
@@ -404,7 +426,6 @@ impl Document {
     /// in the destination become [`TRANSPARENT_INDEX`]. The whole move is one
     /// undo step, or part of the open gesture. A move onto itself changes
     /// nothing and is not recorded. A locked palette does not block this write.
-    /// v1 stays on the active frame.
     pub fn move_rect(
         &mut self,
         src_x: u16,
@@ -414,29 +435,166 @@ impl Document {
         dst_x: u16,
         dst_y: u16,
     ) -> Result<(), KernelError> {
-        self.blit_rect(src_x, src_y, width, height, dst_x, dst_y, true)
+        let frame = self.active;
+        self.move_rect_from(frame, src_x, src_y, width, height, frame, dst_x, dst_y)
     }
 
-    /// Copies `width` by `height` indices from `(src_x, src_y)` to `(dst_x, dst_y)`.
-    ///
-    /// When `clear_source` is set, source cells outside the destination are
-    /// cleared to [`TRANSPARENT_INDEX`] in the same undo step.
-    fn blit_rect(
+    /// Moves indices from `src_frame` onto `dst_frame`. Does not change the
+    /// active frame. Source cells that are not part of the destination become
+    /// [`TRANSPARENT_INDEX`]. Across frames the whole source rectangle is
+    /// cleared, because the destination lives on another frame.
+    pub fn move_rect_from(
         &mut self,
+        src_frame: usize,
         src_x: u16,
         src_y: u16,
         width: u16,
         height: u16,
+        dst_frame: usize,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), KernelError> {
+        self.blit_between(
+            src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, true,
+        )
+    }
+
+    /// Mirrors palette indices left to right inside a rectangle.
+    ///
+    /// Cell `x` receives the index that was at `origin_x + width - 1 - (x - origin_x)`.
+    /// On a full frame of width 64 that is `63 - x`. Palette colors are not
+    /// changed. The rectangle must lie on the canvas. The mirror is one undo
+    /// step. A symmetric rectangle is not recorded. `frame` is not selected.
+    pub fn flip_horizontal(
+        &mut self,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
+        let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
+        {
+            let pixels = self.frames[frame].pixels();
+            for row in y..=y1 {
+                let row_offset = pixel_len(self.width, row);
+                for col in x..=x1 {
+                    sample.push(pixels[row_offset + usize::from(col)]);
+                }
+            }
+        }
+        let mut changes = Vec::new();
+        let span = usize::from(width);
+        for row in y..=y1 {
+            let local_y = usize::from(row - y);
+            let row_offset = pixel_len(self.width, row);
+            for col in x..=x1 {
+                let local_x = usize::from(col - x);
+                let mirrored = span - 1 - local_x;
+                let after = sample[local_y * span + mirrored];
+                let offset = row_offset + usize::from(col);
+                let before = self.frames[frame].pixels()[offset];
+                if before == after {
+                    continue;
+                }
+                self.frames[frame].set(offset, after);
+                changes.push(Change::Pixel {
+                    frame,
+                    offset,
+                    before,
+                    after,
+                });
+            }
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Places every frame's indices onto a new canvas.
+    ///
+    /// `offset_x` and `offset_y` are where the old origin lands on the new
+    /// canvas. They may be negative, which clips the old left or top edge.
+    /// Cells with no source stay [`TRANSPARENT_INDEX`]. Content that falls
+    /// outside the new canvas is dropped. Delays, the palette, the lock, and
+    /// the active frame stay. The project file stays version 1; only `width`,
+    /// `height`, and each frame's `pixels` change. One undo step restores the
+    /// previous buffers. A resize that leaves every index where it was is not
+    /// recorded.
+    pub fn resize_canvas(
+        &mut self,
+        width: u16,
+        height: u16,
+        offset_x: i32,
+        offset_y: i32,
+    ) -> Result<(), KernelError> {
+        check_size(width, height)?;
+        let before_pixels: Vec<Vec<u8>> = self
+            .frames
+            .iter()
+            .map(|frame| frame.pixels().to_vec())
+            .collect();
+        let after_pixels: Vec<Vec<u8>> = before_pixels
+            .iter()
+            .map(|pixels| {
+                place_pixels(
+                    pixels,
+                    self.width,
+                    self.height,
+                    width,
+                    height,
+                    offset_x,
+                    offset_y,
+                )
+            })
+            .collect();
+        if self.width == width && self.height == height && before_pixels == after_pixels {
+            return Ok(());
+        }
+        let before_width = self.width;
+        let before_height = self.height;
+        self.width = width;
+        self.height = height;
+        for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
+            frame.set_pixels(pixels);
+        }
+        self.history.record(Change::CanvasResize {
+            before_width,
+            before_height,
+            after_width: width,
+            after_height: height,
+            before_pixels,
+            after_pixels,
+        });
+        Ok(())
+    }
+
+    /// Copies `width` by `height` indices from one frame's rectangle to another.
+    ///
+    /// When `clear_source` is set, source cells outside the destination are
+    /// cleared to [`TRANSPARENT_INDEX`] in the same undo step. Across frames
+    /// the destination never covers the source, so the whole source rectangle
+    /// is cleared.
+    fn blit_between(
+        &mut self,
+        src_frame: usize,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_frame: usize,
         dst_x: u16,
         dst_y: u16,
         clear_source: bool,
     ) -> Result<(), KernelError> {
+        let src_frame = self.frame_or_err(src_frame)?;
+        let dst_frame = self.frame_or_err(dst_frame)?;
         let (src_x1, src_y1) = self.inclusive_rect(src_x, src_y, width, height)?;
         let (dst_x1, dst_y1) = self.inclusive_rect(dst_x, dst_y, width, height)?;
-        let frame = self.active;
         let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
         {
-            let pixels = self.frames[frame].pixels();
+            let pixels = self.frames[src_frame].pixels();
             for row in src_y..=src_y1 {
                 let row_offset = pixel_len(self.width, row);
                 for col in src_x..=src_x1 {
@@ -445,47 +603,88 @@ impl Document {
             }
         }
 
-        let mut planned = vec![None; self.pixel_count()];
+        let count = self.pixel_count();
+        let mut src_plan = vec![None; count];
+        let mut dst_plan = if src_frame == dst_frame {
+            None
+        } else {
+            Some(vec![None; count])
+        };
         if clear_source {
             for row in src_y..=src_y1 {
                 for col in src_x..=src_x1 {
-                    if col >= dst_x && col <= dst_x1 && row >= dst_y && row <= dst_y1 {
+                    if src_frame == dst_frame
+                        && col >= dst_x
+                        && col <= dst_x1
+                        && row >= dst_y
+                        && row <= dst_y1
+                    {
                         continue;
                     }
                     let offset = pixel_len(self.width, row) + usize::from(col);
-                    planned[offset] = Some(TRANSPARENT_INDEX);
+                    src_plan[offset] = Some(TRANSPARENT_INDEX);
                 }
             }
         }
         let mut sample_at = 0;
-        for row in dst_y..=dst_y1 {
-            let row_offset = pixel_len(self.width, row);
-            for col in dst_x..=dst_x1 {
-                let offset = row_offset + usize::from(col);
-                planned[offset] = Some(sample[sample_at]);
-                sample_at += 1;
+        if src_frame == dst_frame {
+            for row in dst_y..=dst_y1 {
+                let row_offset = pixel_len(self.width, row);
+                for col in dst_x..=dst_x1 {
+                    let offset = row_offset + usize::from(col);
+                    src_plan[offset] = Some(sample[sample_at]);
+                    sample_at += 1;
+                }
+            }
+        } else {
+            let plan = dst_plan.as_mut().expect("cross-frame blit has a dest plan");
+            for row in dst_y..=dst_y1 {
+                let row_offset = pixel_len(self.width, row);
+                for col in dst_x..=dst_x1 {
+                    let offset = row_offset + usize::from(col);
+                    plan[offset] = Some(sample[sample_at]);
+                    sample_at += 1;
+                }
             }
         }
 
         let mut changes = Vec::new();
-        for (offset, after) in planned.into_iter().enumerate() {
+        self.push_plan(src_frame, &src_plan, &mut changes);
+        if let Some(plan) = &dst_plan {
+            self.push_plan(dst_frame, plan, &mut changes);
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    fn push_plan(&mut self, frame: usize, plan: &[Option<u8>], changes: &mut Vec<Change>) {
+        for (offset, after) in plan.iter().enumerate() {
             let Some(after) = after else {
                 continue;
             };
             let before = self.frames[frame].pixels()[offset];
-            if before == after {
+            if before == *after {
                 continue;
             }
-            self.frames[frame].set(offset, after);
+            self.frames[frame].set(offset, *after);
             changes.push(Change::Pixel {
                 frame,
                 offset,
                 before,
-                after,
+                after: *after,
             });
         }
-        self.history.record_group(changes);
-        Ok(())
+    }
+
+    fn frame_or_err(&self, index: usize) -> Result<usize, KernelError> {
+        if index < self.frames.len() {
+            Ok(index)
+        } else {
+            Err(KernelError::FrameIndex {
+                index,
+                len: self.frames.len(),
+            })
+        }
     }
 
     /// Inclusive bottom-right of a rectangle that lies entirely on the canvas.
@@ -999,6 +1198,26 @@ impl Document {
             Change::PaletteLocked { before, after } => {
                 self.palette_locked = if forward { *after } else { *before };
             }
+            Change::CanvasResize {
+                before_width,
+                before_height,
+                after_width,
+                after_height,
+                before_pixels,
+                after_pixels,
+            } => {
+                let (width, height, pixels) = if forward {
+                    (*after_width, *after_height, after_pixels)
+                } else {
+                    (*before_width, *before_height, before_pixels)
+                };
+                debug_assert_eq!(pixels.len(), self.frames.len());
+                self.width = width;
+                self.height = height;
+                for (frame, pixels) in self.frames.iter_mut().zip(pixels.iter()) {
+                    frame.set_pixels(pixels.clone());
+                }
+            }
         }
     }
 
@@ -1076,6 +1295,35 @@ fn check_size(width: u16, height: u16) -> Result<(), KernelError> {
 
 fn pixel_len(width: u16, height: u16) -> usize {
     usize::from(width) * usize::from(height)
+}
+
+/// Copies `source` onto a new buffer. `offset_x`/`offset_y` is where the old
+/// origin lands. Cells outside either canvas are skipped.
+fn place_pixels(
+    source: &[u8],
+    old_width: u16,
+    old_height: u16,
+    new_width: u16,
+    new_height: u16,
+    offset_x: i32,
+    offset_y: i32,
+) -> Vec<u8> {
+    let mut next = vec![TRANSPARENT_INDEX; pixel_len(new_width, new_height)];
+    let old_stride = usize::from(old_width);
+    let new_stride = usize::from(new_width);
+    for y in 0..u32::from(old_height) {
+        for x in 0..u32::from(old_width) {
+            let nx = x as i32 + offset_x;
+            let ny = y as i32 + offset_y;
+            if nx < 0 || ny < 0 || nx >= i32::from(new_width) || ny >= i32::from(new_height) {
+                continue;
+            }
+            let src = y as usize * old_stride + x as usize;
+            let dst = ny as usize * new_stride + nx as usize;
+            next[dst] = source[src];
+        }
+    }
+    next
 }
 
 #[cfg(test)]
@@ -1384,6 +1632,157 @@ mod tests {
         document.undo().unwrap();
         assert_eq!(document.pixels(), &[5, 5, 0, 0]);
         assert_eq!(document.frame_pixels(0).unwrap(), kept.as_slice());
+    }
+
+    #[test]
+    fn copy_and_move_can_read_another_frame() {
+        let mut document = Document::new(4, 2).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        document.paint(0, 1, 3).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(3, 1, 4).unwrap();
+        document.clear_history();
+
+        document.copy_rect_from(0, 0, 0, 2, 2, 1, 1, 0).unwrap();
+        assert_eq!(document.active_frame(), 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[1], 2);
+        assert_eq!(document.get(1, 0).unwrap(), 1);
+        assert_eq!(document.get(2, 0).unwrap(), 2);
+        assert_eq!(document.get(1, 1).unwrap(), 3);
+        assert_eq!(document.get(3, 1).unwrap(), 4);
+        document.undo().unwrap();
+        assert_eq!(document.get(1, 0).unwrap(), 0);
+        assert_eq!(document.get(1, 1).unwrap(), 0);
+        assert_eq!(document.get(3, 1).unwrap(), 4);
+
+        document.move_rect_from(0, 0, 0, 2, 1, 1, 0, 0).unwrap();
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 0);
+        assert_eq!(document.frame_pixels(0).unwrap()[1], 0);
+        assert_eq!(document.frame_pixels(0).unwrap()[4], 3);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+        assert_eq!(document.get(1, 0).unwrap(), 2);
+        document.undo().unwrap();
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[1], 2);
+        assert_eq!(document.get(0, 0).unwrap(), 0);
+
+        let before = document.frame_pixels(0).unwrap().to_vec();
+        assert!(matches!(
+            document.copy_rect_from(2, 0, 0, 1, 1, 1, 0, 0),
+            Err(KernelError::FrameIndex { index: 2, len: 2 })
+        ));
+        assert!(matches!(
+            document.move_rect_from(0, 0, 0, 1, 1, 1, 4, 0),
+            Err(KernelError::OutOfBounds { .. })
+        ));
+        assert_eq!(document.frame_pixels(0).unwrap(), before.as_slice());
+        assert!(!document.can_undo());
+    }
+
+    #[test]
+    fn flip_horizontal_mirrors_indices_and_keeps_colors() {
+        let mut document = Document::new(4, 2).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        document.paint(0, 1, 3).unwrap();
+        document.set_palette_color(1, 9, 8, 7).unwrap();
+        let color = document.palette_colors()[1];
+        document.clear_history();
+
+        document.flip_horizontal(0, 0, 0, 4, 2).unwrap();
+        assert_eq!(document.pixels(), &[0, 0, 2, 1, 0, 0, 0, 3]);
+        assert_eq!(document.palette_colors()[1], color);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 0, 0, 3, 0, 0, 0]);
+
+        document.flip_horizontal(0, 0, 0, 3, 1).unwrap();
+        assert_eq!(&document.pixels()[..4], &[0, 2, 1, 0]);
+        assert_eq!(document.pixels()[4], 3);
+        document.clear_history();
+        document.flip_horizontal(0, 1, 0, 1, 1).unwrap();
+        assert!(!document.can_undo());
+
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.flip_horizontal(0, 0, 1, 4, 1).unwrap();
+        assert_eq!(document.active_frame(), 1);
+        assert_eq!(&document.frame_pixels(0).unwrap()[4..8], &[0, 0, 0, 3]);
+        assert!(document
+            .frame_pixels(1)
+            .unwrap()
+            .iter()
+            .all(|index| *index == 0));
+        document.undo().unwrap();
+        assert_eq!(document.frame_pixels(0).unwrap()[4], 3);
+
+        assert!(matches!(
+            document.flip_horizontal(0, 2, 0, 3, 1),
+            Err(KernelError::OutOfBounds { .. })
+        ));
+        assert!(matches!(
+            document.flip_horizontal(3, 0, 0, 1, 1),
+            Err(KernelError::FrameIndex { index: 3, .. })
+        ));
+    }
+
+    #[test]
+    fn resize_canvas_places_frames_and_undoes() {
+        let mut document = Document::new(4, 2).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(3, 1, 2).unwrap();
+        document.add_frame();
+        document.set_frame_delay(1, 80).unwrap();
+        document.set_active_frame(1).unwrap();
+        document.paint(1, 0, 3).unwrap();
+        document.set_palette_locked(true);
+        document.clear_history();
+
+        document.resize_canvas(6, 4, 1, 1).unwrap();
+        assert_eq!((document.width(), document.height()), (6, 4));
+        assert_eq!(document.active_frame(), 1);
+        assert_eq!(document.frame_delay(1).unwrap(), 80);
+        assert!(document.palette_locked());
+        assert_eq!(document.frame_pixels(0).unwrap()[1 * 6 + 1], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[2 * 6 + 4], 2);
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 0);
+        assert_eq!(document.get(2, 1).unwrap(), 3);
+        let json = document.save_project();
+        let loaded = Document::load_project(&json).unwrap();
+        assert_eq!(loaded.width(), 6);
+        assert_eq!(loaded.frame_pixels(0).unwrap()[1 * 6 + 1], 1);
+        assert_eq!(loaded.frame_delay(1).unwrap(), 80);
+
+        document.undo().unwrap();
+        assert_eq!((document.width(), document.height()), (4, 2));
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[7], 2);
+        assert_eq!(document.frame_pixels(1).unwrap()[1], 3);
+        document.redo().unwrap();
+        assert_eq!(document.width(), 6);
+
+        document.resize_canvas(6, 4, 0, 0).unwrap();
+        assert!(document.can_undo());
+        assert!(!document.can_redo());
+        document.undo().unwrap();
+        assert_eq!(document.width(), 4);
+        assert!(!document.can_undo());
+
+        document.resize_canvas(3, 2, 0, 0).unwrap();
+        assert_eq!(document.frame_pixels(0).unwrap(), &[1, 0, 0, 0, 0, 0]);
+        document.undo().unwrap();
+        assert_eq!(document.frame_pixels(0).unwrap()[7], 2);
+
+        document.resize_canvas(4, 2, -1, 0).unwrap();
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 0);
+        assert_eq!(document.frame_pixels(0).unwrap()[6], 2);
+        assert!(matches!(
+            document.resize_canvas(0, 2, 0, 0),
+            Err(KernelError::InvalidSize { width: 0, .. })
+        ));
+        assert_eq!(document.width(), 4);
     }
 
     #[test]

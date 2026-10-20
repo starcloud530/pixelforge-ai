@@ -64,23 +64,73 @@ impl SpriteSheetLayout {
 }
 
 /// Grid used by [`Document::export_sprite_sheet`] for this frame count and cell size.
+///
+/// Columns are `ceil(sqrt(frame_count))`. [`sprite_sheet_layout_with`] takes an
+/// explicit column count instead.
 pub fn sprite_sheet_layout(
     frame_count: usize,
     frame_width: u16,
     frame_height: u16,
 ) -> SpriteSheetLayout {
+    sprite_sheet_layout_with(frame_count, frame_width, frame_height, None)
+        .expect("the square grid fits a canvas this crate can store")
+}
+
+/// Same grid as [`sprite_sheet_layout`], or `columns` when that is `Some`.
+///
+/// `None` keeps `ceil(sqrt(frame_count))`. `Some(n)` uses `n` columns and
+/// `ceil(frame_count / n)` rows, so a walk cycle can stay on one row. `n` may
+/// be larger than the frame count; the extra cells are transparent padding.
+/// `n == 0`, or a sheet that does not fit in `u32` pixels, is
+/// [`KernelError::SheetColumns`].
+pub fn sprite_sheet_layout_with(
+    frame_count: usize,
+    frame_width: u16,
+    frame_height: u16,
+    columns: Option<u32>,
+) -> Result<SpriteSheetLayout, KernelError> {
     let frame_count = frame_count.max(1);
-    let columns = columns_for(frame_count);
-    let rows = u32::try_from(frame_count)
-        .expect("frame count fits in u32")
-        .div_ceil(columns);
-    SpriteSheetLayout {
+    let columns = match columns {
+        None => columns_for(frame_count),
+        Some(0) => return Err(KernelError::SheetColumns { columns: 0 }),
+        Some(columns) => columns,
+    };
+    let count = u32::try_from(frame_count).map_err(|_| KernelError::SheetColumns { columns })?;
+    let rows = count.div_ceil(columns);
+    if u32::from(frame_width).checked_mul(columns).is_none()
+        || u32::from(frame_height).checked_mul(rows).is_none()
+    {
+        return Err(KernelError::SheetColumns { columns });
+    }
+    Ok(SpriteSheetLayout {
         columns,
         rows,
         frame_width,
         frame_height,
         frame_count,
-    }
+    })
+}
+
+/// Read-only comparison of two frames. Not stored on the document.
+///
+/// The PNG is three panels, left to right: `frame`, `with`, then an onion
+/// blend. Where the indices match, the onion panel uses that palette color.
+/// Where only one index is non-zero, it uses that color. Where both differ, it
+/// averages the two palette colors. Nothing is written back into the frames.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FrameDiff {
+    pub frame: usize,
+    pub with: usize,
+    pub changed: usize,
+    pub width: u16,
+    pub height: u16,
+    pub scale: u32,
+    pub png_width: u32,
+    pub png_height: u32,
+    pub png: Vec<u8>,
+    /// One string per row. `.` means the indices match. `!` means both are
+    /// non-zero and different. Otherwise the glyph is the non-zero index.
+    pub diff_rows: Vec<String>,
 }
 
 impl Document {
@@ -156,13 +206,32 @@ impl Document {
     /// Cell size is the canvas. [`Self::export_sprite_sheet_scaled`] multiplies
     /// that cell by `scale` and leaves `columns` and `rows` unchanged.
     pub fn sprite_sheet_layout(&self) -> SpriteSheetLayout {
-        sprite_sheet_layout(self.frame_count(), self.width(), self.height())
+        self.sprite_sheet_layout_with(None)
+            .expect("the square grid fits a canvas this crate can store")
+    }
+
+    /// [`Self::sprite_sheet_layout`] or an explicit column count. See
+    /// [`sprite_sheet_layout_with`].
+    pub fn sprite_sheet_layout_with(
+        &self,
+        columns: Option<u32>,
+    ) -> Result<SpriteSheetLayout, KernelError> {
+        sprite_sheet_layout_with(self.frame_count(), self.width(), self.height(), columns)
     }
 
     /// Pixel size of the sprite sheet after nearest-neighbor `scale`.
     pub fn scaled_sheet_size(&self, scale: u32) -> Result<(u32, u32), KernelError> {
+        self.scaled_sheet_size_with(scale, None)
+    }
+
+    /// [`Self::scaled_sheet_size`] with an explicit column count.
+    pub fn scaled_sheet_size_with(
+        &self,
+        scale: u32,
+        columns: Option<u32>,
+    ) -> Result<(u32, u32), KernelError> {
         let scale = require_scale(scale)?;
-        let layout = self.sprite_sheet_layout();
+        let layout = self.sprite_sheet_layout_with(columns)?;
         Ok((
             mul_scale(layout.sheet_width(), scale)?,
             mul_scale(layout.sheet_height(), scale)?,
@@ -182,11 +251,22 @@ impl Document {
     /// pixels. Padding cells scale as transparent blocks. Scale 1 matches
     /// [`Self::export_sprite_sheet`].
     pub fn export_sprite_sheet_scaled(&self, scale: u32) -> Result<Vec<u8>, KernelError> {
+        self.export_sprite_sheet_scaled_with(scale, None)
+    }
+
+    /// [`Self::export_sprite_sheet_scaled`] with an explicit column count.
+    ///
+    /// `columns == None` keeps the square grid. The document is not changed.
+    pub fn export_sprite_sheet_scaled_with(
+        &self,
+        scale: u32,
+        columns: Option<u32>,
+    ) -> Result<Vec<u8>, KernelError> {
         let scale = require_scale(scale)?;
-        let (sheet_width, sheet_height) = self.scaled_sheet_size(scale)?;
+        let (sheet_width, sheet_height) = self.scaled_sheet_size_with(scale, columns)?;
         let len = rgba_byte_len(sheet_width, sheet_height, scale)?;
         let mut rgba = vec![0; len];
-        let layout = self.sprite_sheet_layout();
+        let layout = self.sprite_sheet_layout_with(columns)?;
         let cell_width = usize::try_from(mul_scale(u32::from(self.width()), scale)?)
             .map_err(|_| KernelError::ExportScale { scale })?;
         let cell_height = usize::try_from(mul_scale(u32::from(self.height()), scale)?)
@@ -214,6 +294,40 @@ impl Document {
             );
         }
         Ok(encode_rgba_png(sheet_width, sheet_height, &rgba))
+    }
+
+    /// Side-by-side frames plus an index onion. Read-only. See [`FrameDiff`].
+    pub fn diff_frames(
+        &self,
+        frame: usize,
+        with: usize,
+        scale: u32,
+    ) -> Result<FrameDiff, KernelError> {
+        let left = self.frame_pixels(frame)?;
+        let right = self.frame_pixels(with)?;
+        let scale = require_scale(scale)?;
+        let width = self.width();
+        let height = self.height();
+        let changed = left
+            .iter()
+            .zip(right.iter())
+            .filter(|(a, b)| a != b)
+            .count();
+        let diff_rows = diff_rows(left, right, width);
+        let (png_width, png_height, rgba) =
+            diff_rgba(self.palette_colors(), left, right, width, height, scale)?;
+        Ok(FrameDiff {
+            frame,
+            with,
+            changed,
+            width,
+            height,
+            scale,
+            png_width,
+            png_height,
+            png: encode_rgba_png(png_width, png_height, &rgba),
+            diff_rows,
+        })
     }
 }
 
@@ -341,6 +455,99 @@ fn rgba_of(palette: &[Rgba], index: u8) -> [u8; 4] {
         Some(color) => [color.r, color.g, color.b, color.a],
         None => [0, 0, 0, 0],
     }
+}
+
+fn diff_rows(left: &[u8], right: &[u8], width: u16) -> Vec<String> {
+    let stride = usize::from(width);
+    left.chunks(stride)
+        .zip(right.chunks(stride))
+        .map(|(row_a, row_b)| {
+            row_a
+                .iter()
+                .zip(row_b.iter())
+                .map(|(a, b)| diff_glyph(*a, *b))
+                .collect()
+        })
+        .collect()
+}
+
+fn diff_glyph(left: u8, right: u8) -> char {
+    if left == right {
+        '.'
+    } else if left != 0 && right != 0 {
+        '!'
+    } else if right != 0 {
+        crate::cell_glyph(right)
+    } else {
+        crate::cell_glyph(left)
+    }
+}
+
+fn onion_color(palette: &[Rgba], left: u8, right: u8) -> [u8; 4] {
+    if left == right {
+        return rgba_of(palette, left);
+    }
+    let a = rgba_of(palette, left);
+    let b = rgba_of(palette, right);
+    if a[3] == 0 {
+        return b;
+    }
+    if b[3] == 0 {
+        return a;
+    }
+    [
+        ((u16::from(a[0]) + u16::from(b[0])) / 2) as u8,
+        ((u16::from(a[1]) + u16::from(b[1])) / 2) as u8,
+        ((u16::from(a[2]) + u16::from(b[2])) / 2) as u8,
+        a[3].max(b[3]),
+    ]
+}
+
+/// Three panels: frame, with, onion. Each source cell is a `scale` block.
+fn diff_rgba(
+    palette: &[Rgba],
+    left: &[u8],
+    right: &[u8],
+    width: u16,
+    height: u16,
+    scale: u32,
+) -> Result<(u32, u32, Vec<u8>), KernelError> {
+    let cell_width = mul_scale(u32::from(width), scale)?;
+    let cell_height = mul_scale(u32::from(height), scale)?;
+    let png_width = cell_width
+        .checked_mul(3)
+        .ok_or(KernelError::ExportScale { scale })?;
+    let png_height = cell_height;
+    let len = rgba_byte_len(png_width, png_height, scale)?;
+    let mut rgba = vec![0; len];
+    let stride = usize::try_from(png_width).map_err(|_| KernelError::ExportScale { scale })?;
+    let scale_usize = usize::try_from(scale).map_err(|_| KernelError::ExportScale { scale })?;
+    let src_width = usize::from(width);
+    for y in 0..usize::from(height) {
+        for x in 0..src_width {
+            let index = y * src_width + x;
+            let colors = [
+                rgba_of(palette, left[index]),
+                rgba_of(palette, right[index]),
+                onion_color(palette, left[index], right[index]),
+            ];
+            for (panel, color) in colors.into_iter().enumerate() {
+                let x0 = panel
+                    * usize::try_from(cell_width)
+                        .map_err(|_| KernelError::ExportScale { scale })?
+                    + x * scale_usize;
+                let y0 = y * scale_usize;
+                for dy in 0..scale_usize {
+                    let row = (y0 + dy) * stride;
+                    for dx in 0..scale_usize {
+                        let offset = (row + x0 + dx) * 4;
+                        rgba[offset..offset + 4].copy_from_slice(&color);
+                    }
+                }
+            }
+        }
+    }
+    Ok((png_width, png_height, rgba))
 }
 
 fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
@@ -583,6 +790,17 @@ mod tests {
         assert_eq!(pixel_at(&sheet, 16, 8, 2), rgba_bytes(paper));
         assert_eq!(pixel_at(&sheet, 16, 6, 0), [0, 0, 0, 0]);
 
+        let wide = document
+            .export_sprite_sheet_scaled_with(1, Some(2))
+            .unwrap();
+        let (width, height, _) = decode_rgba(&wide);
+        assert_eq!((width, height), (8, 2));
+        assert_eq!(document.sprite_sheet_layout_with(Some(2)).unwrap().rows, 1);
+        assert_eq!(
+            document.sprite_sheet_layout_with(Some(0)).unwrap_err(),
+            KernelError::SheetColumns { columns: 0 }
+        );
+
         assert_eq!(
             document.export_frame_png_scaled(0, 0).unwrap_err(),
             KernelError::ExportScale { scale: 0 }
@@ -592,6 +810,45 @@ mod tests {
             KernelError::ExportScale { scale: 0 }
         );
         assert_eq!(document, before);
+    }
+
+    #[test]
+    fn diff_frames_marks_index_changes_and_blends_only_the_view() {
+        let mut document = Document::new(4, 1).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        document.set_palette_color(1, 10, 0, 0).unwrap();
+        document.set_palette_color(2, 0, 20, 0).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(1, 0, 1).unwrap();
+        document.paint(2, 0, 1).unwrap();
+        let before = document.clone();
+
+        let diff = document.diff_frames(0, 1, 2).unwrap();
+        assert_eq!(diff.changed, 3);
+        assert_eq!(diff.diff_rows, vec!["1!1.".to_string()]);
+        assert_eq!((diff.png_width, diff.png_height), (24, 2));
+        assert_eq!(document, before);
+        assert_eq!(
+            document.diff_frames(0, 3, 1).unwrap_err(),
+            KernelError::FrameIndex { index: 3, len: 2 }
+        );
+
+        let (_, _, rgba) = decode_rgba(&diff.png);
+        let red = [10, 0, 0, 255];
+        let green = [0, 20, 0, 255];
+        assert_eq!(pixel_at(&rgba, 24, 0, 0), red);
+        assert_eq!(pixel_at(&rgba, 24, 2, 0), green);
+        assert_eq!(pixel_at(&rgba, 24, 8, 0), [0, 0, 0, 0]);
+        assert_eq!(pixel_at(&rgba, 24, 10, 0), red);
+        assert_eq!(pixel_at(&rgba, 24, 16, 0), red);
+        assert_eq!(pixel_at(&rgba, 24, 18, 0), [5, 10, 0, 255]);
+        assert_eq!(pixel_at(&rgba, 24, 20, 0), red);
+
+        let same = document.diff_frames(1, 1, 1).unwrap();
+        assert_eq!(same.changed, 0);
+        assert_eq!(same.diff_rows, vec!["....".to_string()]);
     }
 
     fn png_size_of(bytes: &[u8]) -> (u32, u32) {

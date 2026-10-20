@@ -1,8 +1,9 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! and per-frame delay. Paint, erase, rectangle fill, rectangle erase, and
-//! rectangle copy or move write palette indices, never raw RGB.
+//! and per-frame delay. Paint, erase, rectangle fill, rectangle erase,
+//! rectangle copy or move, horizontal flip, and canvas resize write palette
+//! indices, never raw RGB.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
 //! Loop playback advances the active frame from those delays. The TypeScript
@@ -62,3 +63,17 @@ pub const MAX_FRAME_DELAY_MS: u32 = 65_535;
 /// Scale for [`Document::scrub`] and [`Document::frame_at_ratio`].
 /// `0` is the start of the first frame and this value is the end of the last.
 pub const TIMELINE_RATIO_PPM: u32 = 1_000_000;
+
+/// Glyph for an ASCII view of one palette index.
+///
+/// Index 0 is `.`. Indices 1–9 are digits, 10–35 are `A`–`Z`, 36–61 are
+/// `a`–`z`, and 62 and above share `*`. This does not invent a color.
+pub fn cell_glyph(index: u8) -> char {
+    match index {
+        0 => '.',
+        1..=9 => char::from(b'0' + index),
+        10..=35 => char::from(b'A' + (index - 10)),
+        36..=61 => char::from(b'a' + (index - 36)),
+        _ => '*',
+    }
+}

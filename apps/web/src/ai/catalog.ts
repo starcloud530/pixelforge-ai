@@ -78,7 +78,7 @@ const BY_NAME = {
   ),
   copyRect: tool(
     "copyRect",
-    "Copy palette indices, including 0, from one rectangle to another on the active frame. One undo step. Source and destination must both lie inside the canvas. The source stays. v1 does not copy across frames.",
+    "Copy palette indices, including 0, from one rectangle to another. One undo step. Source and destination must both lie inside the canvas. The source stays. Optional fromFrame and toFrame copy onto another frame and do not change the active frame. Omit both to stay on the active frame.",
     {
       srcX: int("Source left column, 0-based.", 0, 65535),
       srcY: int("Source top row, 0-based.", 0, 65535),
@@ -86,12 +86,14 @@ const BY_NAME = {
       height: int("Height in cells, at least 1.", 1, 65535),
       dstX: int("Destination left column, 0-based.", 0, 65535),
       dstY: int("Destination top row, 0-based.", 0, 65535),
+      fromFrame: int("Source frame. Omit for the active frame.", 0, 4294967295),
+      toFrame: int("Destination frame. Omit for the active frame.", 0, 4294967295),
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
   ),
   moveRect: tool(
     "moveRect",
-    "Move palette indices on the active frame: destination receives the source, including 0, and source cells outside the destination become index 0. One undo step. Both rectangles must lie inside the canvas.",
+    "Move palette indices: destination receives the source, including 0, and source cells outside the destination become index 0. One undo step. Optional fromFrame and toFrame move onto another frame and clear the source there. Omit both to stay on the active frame.",
     {
       srcX: int("Source left column, 0-based.", 0, 65535),
       srcY: int("Source top row, 0-based.", 0, 65535),
@@ -99,6 +101,8 @@ const BY_NAME = {
       height: int("Height in cells, at least 1.", 1, 65535),
       dstX: int("Destination left column, 0-based.", 0, 65535),
       dstY: int("Destination top row, 0-based.", 0, 65535),
+      fromFrame: int("Source frame. Omit for the active frame.", 0, 4294967295),
+      toFrame: int("Destination frame. Omit for the active frame.", 0, 4294967295),
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
   ),
@@ -218,10 +222,51 @@ const BY_NAME = {
   ),
   exportSpriteSheet: tool(
     "exportSpriteSheet",
-    "Return one grid sprite sheet as a base64 PNG, plus columns, rows, and sheet size. Optional scale (integer >= 1, default 1) nearest-neighbor enlarges each cell. Columns and rows stay the frame grid. Does not change the document or the undo stack.",
+    "Return one grid sprite sheet as a base64 PNG, plus columns, rows, and sheet size. Optional scale (integer >= 1, default 1) nearest-neighbor enlarges each cell. Optional columns sets the frame grid; omit it for ceil(sqrt(frame count)). Does not change the document or the undo stack.",
     {
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+      columns: int("Frame columns. Omit for a nearly square grid.", 1, 4294967295),
     },
+  ),
+  previewFrame: tool(
+    "previewFrame",
+    "Read-only scaled color PNG of one frame, standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Does not change the document or the undo stack.",
+    {
+      frame: int("Frame index to draw. Omit for the active frame.", 0, 4294967295),
+      scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+    },
+  ),
+  diffFrames: tool(
+    "diffFrames",
+    "Read-only comparison of two frames. Returns changed cell count, index diff rows, and a base64 PNG with three panels: frame, with, and an onion blend. Shared indices stay one palette color. Differing indices are averaged only in the view. Does not change the document.",
+    {
+      frame: int("First frame, left panel.", 0, 4294967295),
+      with: int("Second frame, middle panel.", 0, 4294967295),
+      scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+    },
+    ["frame", "with"],
+  ),
+  flipHorizontal: tool(
+    "flipHorizontal",
+    "Mirror palette indices left to right inside a rectangle or the whole frame. Cell x receives the index from the mirrored column. Does not recolor. One undo step. Optional frame does not change the active frame. Omit x, y, width, and height together to flip the whole frame.",
+    {
+      frame: int("Frame to mirror. Omit for the active frame.", 0, 4294967295),
+      x: int("Left column. Omit with the other edges to flip the whole frame.", 0, 65535),
+      y: int("Top row.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+    },
+  ),
+  resizeCanvas: tool(
+    "resizeCanvas",
+    "Copy every frame's indices onto a new canvas from 1 to 256. Omit offsetX and offsetY to center the old pixels; pass both to place the old origin. Cells outside stay transparent. One undo step. The project file stays version 1. Does not recolor.",
+    {
+      width: int("New width, 1 to 256.", 1, 256),
+      height: int("New height, 1 to 256.", 1, 256),
+      offsetX: int("Where the old left edge lands. Negative clips.", -2147483648, 2147483647),
+      offsetY: int("Where the old top edge lands. Negative clips.", -2147483648, 2147483647),
+    },
+    ["width", "height"],
   ),
 } satisfies Record<ToolName, ChatTool>;
 
@@ -234,6 +279,8 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "saveProject",
   "exportPngSequence",
   "exportSpriteSheet",
+  "previewFrame",
+  "diffFrames",
 ];
 
 function tool(

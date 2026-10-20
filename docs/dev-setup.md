@@ -71,9 +71,9 @@ cargo check --workspace
 
 ## CLI
 
-`pixelforge` 是外部 Agent 的本地入口。它打开磁盘上的 `pixelforge-project`，调用上面的 `Document::call_tool`，把 JSON 打到 stdout。一次进程是一份文档，撤销栈不写入工程文件。`fill-rect` 对应工具 `fillRect`，`erase-rect` 对应 `eraseRect`，`copy-rect` / `move-rect` 对应 `copyRect` / `moveRect`。`preview` 和 `--preview` 把帧画成 ASCII 打到 stderr，stdout 仍是 JSON。`preview --frame N` 只读那一帧，不改 `activeFrame`，也不写文件。`export png` 和 `export sheet` 的 `--scale` 是内核最近邻放大，默认 1。
+`pixelforge` 是外部 Agent 的本地入口。它打开磁盘上的 `pixelforge-project`，调用上面的 `Document::call_tool`，把 JSON 打到 stdout。一次进程是一份文档，撤销栈不写入工程文件。`fill-rect` 对应工具 `fillRect`，`erase-rect` 对应 `eraseRect`，`copy-rect` / `move-rect` 对应 `copyRect` / `moveRect`。`preview` 和 `--preview` 把帧画成 ASCII 打到 stderr，stdout 仍是 JSON。`preview --frame N` 只读那一帧，不改 `activeFrame`，也不改工程文件；它会按 `--scale` 写出一张彩色 PNG（默认 `<stem>.preview.png`）。`export png` 和 `export sheet` 的 `--scale` 是内核最近邻放大，默认 1。`export sheet --cols N` 指定列数。
 
-*The `pixelforge` command is the local entry for an external agent. It opens a `pixelforge-project` from disk, calls `Document::call_tool`, and prints JSON on stdout. One process is one document. The undo stack is not stored in the project file. `fill-rect` calls `fillRect`, `erase-rect` calls `eraseRect`, and `copy-rect` / `move-rect` call `copyRect` / `moveRect`. `preview` and `--preview` print an ASCII view on stderr; stdout stays JSON. `preview --frame N` draws that frame without changing `activeFrame` or the file. `export png` and `export sheet` take `--scale` for an in-kernel nearest-neighbor upscale; the default is 1.*
+*The `pixelforge` command is the local entry for an external agent. It opens a `pixelforge-project` from disk, calls `Document::call_tool`, and prints JSON on stdout. One process is one document. The undo stack is not stored in the project file. `fill-rect` calls `fillRect`, `erase-rect` calls `eraseRect`, and `copy-rect` / `move-rect` call `copyRect` / `moveRect`. `preview` and `--preview` print an ASCII view on stderr; stdout stays JSON. `preview --frame N` draws that frame without changing `activeFrame` or the project file, and writes a scaled color PNG (default `<stem>.preview.png`). `export png` and `export sheet` take `--scale` for an in-kernel nearest-neighbor upscale; the default is 1. `export sheet --cols N` sets the column count.*
 
 在仓库根目录：
 
