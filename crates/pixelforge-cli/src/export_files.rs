@@ -88,11 +88,20 @@ pub fn export_png_sequence(session: &mut Session, out_dir: &Path, scale: u32) ->
     finish_summary(&summary)
 }
 
-pub fn export_sprite_sheet(session: &mut Session, output: &Path, scale: u32) -> i32 {
+pub fn export_sprite_sheet(
+    session: &mut Session,
+    output: &Path,
+    scale: u32,
+    columns: Option<u32>,
+) -> i32 {
+    let mut params = serde_json::json!({ "scale": scale });
+    if let Some(columns) = columns {
+        params["columns"] = serde_json::json!(columns);
+    }
     let request = serde_json::json!({
         "apiVersion": TOOL_API_VERSION,
         "tool": "exportSpriteSheet",
-        "params": { "scale": scale },
+        "params": params,
     })
     .to_string();
     let response = session.call(&request);
@@ -153,6 +162,24 @@ pub fn export_sprite_sheet(session: &mut Session, output: &Path, scale: u32) -> 
         },
     });
     finish_summary(&summary)
+}
+
+/// Writes a standard-base64 PNG. Returns the byte length.
+pub fn write_png_b64(path: &Path, text: Option<&str>) -> Result<usize, CliFailure> {
+    let Some(text) = text else {
+        return Err(CliFailure::new("Cli", "tool result is missing png"));
+    };
+    let bytes = match STANDARD.decode(text) {
+        Ok(bytes) => bytes,
+        Err(_) => return Err(CliFailure::new("Cli", "png is not base64")),
+    };
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| CliFailure::io(parent, err))?;
+        }
+    }
+    fs::write(path, &bytes).map_err(|err| CliFailure::io(path, err))?;
+    Ok(bytes.len())
 }
 
 fn refuse_or_print(response: &str) -> Option<i32> {

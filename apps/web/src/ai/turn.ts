@@ -80,7 +80,7 @@ export const AGENT_SYSTEM_PROMPT = [
   "If you do not call beginGesture, the shell groups this whole reply into one undo step.",
   "If you do call beginGesture, do not call it twice, and the shell will not wrap another gesture around yours.",
   "A gesture left open at the end of the reply is closed so the editor is not stuck.",
-  "Read-only tools are inspect, saveProject, exportPngSequence, and exportSpriteSheet.",
+  "Read-only tools are inspect, saveProject, exportPngSequence, exportSpriteSheet, previewFrame, and diffFrames.",
   "This is one reply. Do not wait for tool results to come back.",
 ].join("\n");
 

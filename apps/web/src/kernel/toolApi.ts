@@ -35,6 +35,10 @@ export const TOOL_NAMES = [
   "loadProject",
   "exportPngSequence",
   "exportSpriteSheet",
+  "previewFrame",
+  "diffFrames",
+  "flipHorizontal",
+  "resizeCanvas",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];

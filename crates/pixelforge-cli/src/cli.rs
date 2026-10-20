@@ -19,25 +19,34 @@ Examples:
   pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3
   pixelforge erase-rect --project hero.json --x 4 --y 8 --width 16 --height 8
   pixelforge copy-rect --project hero.json --src-x 4 --src-y 8 --width 8 --height 12 --dst-x 20 --dst-y 8
+  pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 1 --src-x 8 --src-y 16 --width 16 --height 24 --dst-x 8 --dst-y 16
   pixelforge move-rect --project hero.json --src-x 20 --src-y 8 --width 8 --height 12 --dst-x 24 --dst-y 10
-  pixelforge preview --project hero.json
-  pixelforge preview --project hero.json --frame 1
+  pixelforge flip --horizontal --project hero.json
+  pixelforge hflip --project hero.json --x 0 --y 0 --width 16 --height 32
+  pixelforge preview --project hero.json --scale 4
+  pixelforge preview --project hero.json --frame 1 --scale 4 --output hero-f1.png
+  pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+  pixelforge resize --project hero.json --width 64 --height 64
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --preview
   pixelforge call --project hero.json \\
       --request '{\"tool\":\"beginGesture\"}' \\
       --request '{\"tool\":\"fillRect\",\"params\":{\"x\":1,\"y\":2,\"width\":4,\"height\":6,\"colorIndex\":3}}' \\
       --request '{\"tool\":\"endGesture\"}'
   pixelforge export png --project hero.json --out-dir ./frames --scale 2
-  pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2
+  pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4
 
-`preview` and `--preview` print an ASCII view on stderr (one glyph per cell:
-`.` is transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index
-62 or above). `preview --frame N` draws frame N and does not change
-activeFrame or the file. Stdout stays JSON. `preview` also puts those rows
-in `result.rows`. `export png` and `export sheet` take `--scale` (integer
->= 1, default 1) and nearest-neighbor upscale inside the kernel. A standing
-figure needs a tall canvas (64x128 or 96x128); a 48x64 full body stays
-schematic. `frame duplicate` does not select the new frame.";
+`preview` prints an ASCII view on stderr (one glyph per cell: `.` is
+transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index 62 or
+above) and writes a nearest-neighbor color PNG. `--frame N` draws frame N
+and does not change activeFrame or the project file. `--scale K` matches
+export (integer >= 1, default 1). Stdout JSON keeps `result.rows` and adds
+`result.path`. `diff` is read-only: ASCII index diff plus a PNG with frame,
+with, and an onion blend. `flip --horizontal` / `hflip` mirrors indices and
+does not recolor. `copy-rect` and `move-rect` take optional `--from-frame`
+and `--to-frame`. `export sheet --cols N` keeps one row when N is the frame
+count. `resize` copies every frame into a new canvas; omit offsets to center.
+A standing figure still wants a tall canvas (64x128 or 96x128). `frame
+duplicate` does not select the new frame.";
 
 #[derive(Parser)]
 #[command(
@@ -76,18 +85,46 @@ pub enum Command {
         #[arg(long)]
         preview: bool,
     },
-    /// Print an ASCII view of one frame.
+    /// Print an ASCII view and write a scaled color PNG of one frame.
     ///
     /// Stdout is one JSON line (`result.rows`, `result.frame`, `result.activeFrame`,
-    /// and `result.legend`). The same rows are written to stderr. Does not
-    /// change the project file or the active frame. `--frame` draws that
-    /// index; omit it to draw the active frame.
+    /// `result.legend`, `result.scale`, and `result.path`). The same rows are
+    /// written to stderr. Does not change the project file or the active frame.
+    /// `--frame` draws that index; omit it to draw the active frame. `--scale`
+    /// matches `export` (integer >= 1, default 1).
     Preview {
         #[command(flatten)]
         doc: ProjectArgs,
         /// Frame to draw. Defaults to the active frame. Does not select it.
         #[arg(long)]
         frame: Option<u32>,
+        /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
+        /// Color PNG to write. Default is `<project-stem>.preview.png` beside the project.
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+    /// Read-only index diff and onion PNG of two frames.
+    ///
+    /// Does not change the project or the active frame. The PNG is three
+    /// panels: the first frame, the second frame, then a blend that keeps a
+    /// shared index solid and averages palette colors only where they differ.
+    Diff {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// First frame. Shown on the left of the PNG.
+        #[arg(long)]
+        frame: u32,
+        /// Second frame. Shown in the middle of the PNG.
+        #[arg(long)]
+        with: u32,
+        /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
+        /// Color PNG to write. Default is `<project-stem>.diff.png` beside the project.
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
     },
     /// Run one or more Tool API requests against one document.
     ///
@@ -121,15 +158,31 @@ pub enum Command {
     /// One undo step. The rectangle must lie entirely inside the canvas.
     /// A locked palette still allows this.
     EraseRect(EraseRectArgs),
-    /// Copy palette indices from one rectangle to another on the active frame.
+    /// Copy palette indices from one rectangle to another.
     ///
     /// Includes index 0. One undo step. Source and destination must both lie
-    /// inside the canvas. Does not change the active frame.
+    /// inside the canvas. `--from-frame` reads another frame. `--to-frame`
+    /// writes another frame. Omit both to stay on the active frame. Does not
+    /// change which frame is active.
     CopyRect(BlitRectArgs),
-    /// Move palette indices on the active frame, then clear the source rectangle.
+    /// Move palette indices, then clear the source rectangle.
     ///
-    /// One undo step. Source and destination must both lie inside the canvas.
+    /// One undo step. `--from-frame` / `--to-frame` move a rectangle onto
+    /// another frame and clear the source there. Omit both to stay on the
+    /// active frame.
     MoveRect(BlitRectArgs),
+    /// Mirror palette indices left to right. Does not recolor.
+    ///
+    /// Pass `--horizontal`. Omit the rectangle to flip the whole frame. One
+    /// undo step. `--frame` chooses the frame and does not select it.
+    Flip(FlipArgs),
+    /// Mirror palette indices left to right. Same as `flip --horizontal`.
+    Hflip(FlipArgs),
+    /// Copy every frame into a new canvas size. The project format stays version 1.
+    ///
+    /// Omit `--offset-x` and `--offset-y` to center the old pixels. One undo
+    /// step. A size outside 1..=256 is refused and writes nothing.
+    Resize(ResizeArgs),
     /// Palette edits. Paint of an existing index still works while locked.
     Palette {
         #[command(subcommand)]
@@ -255,6 +308,60 @@ pub struct BlitRectArgs {
     /// Destination top row, from 0.
     #[arg(long)]
     pub dst_y: u16,
+    /// Frame to read. Defaults to the active frame. Does not select it.
+    #[arg(long)]
+    pub from_frame: Option<u32>,
+    /// Frame to write. Defaults to the active frame. Does not select it.
+    #[arg(long)]
+    pub to_frame: Option<u32>,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct FlipArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Mirror left to right. Indices move; palette colors stay.
+    #[arg(long)]
+    pub horizontal: bool,
+    /// Frame to mirror. Defaults to the active frame. Does not select it.
+    #[arg(long)]
+    pub frame: Option<u32>,
+    /// Left column of the rectangle. Omit with the other edges to flip the whole frame.
+    #[arg(long)]
+    pub x: Option<u16>,
+    /// Top row of the rectangle.
+    #[arg(long)]
+    pub y: Option<u16>,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: Option<u16>,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: Option<u16>,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct ResizeArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// New canvas width, from 1 to 256.
+    #[arg(long)]
+    pub width: u16,
+    /// New canvas height, from 1 to 256.
+    #[arg(long)]
+    pub height: u16,
+    /// Where the old left edge lands. Omit both offsets to center.
+    #[arg(long)]
+    pub offset_x: Option<i32>,
+    /// Where the old top edge lands. Omit both offsets to center.
+    #[arg(long)]
+    pub offset_y: Option<i32>,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -415,5 +522,8 @@ pub enum ExportCmd {
         /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
         scale: u32,
+        /// Columns in the frame grid. Omit to keep ceil(sqrt(frame count)).
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        cols: Option<u32>,
     },
 }

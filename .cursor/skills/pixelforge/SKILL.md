@@ -4,7 +4,9 @@ description: >-
   Edit PixelForge indexed-pixel projects with the pixelforge CLI and the kernel
   Tool API. Use when creating or changing a pixelforge-project, choosing a
   canvas size, painting or erasing cells, filling or erasing a rectangle,
-  copying or moving a rectangle, previewing a frame, editing the palette,
+  copying or moving a rectangle across frames, previewing a frame in color,
+  diffing two frames, flipping a frame horizontally, resizing the canvas,
+  editing the palette,
   adding or duplicating frames, setting delays, undoing, or exporting a PNG
   sequence or sprite sheet.
 ---
@@ -46,14 +48,14 @@ A new file needs Rust stable (`cargo` 1.83 or newer). There is no Python service
 - Do not hand-edit the project JSON to plant a color. A bad index fails to load. Do not write a diffusion image back into the project.
 - One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack. The next process starts empty, same as opening the file in the editor. `pixelforge undo` on a freshly opened file returns `NothingToUndo`.
 - A refused call does not change the document. In a batch, earlier calls are saved and later calls are not run.
-- Export resolves indices through the palette inside the kernel. Do not recolor the PNG yourself. Onion skin is a view; there is no tool that writes it into pixels.
+- Export resolves indices through the palette inside the kernel. Do not recolor the PNG yourself. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip` moves indices only; it does not recolor highlights.
 - Stdout is compact JSON, one response per line. Stderr is a short note (`wrote hero.json`), plus the ASCII frame when you pass `--preview` or run `preview`. Parse stdout for `ok` / `error.code`. Read the stderr grid (or `preview`'s `result.rows`) when you need to see the picture.
 
-Exit codes: `0` every tool returned `ok: true`. `1` a tool returned `ok: false` (stdout still has the error object). `2` the command did not run the tool (missing file, bad project, bad request file). Clap usage errors also exit `2` and print help to stderr, without a JSON line.
+Exit codes: `0` every tool returned `ok: true`. `1` a tool returned `ok: false` (stdout still has the error object). `2` the command did not run the tool (missing file, bad project, bad request file). `preview` and `diff` also exit `2` when the kernel refuses, and stdout is still that error object. Clap usage errors also exit `2` and print help to stderr, without a JSON line.
 
 ## Canvas size
 
-Pick the size in `pixelforge new` before drawing. A canvas that is too small cannot be resized, and a full body crammed into a sprite slot looks like a diagram.
+Pick the size in `pixelforge new` before drawing. A full body crammed into a sprite slot looks like a diagram. If the canvas is too small, `resize` copies every frame into a larger one (centered, or at `--offset-x` / `--offset-y`) instead of redrawing the file. Expanding does not invent detail; it only moves the indices you already stored.
 
 | Subject | Size (width × height) |
 | --- | --- |
@@ -69,13 +71,13 @@ A **48×64 full body looks schematic**: the head is a few pixels, the pose canno
 Do not paint every frame blind. After each major stage — silhouette, flats, details, pose — look at the picture and fix it before the next stage.
 
 1. Draw that stage with `fill-rect`, `erase-rect`, `copy-rect`, or `move-rect`, and a short `call` batch.
-2. `pixelforge preview --project …` (add `--frame N` to read another frame without selecting it), or `export png --scale K` and open the PNG.
-3. Read the ASCII grid (stderr, or `result.rows`) or the scaled PNG.
+2. `pixelforge preview --project … --scale 4` (add `--frame N` to read another frame without selecting it). Open `result.path`. Use `diff --frame A --with B --scale 4` when two poses must line up.
+3. Read the ASCII grid (stderr, or `result.rows`) for holes and the silhouette. Read the scaled PNG for color: orange cloth, gray-green skin, a metal mask, and whether neighboring ramps stay apart.
 4. Fix the shape, then go on. Repeat for the next stage.
 
-`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame.
+`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame. `preview` also writes a nearest-neighbor color PNG. `--scale K` matches export (`K` ≥ 1, default 1). The path is `result.path` (default `<stem>.preview.png` beside the project, or `--output`). `--preview` on a mutating command stays ASCII on stderr and does not write that PNG.
 
-`export png --scale K` and `export sheet --scale K` nearest-neighbor upscale inside the kernel (`K` is an integer ≥ 1, default 1). Each palette index becomes a `K` by `K` block, then the kernel resolves RGB. Do not scale the PNG with an external tool when you only need to judge color.
+`export png --scale K` and `export sheet --scale K` nearest-neighbor upscale inside the kernel (`K` is an integer ≥ 1, default 1). Each palette index becomes a `K` by `K` block, then the kernel resolves RGB. Do not scale the PNG with an external tool when you only need to judge color. `export sheet --cols N` sets the column count; omit it and the grid stays `ceil(sqrt(frame count))`.
 
 Prefer `fillRect` for a solid region, `eraseRect` for cutting a silhouette, and `copyRect` / `moveRect` for a pose shift or a prop that moves. One `pixelforge call` with several `--request` flags beats thousands of lone `paint` or `erase` calls. Wrap several rects in `beginGesture` / `endGesture` when they should undo as one step. A single `fillRect`, `eraseRect`, `copyRect`, or `moveRect` is already one undo step.
 
@@ -104,7 +106,18 @@ pixelforge preview --project hero.json --frame 1
 
 `fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x`,`y` is the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.
 
-`erase-rect` clears that same kind of rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`). `move-rect` does that copy and clears source cells that are not part of the destination, as one undo step (`moveRect`). v1 stays on the active frame. If the source or the destination would leave the canvas, nothing is written.
+`erase-rect` clears that same kind of rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`, optional `fromFrame`, optional `toFrame`). `move-rect` does that copy and clears source cells that are not part of the destination, as one undo step (`moveRect`). Omit the frame flags to stay on the active frame. `--from-frame` reads another frame and `--to-frame` writes another; neither flag changes `activeFrame`. Across frames a move clears the whole source rectangle. If the source or the destination would leave the canvas, nothing is written.
+
+```bash
+pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 2 \
+  --src-x 16 --src-y 20 --width 32 --height 36 --dst-x 16 --dst-y 20
+pixelforge hflip --project hero.json --frame 2
+pixelforge flip --horizontal --project hero.json --x 0 --y 40 --width 64 --height 24
+pixelforge resize --project hero.json --width 64 --height 64
+pixelforge resize --project hero.json --width 64 --height 96 --offset-x 0 --offset-y 0
+```
+
+`hflip` and `flip --horizontal` mirror indices (`x` becomes `origin + width - 1 - x`). They do not recolor. Omit the rectangle to flip the whole frame. `resize` keeps the version 1 project file. Omit the offsets to center; pass both to place the old origin. Content that falls outside is clipped. One undo restores the previous canvas.
 
 ```bash
 pixelforge call --project hero.json \
@@ -145,7 +158,16 @@ pixelforge export sheet --project hero.json --output hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames
 ```
 
-`frame duplicate` copies pixels and delay to the next slot and returns that index. It does **not** select the new frame. `activeFrame` stays on the same pixels: if it sat at or after the insertion point its index increases by one, otherwise it stays put. Paint the copy only after `frame select` / `setActiveFrame` on the returned index. The web editor's duplicate button selects the copy; the CLI and the `duplicateFrame` tool do not. `frame add` appends a blank frame at 100 ms and does not change the active frame. `frame delay` sets one frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses the kernel grid (`columns = ceil(sqrt(frame count))`); scale does not change the column count.
+`frame duplicate` copies pixels and delay to the next slot and returns that index. It does **not** select the new frame. `activeFrame` stays on the same pixels: if it sat at or after the insertion point its index increases by one, otherwise it stays put. Paint the copy only after `frame select` / `setActiveFrame` on the returned index. The web editor's duplicate button selects the copy; the CLI and the `duplicateFrame` tool do not. `frame add` appends a blank frame at 100 ms and does not change the active frame. `frame delay` sets one frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses the kernel grid (`columns = ceil(sqrt(frame count))`) unless you pass `--cols N`. Scale does not change the column count. Use `--cols` when one row should stay one facing.
+
+```bash
+pixelforge preview --project hero.json --frame 0 --scale 4
+pixelforge preview --project hero.json --frame 1 --scale 4
+pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2
+```
+
+`diff` is read-only. Stderr shows an index diff (`.` same, `!` both differ, any other glyph is the only ink). The PNG at `result.path` is three panels: frame, with, onion. The onion does not change pixels. Compare feet and arms there before repainting the walk.
 
 The same edits as subcommands:
 

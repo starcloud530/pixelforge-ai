@@ -26,13 +26,7 @@ pub struct LegendEntry {
 }
 
 pub fn glyph(index: u8) -> char {
-    match index {
-        0 => '.',
-        1..=9 => char::from(b'0' + index),
-        10..=35 => char::from(b'A' + (index - 10)),
-        36..=61 => char::from(b'a' + (index - 36)),
-        _ => '*',
-    }
+    pixelforge_kernel::cell_glyph(index)
 }
 
 pub fn render(document: &Document) -> AsciiFrame {

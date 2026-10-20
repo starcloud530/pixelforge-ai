@@ -696,7 +696,7 @@ fn export_scale_is_nearest_neighbor_and_defaults_to_one() {
 
 #[test]
 fn every_catalog_name_is_a_known_tool() {
-    assert_eq!(TOOL_NAMES.len(), 24);
+    assert_eq!(TOOL_NAMES.len(), 28);
     for name in TOOL_NAMES {
         let mut document = doc();
         let response = call(&mut document, json!({ "tool": name }));
@@ -704,4 +704,170 @@ fn every_catalog_name_is_a_known_tool() {
         assert_ne!(code, Some("UnknownTool"), "{name}: {response}");
         assert_ne!(code, Some("InvalidRequest"), "{name}: {response}");
     }
+}
+
+#[test]
+fn preview_diff_flip_resize_and_cross_frame_blit() {
+    let mut document = Document::new(4, 2).unwrap();
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 0, "colorIndex": 2}),
+    );
+    tool(&mut document, "addFrame", json!({}));
+    tool(
+        &mut document,
+        "setPaletteColor",
+        json!({"index": 1, "r": 10, "g": 20, "b": 30}),
+    );
+    let color = tool(&mut document, "inspect", json!({}))["palette"][1].clone();
+
+    let preview = tool(&mut document, "previewFrame", json!({"scale": 2}));
+    assert_eq!(preview["frame"], json!(0));
+    assert_eq!(preview["activeFrame"], json!(0));
+    assert_eq!(preview["scale"], json!(2));
+    assert_eq!(preview["pngWidth"], json!(8));
+    assert_eq!(preview["pngHeight"], json!(4));
+    assert!(preview["png"].as_str().unwrap().starts_with("iVBORw0KGgo"));
+    let looked = tool(
+        &mut document,
+        "previewFrame",
+        json!({"frame": 1, "scale": 1}),
+    );
+    assert_eq!(looked["frame"], json!(1));
+    assert_eq!(looked["activeFrame"], json!(0));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["canUndo"],
+        json!(true)
+    );
+    let missing = tool_err(&mut document, "previewFrame", json!({"frame": 4}));
+    assert_eq!(missing["code"], json!("FrameIndex"));
+
+    tool(
+        &mut document,
+        "copyRect",
+        json!({
+            "srcX": 0, "srcY": 0, "width": 2, "height": 1,
+            "dstX": 1, "dstY": 1, "fromFrame": 0, "toFrame": 1
+        }),
+    );
+    tool(&mut document, "setActiveFrame", json!({"index": 1}));
+    let copied = tool(&mut document, "inspect", json!({}));
+    assert_eq!(copied["pixels"][1 * 4 + 1], json!(1));
+    assert_eq!(copied["pixels"][1 * 4 + 2], json!(2));
+    assert_eq!(copied["activeFrame"], json!(1));
+    tool(&mut document, "setActiveFrame", json!({"index": 0}));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][0],
+        json!(1)
+    );
+
+    tool(
+        &mut document,
+        "moveRect",
+        json!({
+            "srcX": 0, "srcY": 0, "width": 1, "height": 1,
+            "dstX": 3, "dstY": 0, "fromFrame": 0, "toFrame": 1
+        }),
+    );
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][0],
+        json!(0)
+    );
+    tool(&mut document, "undo", json!({}));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][0],
+        json!(1)
+    );
+
+    let diff = tool(
+        &mut document,
+        "diffFrames",
+        json!({"frame": 0, "with": 1, "scale": 1}),
+    );
+    assert!(diff["changed"].as_u64().unwrap() > 0);
+    assert_eq!(diff["panels"], json!(["frame", "with", "onion"]));
+    assert_eq!(diff["pngWidth"], json!(12));
+    assert_eq!(diff["diffRows"].as_array().unwrap().len(), 2);
+    assert!(diff["png"].as_str().unwrap().starts_with("iVBORw0KGgo"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["activeFrame"],
+        json!(0)
+    );
+    let bad_diff = tool_err(&mut document, "diffFrames", json!({"frame": 0}));
+    assert_eq!(bad_diff["code"], json!("InvalidParams"));
+
+    tool(&mut document, "flipHorizontal", json!({}));
+    let flipped = tool(&mut document, "inspect", json!({}));
+    assert_eq!(flipped["pixels"][3], json!(1));
+    assert_eq!(flipped["pixels"][2], json!(2));
+    assert_eq!(flipped["pixels"][0], json!(0));
+    assert_eq!(flipped["palette"][1], color);
+    tool(&mut document, "undo", json!({}));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][0],
+        json!(1)
+    );
+    tool(
+        &mut document,
+        "flipHorizontal",
+        json!({"x": 0, "y": 0, "width": 2, "height": 1, "frame": 0}),
+    );
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][0],
+        json!(2)
+    );
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["activeFrame"],
+        json!(0)
+    );
+    let partial = tool_err(&mut document, "flipHorizontal", json!({"x": 0, "width": 2}));
+    assert_eq!(partial["code"], json!("InvalidParams"));
+
+    let resized = tool(
+        &mut document,
+        "resizeCanvas",
+        json!({"width": 8, "height": 4}),
+    );
+    assert_eq!(resized["width"], json!(8));
+    assert_eq!(resized["height"], json!(4));
+    assert_eq!(resized["offsetX"], json!(2));
+    assert_eq!(resized["offsetY"], json!(1));
+    let placed = tool(&mut document, "inspect", json!({}));
+    assert_eq!(placed["pixels"][1 * 8 + 2], json!(2));
+    let saved = tool(&mut document, "saveProject", json!({}));
+    let mut loaded = Document::load_project(saved["json"].as_str().unwrap()).unwrap();
+    assert_eq!(loaded.width(), 8);
+    assert_eq!(loaded.pixels()[1 * 8 + 2], 2);
+    tool(&mut document, "undo", json!({}));
+    assert_eq!(tool(&mut document, "inspect", json!({}))["width"], json!(4));
+    let shifted = tool(
+        &mut loaded,
+        "resizeCanvas",
+        json!({"width": 8, "height": 4, "offsetX": 0, "offsetY": 0}),
+    );
+    assert_eq!(shifted["offsetX"], json!(0));
+    let one_offset = tool_err(
+        &mut document,
+        "resizeCanvas",
+        json!({"width": 6, "height": 2, "offsetX": 1}),
+    );
+    assert_eq!(one_offset["code"], json!("InvalidParams"));
+
+    let row = tool(
+        &mut document,
+        "exportSpriteSheet",
+        json!({"columns": 2, "scale": 1}),
+    );
+    assert_eq!(row["columns"], json!(2));
+    assert_eq!(row["rows"], json!(1));
+    assert_eq!(row["sheetWidth"], json!(8));
+    let square = tool(&mut document, "exportSpriteSheet", json!({}));
+    assert_eq!(square["columns"], json!(2));
+    assert_eq!(square["rows"], json!(1));
 }

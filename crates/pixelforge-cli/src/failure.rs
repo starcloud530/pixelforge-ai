@@ -6,14 +6,14 @@ use pixelforge_kernel::KernelError;
 
 #[derive(Debug)]
 pub struct CliFailure {
-    code: &'static str,
+    code: String,
     message: String,
 }
 
 impl CliFailure {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            code,
+            code: code.into(),
             message: message.into(),
         }
     }
@@ -26,8 +26,8 @@ impl CliFailure {
         Self::new(err.code(), err.to_string())
     }
 
-    pub fn code(&self) -> &'static str {
-        self.code
+    pub fn code(&self) -> &str {
+        &self.code
     }
 
     pub fn message(&self) -> &str {
