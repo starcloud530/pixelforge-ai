@@ -93,8 +93,13 @@ fn help_lists_the_agent_commands() {
         "call",
         "paint",
         "fill-rect",
+        "erase-rect",
+        "copy-rect",
+        "move-rect",
         "preview",
+        "--frame",
         "--preview",
+        "--scale",
         "export",
         "inspect",
         "Stdout",
@@ -627,4 +632,259 @@ fn fill_rect_and_preview_show_the_active_frame() {
     assert_eq!(status(&looked), 0, "{}", stderr(&looked));
     assert_eq!(json_lines(&looked)[0]["result"]["width"], 16);
     assert!(stderr(&looked).contains("preview 16x8 frame 0"));
+}
+
+#[test]
+fn erase_copy_move_preview_frame_and_export_scale() {
+    let scratch = Scratch::new();
+    let project = scratch.child("pose.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "8",
+            "--height",
+            "4",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "fill-rect",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--width",
+            "3",
+            "--height",
+            "1",
+            "--color-index",
+            "5",
+        ]))),
+        0
+    );
+    let duplicated = pixelforge(&arg(&[
+        "frame",
+        "duplicate",
+        "--project",
+        project_arg,
+        "--index",
+        "0",
+    ]));
+    assert_eq!(status(&duplicated), 0, "{}", stderr(&duplicated));
+    assert_eq!(json_lines(&duplicated)[0]["result"]["index"], 1);
+    assert_eq!(load(&project).active_frame(), 0);
+    assert_eq!(load(&project).frame_pixels(1).unwrap()[0], 5);
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "1",
+            "--color-index",
+            "2",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+
+    let before_preview = fs::read(&project).unwrap();
+    let preview = pixelforge(&arg(&["preview", "--project", project_arg, "--frame", "1"]));
+    assert_eq!(status(&preview), 0, "{}", stderr(&preview));
+    let body = &json_lines(&preview)[0];
+    assert_eq!(body["result"]["frame"], 1);
+    assert_eq!(body["result"]["activeFrame"], 0);
+    assert_eq!(body["result"]["rows"][1], "2.......");
+    assert!(stderr(&preview).contains("preview 8x4 frame 1 active 0"));
+    assert_eq!(fs::read(&project).unwrap(), before_preview);
+    assert_eq!(load(&project).active_frame(), 0);
+
+    let missing = pixelforge(&arg(&["preview", "--project", project_arg, "--frame", "4"]));
+    assert_eq!(status(&missing), 2, "{}", stderr(&missing));
+    assert_eq!(json_lines(&missing)[0]["error"]["code"], "FrameIndex");
+    assert_eq!(fs::read(&project).unwrap(), before_preview);
+
+    let erased = pixelforge(&arg(&[
+        "erase-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--width",
+        "2",
+        "--height",
+        "1",
+    ]));
+    assert_eq!(status(&erased), 0, "{}", stderr(&erased));
+    assert_eq!(load(&project).get(0, 0).unwrap(), 0);
+    assert_eq!(load(&project).get(2, 0).unwrap(), 5);
+    assert_eq!(load(&project).frame_pixels(1).unwrap()[0], 5);
+
+    let overflow = pixelforge(&arg(&[
+        "erase-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "6",
+        "--y",
+        "0",
+        "--width",
+        "4",
+        "--height",
+        "1",
+    ]));
+    assert_eq!(status(&overflow), 1);
+    assert_eq!(json_lines(&overflow)[0]["error"]["code"], "OutOfBounds");
+    assert_eq!(load(&project).get(2, 0).unwrap(), 5);
+
+    let copied = pixelforge(&arg(&[
+        "copy-rect",
+        "--project",
+        project_arg,
+        "--src-x",
+        "2",
+        "--src-y",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--dst-x",
+        "4",
+        "--dst-y",
+        "0",
+    ]));
+    assert_eq!(status(&copied), 0, "{}", stderr(&copied));
+    assert_eq!(load(&project).get(2, 0).unwrap(), 5);
+    assert_eq!(load(&project).get(4, 0).unwrap(), 5);
+
+    let moved = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--request",
+        r#"{"tool":"moveRect","params":{"srcX":4,"srcY":0,"width":1,"height":1,"dstX":5,"dstY":0}}"#,
+        "--request",
+        r#"{"tool":"undo"}"#,
+    ]));
+    assert_eq!(status(&moved), 0, "{}", stderr(&moved));
+    assert_eq!(json_lines(&moved).len(), 2);
+    assert_eq!(load(&project).get(4, 0).unwrap(), 5);
+    assert_eq!(load(&project).get(5, 0).unwrap(), 0);
+
+    let shifted = pixelforge(&arg(&[
+        "move-rect",
+        "--project",
+        project_arg,
+        "--src-x",
+        "2",
+        "--src-y",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--dst-x",
+        "3",
+        "--dst-y",
+        "0",
+    ]));
+    assert_eq!(status(&shifted), 0, "{}", stderr(&shifted));
+    assert_eq!(load(&project).get(2, 0).unwrap(), 0);
+    assert_eq!(load(&project).get(3, 0).unwrap(), 5);
+    assert_eq!(load(&project).get(4, 0).unwrap(), 5);
+
+    let before_export = fs::read(&project).unwrap();
+    let frames_dir = scratch.child("frames");
+    let sequence = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        frames_dir.to_str().unwrap(),
+        "--scale",
+        "2",
+    ]));
+    assert_eq!(status(&sequence), 0, "{}", stderr(&sequence));
+    let sequence_body = &json_lines(&sequence)[0];
+    assert_eq!(sequence_body["result"]["scale"], 2);
+    assert_eq!(sequence_body["result"]["width"], 16);
+    assert_eq!(sequence_body["result"]["height"], 8);
+    assert_eq!(
+        png_size(&fs::read(frames_dir.join("pixelforge-000.png")).unwrap()),
+        (16, 8)
+    );
+    assert_eq!(
+        png_size(&fs::read(frames_dir.join("pixelforge-001.png")).unwrap()),
+        (16, 8)
+    );
+
+    let sheet_path = scratch.child("pose-sheet.png");
+    let sheet = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet_path.to_str().unwrap(),
+        "--scale",
+        "2",
+    ]));
+    assert_eq!(status(&sheet), 0, "{}", stderr(&sheet));
+    let sheet_body = &json_lines(&sheet)[0];
+    assert_eq!(sheet_body["result"]["scale"], 2);
+    assert_eq!(sheet_body["result"]["columns"], 2);
+    assert_eq!(sheet_body["result"]["rows"], 1);
+    assert_eq!(sheet_body["result"]["sheetWidth"], 32);
+    assert_eq!(sheet_body["result"]["sheetHeight"], 8);
+    assert_eq!(png_size(&fs::read(&sheet_path).unwrap()), (32, 8));
+    assert_eq!(fs::read(&project).unwrap(), before_export);
+
+    let bad_scale = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        scratch.child("nope").to_str().unwrap(),
+        "--scale",
+        "0",
+    ]));
+    assert_eq!(status(&bad_scale), 2);
+    assert!(json_lines(&bad_scale).is_empty());
 }

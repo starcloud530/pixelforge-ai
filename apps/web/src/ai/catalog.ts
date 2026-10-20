@@ -65,6 +65,43 @@ const BY_NAME = {
     },
     ["x", "y"],
   ),
+  eraseRect: tool(
+    "eraseRect",
+    "Clear an axis-aligned rectangle on the active frame to transparent index 0. One undo step. The rectangle must lie entirely inside the canvas. A locked palette still allows this. Prefer this over erasing cell by cell.",
+    {
+      x: int("Left column, 0-based.", 0, 65535),
+      y: int("Top row, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+    },
+    ["x", "y", "width", "height"],
+  ),
+  copyRect: tool(
+    "copyRect",
+    "Copy palette indices, including 0, from one rectangle to another on the active frame. One undo step. Source and destination must both lie inside the canvas. The source stays. v1 does not copy across frames.",
+    {
+      srcX: int("Source left column, 0-based.", 0, 65535),
+      srcY: int("Source top row, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      dstX: int("Destination left column, 0-based.", 0, 65535),
+      dstY: int("Destination top row, 0-based.", 0, 65535),
+    },
+    ["srcX", "srcY", "width", "height", "dstX", "dstY"],
+  ),
+  moveRect: tool(
+    "moveRect",
+    "Move palette indices on the active frame: destination receives the source, including 0, and source cells outside the destination become index 0. One undo step. Both rectangles must lie inside the canvas.",
+    {
+      srcX: int("Source left column, 0-based.", 0, 65535),
+      srcY: int("Source top row, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      dstX: int("Destination left column, 0-based.", 0, 65535),
+      dstY: int("Destination top row, 0-based.", 0, 65535),
+    },
+    ["srcX", "srcY", "width", "height", "dstX", "dstY"],
+  ),
   setPaletteColor: tool(
     "setPaletteColor",
     "Replace the RGB of an existing opaque palette entry. Every frame that uses the index updates. Refused while the palette is locked. Index 0 stays transparent.",
@@ -129,7 +166,7 @@ const BY_NAME = {
   ),
   duplicateFrame: tool(
     "duplicateFrame",
-    "Insert a copy of a frame (pixels and delay) immediately after it. Returns the new index.",
+    "Insert a copy of a frame (pixels and delay) immediately after it. Returns the new index. Does not select that frame. Call setActiveFrame with the returned index before painting the copy. The web duplicate button selects it; this tool does not.",
     {
       index: int("Source frame index, 0-based.", 0, 4294967295),
     },
@@ -174,11 +211,17 @@ const BY_NAME = {
   ),
   exportPngSequence: tool(
     "exportPngSequence",
-    "Return each frame as a standard base64 RGBA PNG. Does not change the document or the undo stack.",
+    "Return each frame as a standard base64 RGBA PNG. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each palette index before resolving color. Does not change the document or the undo stack.",
+    {
+      scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+    },
   ),
   exportSpriteSheet: tool(
     "exportSpriteSheet",
-    "Return one grid sprite sheet as a base64 PNG, plus columns, rows, and sheet size. Does not change the document or the undo stack.",
+    "Return one grid sprite sheet as a base64 PNG, plus columns, rows, and sheet size. Optional scale (integer >= 1, default 1) nearest-neighbor enlarges each cell. Columns and rows stay the frame grid. Does not change the document or the undo stack.",
+    {
+      scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+    },
   ),
 } satisfies Record<ToolName, ChatTool>;
 

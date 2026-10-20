@@ -84,6 +84,7 @@
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
+| `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
@@ -94,13 +95,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出）不进撤销栈。和当前值相同的绘制、矩形填充、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect` 或 `moveRect` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, and both exports) do not push undo entries. A paint, rectangle fill, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, and both exports) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect` is already one undo step. Wrap several paints or several fills in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, or `moveRect` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -146,6 +147,36 @@
 ### `erase`
 
 `params`：`x`、`y`。把该格设回索引 0。
+
+错误：`OutOfBounds`。
+
+### `eraseRect`
+
+`params`：`x`、`y`（矩形左上角，含这一格）、`width`、`height`（`1..=65535`）。
+
+在当前帧上把这块轴对齐矩形设回索引 0。边界和 `fillRect` 相同：只要有一格出界，整次失败，一格都不写。已经是透明的格子不记入撤销。整块是一步撤销；未结束的 gesture 会收进这些格子。锁定的调色板不阻止这次擦除。改剪影时用它，不要逐格 `erase`。
+
+*Clears an axis-aligned rectangle on the active frame to index 0. Bounds match `fillRect`: if any cell would fall outside the canvas, the call fails and writes nothing. Cells that are already transparent are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. A locked palette does not block the erase. Prefer this over erasing cell by cell when reshaping a silhouette.*
+
+错误：`OutOfBounds`。`width` 或 `height` 为 0 是 `InvalidParams`。
+
+### `copyRect`
+
+`params`：`srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`。宽高是 `1..=65535`。坐标是源矩形和目标矩形的左上角。
+
+在当前帧上把源矩形的调色板索引原样抄到目标矩形，包括索引 0。源矩形保持不动。源或目标只要有一格出界，整次失败，一格都不写。重叠时先读源，再写目标。改变了的格子是一步撤销；未结束的 gesture 会收进这些格子。没有变化不进栈。锁定的调色板不阻止这次复制。v1 只在当前帧上复制，不跨帧。
+
+*Copies palette indices, including 0, from one rectangle to another on the active frame. The source stays. If the source or the destination would fall outside the canvas, the call fails and writes nothing. Overlap reads the source before writing the destination. Changed cells are one undo step; an open gesture absorbs them. A copy that changes nothing is not recorded. A locked palette does not block the copy. v1 stays on the active frame.*
+
+错误：`OutOfBounds`。
+
+### `moveRect`
+
+`params` 与 `copyRect` 相同。
+
+把源矩形的索引搬到目标矩形，包括索引 0。不在目标里的源格子变成索引 0。源和目标都要整块落在画布内，否则一格都不写。重叠时以搬动前的源为准，落在目标里的源格子保留搬过去的索引，不会被清掉。整次移动是一步撤销。挪到自己身上等于没改，不进栈。v1 只在当前帧上移动。
+
+*Moves palette indices, including 0, to the destination and clears source cells that are not part of the destination. Both rectangles must lie inside the canvas. Overlap uses the source from before the move, so a source cell that lands inside the destination keeps the moved index. The move is one undo step. A move onto the same rectangle changes nothing and is not recorded. v1 stays on the active frame.*
 
 错误：`OutOfBounds`。
 
@@ -201,6 +232,10 @@
 
 `result`：`{ "index": <新帧> }`。
 
+**不会把当前帧改成这份拷贝。** 返回的 `index` 才是新帧。要画拷贝，接着调用 `setActiveFrame`（CLI 是 `frame select`）。当前帧若在插入点或它后面，下标会加一，画面仍是原来那一帧；插在当前帧前面时，当前下标不变。网页里的「复制」按钮会在同一次 gesture 里再 `setActiveFrame` 到新下标。CLI 的 `frame duplicate` 和这个工具不会。
+
+*Does not select the copy. `index` in the result is the new frame. Call `setActiveFrame` (CLI: `frame select`) before painting it. If the active frame sits at or after the insertion point, its index increases by one and it still shows the same pixels. An earlier active index stays put. The web editor's duplicate button then calls `setActiveFrame` on the new index inside the same gesture. `frame duplicate` and this tool do not.*
+
 错误：`FrameIndex`。
 
 ### `setFrameDelay`
@@ -237,23 +272,32 @@
 
 ### `exportPngSequence`
 
-参数：无。不改文档，不进撤销栈。
+`params`：可选 `scale`（整数 `1..=4294967295`，缺省为 1）。不改文档，不进撤销栈。
 
-`result`：`{ "frames": ["<base64>", ...] }`。每一项是时间轴上的一帧 RGBA PNG，和 `Document::export_frame_png` 的字节相同。Base64 是标准字母表，带 `=` 填充，没有换行，也没有 `data:` 前缀。
+`scale` 在内核里做最近邻放大：每个调色板索引先重复成 `scale × scale` 的块，再解析成 RGBA，没有插值，也没有抗锯齿。`scale` 为 1 时和以前的字节相同。
+
+`result`：`{ "frames": ["<base64>", ...], "scale", "width", "height" }`。每一项是时间轴上的一帧 RGBA PNG。`width` 和 `height` 是放大后的像素尺寸。Base64 是标准字母表，带 `=` 填充，没有换行，也没有 `data:` 前缀。
+
+*`scale` is optional and defaults to 1. The kernel repeats each palette index into a `scale` by `scale` block, then resolves RGBA. There is no filtering. Scale 1 matches the previous bytes. `width` and `height` are the scaled pixel size.*
+
+`scale` 为 0 或不是该范围的整数时是 `InvalidParams`。放大后放不进 PNG 时是 `ExportScale`。
 
 ### `exportSpriteSheet`
 
-参数：无。不改文档，不进撤销栈。
+`params`：可选 `scale`，规则与 `exportPngSequence` 相同。不改文档，不进撤销栈。
 
 `result`：
 
 | 字段 Field | 含义 Meaning |
 | --- | --- |
 | `png` | 网格 sprite sheet 的 Base64 PNG |
-| `columns`, `rows` | `ceil(sqrt(帧数))` 和 `ceil(帧数 / 列数)` |
-| `sheetWidth`, `sheetHeight` | 整张图的像素尺寸 |
+| `columns`, `rows` | `ceil(sqrt(帧数))` 和 `ceil(帧数 / 列数)`。`scale` 不改变这两格 |
+| `sheetWidth`, `sheetHeight` | 整张图的像素尺寸，已乘 `scale` |
+| `scale` | 使用的倍数，缺省请求时为 1 |
 
-排布和 Godot / Unity 约定见 [export.md](export.md)。
+每一格帧变成 `帧宽 × scale` 乘 `帧高 × scale`。末尾的透明空位同样放大。排布和 Godot / Unity 约定见 [export.md](export.md)。
+
+*Each frame cell becomes `frame width × scale` by `frame height × scale`. Columns and rows stay the frame grid. Padding cells scale as transparent blocks.*
 
 ## 不变量 Invariants
 

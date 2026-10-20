@@ -30,6 +30,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "paint",
     "fillRect",
     "erase",
+    "eraseRect",
+    "copyRect",
+    "moveRect",
     "setPaletteColor",
     "addPaletteColor",
     "importPalette",
@@ -295,6 +298,27 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             document.erase(x, y).map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
+        "eraseRect" => {
+            let (x, y, width, height) = parse_rect(tool, params)?;
+            document
+                .erase_rect(x, y, width, height)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(empty())
+        }
+        "copyRect" => {
+            let (src_x, src_y, width, height, dst_x, dst_y) = parse_blit(tool, params)?;
+            document
+                .copy_rect(src_x, src_y, width, height, dst_x, dst_y)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(empty())
+        }
+        "moveRect" => {
+            let (src_x, src_y, width, height, dst_x, dst_y) = parse_blit(tool, params)?;
+            document
+                .move_rect(src_x, src_y, width, height, dst_x, dst_y)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(empty())
+        }
         "setPaletteColor" => {
             let (index, r, g, b) = parse_set_palette_color(params)?;
             document
@@ -382,24 +406,41 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(inspect_value(document))
         }
         "exportPngSequence" => {
-            parse_empty(tool, params)?;
+            let scale = parse_scale(tool, params)?;
+            let (width, height) = document
+                .scaled_frame_size(scale)
+                .map_err(ToolFailure::Kernel)?;
             let frames = document
-                .export_png_sequence()
+                .export_png_sequence_scaled(scale)
+                .map_err(ToolFailure::Kernel)?
                 .into_iter()
                 .map(|png| encode_base64(&png))
                 .collect::<Vec<_>>();
-            Ok(serde_json::json!({ "frames": frames }))
+            Ok(serde_json::json!({
+                "frames": frames,
+                "scale": scale,
+                "width": width,
+                "height": height,
+            }))
         }
         "exportSpriteSheet" => {
-            parse_empty(tool, params)?;
+            let scale = parse_scale(tool, params)?;
             let layout = document.sprite_sheet_layout();
-            let png = encode_base64(&document.export_sprite_sheet());
+            let (sheet_width, sheet_height) = document
+                .scaled_sheet_size(scale)
+                .map_err(ToolFailure::Kernel)?;
+            let png = encode_base64(
+                &document
+                    .export_sprite_sheet_scaled(scale)
+                    .map_err(ToolFailure::Kernel)?,
+            );
             Ok(serde_json::json!({
                 "png": png,
                 "columns": layout.columns,
                 "rows": layout.rows,
-                "sheetWidth": layout.sheet_width(),
-                "sheetHeight": layout.sheet_height(),
+                "sheetWidth": sheet_width,
+                "sheetHeight": sheet_height,
+                "scale": scale,
             }))
         }
         _ => Err(ToolFailure::UnknownTool {
@@ -481,12 +522,48 @@ fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8), ToolFailur
         &map,
         &["x", "y", "width", "height", "colorIndex"],
     )?;
-    let x = require_u16("fillRect", &map, "x")?;
-    let y = require_u16("fillRect", &map, "y")?;
-    let width = require_u16_at_least("fillRect", &map, "width", 1)?;
-    let height = require_u16_at_least("fillRect", &map, "height", 1)?;
+    let (x, y, width, height) = rect_from("fillRect", &map)?;
     let color_index = require_u8("fillRect", &map, "colorIndex")?;
     Ok((x, y, width, height, color_index))
+}
+
+fn parse_rect(tool: &str, params: Value) -> Result<(u16, u16, u16, u16), ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["x", "y", "width", "height"])?;
+    rect_from(tool, &map)
+}
+
+fn rect_from(tool: &str, map: &Map<String, Value>) -> Result<(u16, u16, u16, u16), ToolFailure> {
+    let x = require_u16(tool, map, "x")?;
+    let y = require_u16(tool, map, "y")?;
+    let width = require_u16_at_least(tool, map, "width", 1)?;
+    let height = require_u16_at_least(tool, map, "height", 1)?;
+    Ok((x, y, width, height))
+}
+
+fn parse_blit(tool: &str, params: Value) -> Result<(u16, u16, u16, u16, u16, u16), ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(
+        tool,
+        &map,
+        &["srcX", "srcY", "width", "height", "dstX", "dstY"],
+    )?;
+    let src_x = require_u16(tool, &map, "srcX")?;
+    let src_y = require_u16(tool, &map, "srcY")?;
+    let width = require_u16_at_least(tool, &map, "width", 1)?;
+    let height = require_u16_at_least(tool, &map, "height", 1)?;
+    let dst_x = require_u16(tool, &map, "dstX")?;
+    let dst_y = require_u16(tool, &map, "dstY")?;
+    Ok((src_x, src_y, width, height, dst_x, dst_y))
+}
+
+fn parse_scale(tool: &str, params: Value) -> Result<u32, ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["scale"])?;
+    match map.get("scale") {
+        None => Ok(1),
+        Some(_) => require_u32_at_least(tool, &map, "scale", 1),
+    }
 }
 
 fn parse_cell(tool: &str, params: Value) -> Result<(u16, u16), ToolFailure> {
@@ -621,10 +698,31 @@ fn require_u16_at_least(
 }
 
 fn require_u32(tool: &str, map: &Map<String, Value>, key: &str) -> Result<u32, ToolFailure> {
-    Ok(
-        u32::try_from(require_int(tool, map, key, U32_MAX)?)
-            .expect("value was bounded by u32::MAX"),
-    )
+    require_u32_at_least(tool, map, key, 0)
+}
+
+fn require_u32_at_least(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+    min: u64,
+) -> Result<u32, ToolFailure> {
+    match map.get(key) {
+        None => Err(invalid_params(tool, &format!("missing {key}"))),
+        Some(Value::Number(number)) => match number.as_u64() {
+            Some(value) if (min..=U32_MAX).contains(&value) => {
+                Ok(u32::try_from(value).expect("value was bounded by u32::MAX"))
+            }
+            _ => Err(invalid_params(
+                tool,
+                &format!("{key} must be an integer from {min} to {U32_MAX}"),
+            )),
+        },
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be an integer from {min} to {U32_MAX}"),
+        )),
+    }
 }
 
 fn require_int(

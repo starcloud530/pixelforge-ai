@@ -1,7 +1,7 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `fillRect`, `erase`, palette edits, palette lock, palette import,
+//! `snapshot()`, `paint`, `fillRect`, `erase`, `eraseRect`, `copyRect`, `moveRect`, palette edits, palette lock, palette import,
 //! frame-list methods, per-frame delay, timeline scrub, loop playback, undo /
 //! redo, project save / load, `frameRgba`, and PNG export. `callTool` is the
 //! same Tool API as [`pixelforge_kernel::Document::call_tool`]: one JSON
@@ -106,6 +106,48 @@ impl PixelDocument {
         self.inner.erase(x, y).map_err(reject)
     }
 
+    /// Clears an axis-aligned rectangle to transparent index 0. One undo step.
+    ///
+    /// Same bounds as [`Self::fill_rect`]: any cell outside the canvas writes nothing.
+    #[wasm_bindgen(js_name = eraseRect)]
+    pub fn erase_rect(&mut self, x: u16, y: u16, width: u16, height: u16) -> Result<(), String> {
+        self.inner.erase_rect(x, y, width, height).map_err(reject)
+    }
+
+    /// Copies palette indices, including 0, on the active frame. One undo step.
+    ///
+    /// Source and destination must both lie on the canvas.
+    #[wasm_bindgen(js_name = copyRect)]
+    pub fn copy_rect(
+        &mut self,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), String> {
+        self.inner
+            .copy_rect(src_x, src_y, width, height, dst_x, dst_y)
+            .map_err(reject)
+    }
+
+    /// Moves palette indices on the active frame and clears the source. One undo step.
+    #[wasm_bindgen(js_name = moveRect)]
+    pub fn move_rect(
+        &mut self,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), String> {
+        self.inner
+            .move_rect(src_x, src_y, width, height, dst_x, dst_y)
+            .map_err(reject)
+    }
+
     /// Replaces the RGB of a paint entry. Index 0 cannot be changed.
     /// Cells keep their indices, so the new color shows everywhere that entry is used.
     #[wasm_bindgen(js_name = setPaletteColor)]
@@ -155,6 +197,9 @@ impl PixelDocument {
     }
 
     /// Inserts a copy after `index` and returns the new index.
+    ///
+    /// Does not select the copy. The shell's duplicate button calls
+    /// [`Self::set_active_frame`] with that index; this method does not.
     #[wasm_bindgen(js_name = duplicateFrame)]
     pub fn duplicate_frame(&mut self, index: u32) -> Result<u32, String> {
         self.inner
@@ -675,6 +720,21 @@ mod tests {
             r#"{"tool":"fillRect","params":{"x":0,"y":1,"width":2,"height":1,"colorIndex":4}}"#,
         );
         assert!(filled.contains("\"ok\":true"), "{filled}");
+        assert_eq!(document.pixels()[16], 4);
+        assert_eq!(document.pixels()[17], 4);
+        document.erase_rect(0, 1, 1, 1).unwrap();
+        assert_eq!(document.pixels()[16], 0);
+        assert_eq!(document.pixels()[17], 4);
+        document.copy_rect(2, 0, 1, 1, 0, 1).unwrap();
+        assert_eq!(document.pixels()[16], 3);
+        document.move_rect(3, 0, 1, 1, 1, 1).unwrap();
+        assert_eq!(document.pixels()[3], 0);
+        assert_eq!(document.pixels()[17], 3);
+        document.undo().unwrap();
+        assert_eq!(document.pixels()[3], 3);
+        assert_eq!(document.pixels()[17], 4);
+        document.undo().unwrap();
+        document.undo().unwrap();
         assert_eq!(document.pixels()[16], 4);
         assert_eq!(document.pixels()[17], 4);
 

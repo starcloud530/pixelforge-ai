@@ -43,6 +43,8 @@ pub enum KernelError {
     /// [`crate::Document::begin_gesture`] was called again, or redo ran
     /// while a gesture already had edits.
     OpenGesture,
+    /// Export `scale` is 0, or `scale` times the canvas does not fit in a PNG.
+    ExportScale { scale: u32 },
     /// Bytes are not a supported `pixelforge-project` file.
     ProjectFile(ProjectFileError),
 }
@@ -103,6 +105,7 @@ impl KernelError {
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
+            Self::ExportScale { .. } => "ExportScale",
             Self::ProjectFile(_) => "ProjectFile",
         }
     }
@@ -151,6 +154,10 @@ impl fmt::Display for KernelError {
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
+            Self::ExportScale { scale } => write!(
+                f,
+                "export scale {scale} must be an integer >= 1 that fits the canvas"
+            ),
             Self::ProjectFile(error) => write!(f, "{error}"),
         }
     }
@@ -212,6 +219,11 @@ mod tests {
         assert_eq!(KernelError::FrameDelay { delay_ms: 0 }.code(), "FrameDelay");
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
+        assert_eq!(KernelError::ExportScale { scale: 0 }.code(), "ExportScale");
+        assert_eq!(
+            KernelError::ExportScale { scale: 0 }.to_string(),
+            "export scale 0 must be an integer >= 1 that fits the canvas"
+        );
         assert_eq!(
             KernelError::ProjectFile(ProjectFileError::Malformed).code(),
             "ProjectFile"

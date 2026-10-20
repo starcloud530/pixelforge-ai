@@ -10,9 +10,9 @@
 
 ## PNG 序列 PNG sequence
 
-一帧一个文件，顺序就是时间轴顺序。网页下载的文件名是 `pixelforge-000.png`、`pixelforge-001.png`，至少三位、从 0 起，按文件名排序就是播放顺序。尺寸等于画布，不放大。`pixelforge export png` 写出同样的文件名。`pixelforge export sheet` 的网格和这些字节相同，路径由调用方指定。
+一帧一个文件，顺序就是时间轴顺序。网页下载的文件名是 `pixelforge-000.png`、`pixelforge-001.png`，至少三位、从 0 起，按文件名排序就是播放顺序。网页导出的尺寸等于画布。`pixelforge export png` 写出同样的文件名，并可以用 `--scale K`（整数，至少 1，默认 1）在内核里做最近邻放大：每个索引重复成 `K × K` 的块，再按调色板解析成 RGBA，没有插值。`pixelforge export sheet --scale K` 同样放大每一格，列数和行数不变，`sheetWidth` / `sheetHeight` 乘上 `K`。`K` 为 1 时字节与不传 `--scale` 相同。
 
-*One file per frame, in timeline order. The page downloads `pixelforge-000.png`, `pixelforge-001.png`, and so on: at least three digits, starting at 0, so a filename sort is the playback order. The size is the canvas size, with no scale applied. `pixelforge export png` writes those same file names. `pixelforge export sheet` uses this same grid and these same bytes; the caller chooses the path.*
+*One file per frame, in timeline order. The page downloads `pixelforge-000.png`, `pixelforge-001.png`, and so on: at least three digits, starting at 0, so a filename sort is the playback order. The page exports at canvas size. `pixelforge export png` writes those same file names. `--scale K` (an integer ≥ 1, default 1) nearest-neighbor upscales inside the kernel: each palette index is repeated into a `K` by `K` block, then resolved to RGBA, with no filtering. `pixelforge export sheet --scale K` scales each cell the same way. Columns and rows stay the frame grid, and `sheetWidth` / `sheetHeight` are multiplied by `K`. Scale 1 matches the bytes written when `--scale` is omitted.*
 
 ## Sprite sheet
 
@@ -21,13 +21,13 @@
 - `columns = ceil(sqrt(frame_count))`
 - `rows = ceil(frame_count / columns)`
 
-从左到右排满一行，再换到下一行。格子大小等于帧大小。帧数不是列数的整数倍时，最后一行末尾是完全透明的空位，那些空位不是帧。
+从左到右排满一行，再换到下一行。默认格子大小等于帧大小；`--scale K` 时格子是帧大小乘 `K`。帧数不是列数的整数倍时，最后一行末尾是完全透明的空位，那些空位不是帧，放大后仍是透明块。
 
 例子：1 → 1×1，2 → 2×1，3 → 2×2，4 → 2×2，5 → 3×2，9 → 3×3。
 
 网页文件名带上这个网格，例如两列一行是 `pixelforge-sheet-2x1.png`。改名之后仍用上面的公式。
 
-*Every frame is packed into one PNG. The grid is nearly square: `columns = ceil(sqrt(frame_count))` and `rows = ceil(frame_count / columns)`. Frames fill left to right, then wrap. Each cell is the frame size. When the frame count is not a multiple of `columns`, the leftover cells on the last row are fully transparent and are not frames.*
+*Every frame is packed into one PNG. The grid is nearly square: `columns = ceil(sqrt(frame_count))` and `rows = ceil(frame_count / columns)`. Frames fill left to right, then wrap. Each cell is the frame size, or the frame size times `--scale`. When the frame count is not a multiple of `columns`, the leftover cells on the last row are fully transparent and are not frames. Scaled padding stays transparent.*
 
 *Examples: 1 → 1×1, 2 → 2×1, 3 → 2×2, 4 → 2×2, 5 → 3×2, 9 → 3×3.*
 
