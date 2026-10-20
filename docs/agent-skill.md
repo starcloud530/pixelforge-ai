@@ -33,11 +33,11 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 
 `call` 打出的就是 Tool API 响应，和 [tool-api.md](tool-api.md) 一致。`export` 子命令把 PNG 写到磁盘，stdout 里是路径和网格尺寸，不带 base64。要用 base64，就 `call` 工具 `exportPngSequence` 或 `exportSpriteSheet`，那两个工具不写文件。
 
-退出码：`0` 全部 `ok: true`。`1` 某个工具 `ok: false`，stdout 仍是那个错误对象。`2` 工具没跑起来（文件打不开、工程损坏、请求文件不是 JSON）。缺了必填参数时 clap 把说明打到 stderr，也是退出码 `2`，这时没有 JSON 行。
+退出码：`0` 全部 `ok: true`。`1` 某个工具 `ok: false`，stdout 仍是那个错误对象。`2` 工具没跑起来（文件打不开、工程损坏、请求文件不是 JSON）。`preview` 和 `diff` 在内核拒绝时也是退出码 `2`，stdout 仍是那个错误对象。缺了必填参数时 clap 把说明打到 stderr，也是退出码 `2`，这时没有 JSON 行。
 
 *Stdout is compact JSON, one response per line. Stderr is a short note such as `pixelforge: wrote hero.json`. Parse stdout. `preview` and `--preview` also write an ASCII picture of the active frame to stderr; read that picture. `preview` puts the same rows in `result.rows`. `call` prints the Tool API response from [tool-api.md](tool-api.md). The `export` subcommand writes PNG files and prints paths and the grid size, without base64. Base64 comes from `call` with `exportPngSequence` or `exportSpriteSheet`, and those calls do not write files.*
 
-*Exit `0` means every tool returned `ok: true`. Exit `1` means a tool returned `ok: false` and stdout still holds that error object. Exit `2` means the tool did not run (unreadable file, bad project, request file is not JSON). A missing flag is also exit `2`: clap writes the usage text to stderr and there is no JSON line.*
+*Exit `0` means every tool returned `ok: true`. Exit `1` means a tool returned `ok: false` and stdout still holds that error object. Exit `2` means the tool did not run (unreadable file, bad project, request file is not JSON). `preview` and `diff` also exit `2` when the kernel refuses, and stdout is still that error object. A missing flag is also exit `2`: clap writes the usage text to stderr and there is no JSON line.*
 
 ## 不变量 Invariants
 
@@ -47,17 +47,17 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈，下一个进程是空栈，和在编辑器里重新打开这份文件一样。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
-- 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。洋葱皮只是视图，没有把它写回像素的工具。
+- 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip` 只搬索引，不改高光颜色。
 
 *Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
-*One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. Onion skin is a view and has no tool.*
+*One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip` moves indices only and does not recolor highlights.*
 
 ## 画布尺寸 Canvas size
 
-在 `pixelforge new` 里定尺寸。画布不能事后改大。太小的全身会变成示意图。
+在 `pixelforge new` 里定尺寸。太小的全身会变成示意图。画布选小了可以 `resize`：每一帧的索引拷进更大的画布，默认居中，也可以 `--offset-x` / `--offset-y`。放大只搬已有索引，不会凭空补细节。
 
-*Choose the size in `pixelforge new`. The canvas cannot be enlarged later. A full body on a tiny grid looks like a diagram.*
+*Choose the size in `pixelforge new`. A full body on a tiny grid looks like a diagram. `resize` copies every frame into a larger canvas, centered unless you pass `--offset-x` and `--offset-y`. Expanding only moves indices you already stored.*
 
 | 题材 Subject | 尺寸 Size |
 | --- | --- |
@@ -77,15 +77,15 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 *Do not paint every frame blind. After each major stage — silhouette, flats, details, pose — look, then fix.*
 
 1. 用 `fill-rect`、`erase-rect`、`copy-rect` 或 `move-rect`，再加一次短的 `call`，画完这一阶段。
-2. `pixelforge preview --project …`（要看别的帧就加 `--frame N`，不会切当前帧），或者 `export png --scale K` 然后打开 PNG。
-3. 读 stderr 上的 ASCII（或 `result.rows`），或者读放大后的 PNG。
+2. `pixelforge preview --project … --scale 4`（要看别的帧就加 `--frame N`，不会切当前帧），打开 `result.path`。两帧要对齐时用 `diff --frame A --with B --scale 4`。
+3. 读 stderr 上的 ASCII（或 `result.rows`）看破洞和剪影。读放大后的彩色 PNG 看橙衣、灰绿皮肤、金属面罩和相邻色阶是否分开。
 4. 改完形状再进入下一阶段。
 
-*Draw that stage with `fill-rect`, `erase-rect`, `copy-rect`, or `move-rect`, and a short `call` batch. Then `pixelforge preview --project …` (`--frame N` reads another frame without selecting it), or `export png --scale K` and open the PNG. Read the ASCII grid or the scaled PNG. Fix the shape before the next stage.*
+*Draw that stage with `fill-rect`, `erase-rect`, `copy-rect`, or `move-rect`, and a short `call` batch. Then `pixelforge preview --project … --scale 4` (`--frame N` reads another frame without selecting it) and open `result.path`. Use `diff --frame A --with B --scale 4` when two poses must line up. Read the ASCII grid for holes and the scaled PNG for color. Fix the shape before the next stage.*
 
-字形：`.` 是透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 会写出那些索引和 `#rrggbb`）。stdout 仍然是 JSON。`preview --frame N` 画第 N 帧，不改 `activeFrame`，也不写文件。`result.frame` 是这张图，`result.activeFrame` 仍是文档的当前帧。
+字形：`.` 是透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 会写出那些索引和 `#rrggbb`）。stdout 仍然是 JSON。`preview --frame N` 画第 N 帧，不改 `activeFrame`，也不改工程文件。`result.frame` 是这张图，`result.activeFrame` 仍是文档的当前帧。`preview` 还会按 `--scale` 写出彩色 PNG，路径在 `result.path`（默认工程旁边的 `<stem>.preview.png`）。`--scale` 和 `export` 一样，是 ≥ 1 的整数，默认 1。
 
-*Glyphs: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the stderr legend names those indices and a `#rrggbb`). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame.*
+*Glyphs: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the stderr legend names those indices and a `#rrggbb`). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame. `preview` also writes a color PNG at `result.path` (default `<stem>.preview.png` beside the project). `--scale` matches export: an integer ≥ 1, default 1.*
 
 `export png --scale K` 和 `export sheet --scale K` 在内核里做最近邻放大（`K` 是 ≥ 1 的整数，默认 1）。每个索引变成 `K × K` 的块，再由内核解析颜色。只为看颜色时，不要再用外部工具放大 PNG。
 
@@ -124,9 +124,21 @@ pixelforge preview --project hero.json --frame 1
 
 *`fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x` and `y` are the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.*
 
-`erase-rect` 把同样的矩形清成索引 0（`eraseRect`）。`copy-rect` 原样复制索引，包括 0（`copyRect` 的参数是 `srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`）。`move-rect` 在同一步撤销里搬走这些索引，并把不在目标里的源格子清成 0（`moveRect`）。v1 只在当前帧上操作。源或目标出界时，一格都不写。
+`erase-rect` 把同样的矩形清成索引 0（`eraseRect`）。`copy-rect` 原样复制索引，包括 0（`copyRect` 的参数是 `srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`，外加可选的 `fromFrame`、`toFrame`）。`move-rect` 在同一步撤销里搬走这些索引，并把不在目标里的源格子清成 0（`moveRect`）。不写 `--from-frame` / `--to-frame` 时仍在当前帧。写了也不改变 `activeFrame`。跨帧的 `move-rect` 会把整个源矩形清掉。源或目标出界时，一格都不写。
 
-*`erase-rect` clears that rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`). `move-rect` moves those indices and clears source cells outside the destination, as one undo step (`moveRect`). v1 stays on the active frame. If the source or the destination would leave the canvas, nothing is written.*
+*`erase-rect` clears that rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`, optional `fromFrame`, optional `toFrame`). `move-rect` moves those indices and clears source cells outside the destination, as one undo step (`moveRect`). Omit `--from-frame` / `--to-frame` to stay on the active frame. Those flags do not change `activeFrame`. A cross-frame move clears the whole source rectangle. If the source or the destination would leave the canvas, nothing is written.*
+
+```bash
+pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 2 \
+  --src-x 16 --src-y 20 --width 32 --height 36 --dst-x 16 --dst-y 20
+pixelforge hflip --project hero.json --frame 2
+pixelforge flip --horizontal --project hero.json --x 0 --y 40 --width 64 --height 24
+pixelforge resize --project hero.json --width 64 --height 64
+```
+
+`hflip` 和 `flip --horizontal` 只做索引镜像（`x` 收到 `origin + width - 1 - x`），不改颜色。不写矩形就是整帧。`resize` 仍写出 version 1 工程。不写偏移就居中；两个偏移都写就指定旧原点。越出新画布的格子被裁掉。一步撤销回到原来的画布。
+
+*`hflip` and `flip --horizontal` mirror indices and do not recolor. Omit the rectangle to flip the whole frame. `resize` keeps the version 1 project. Omit the offsets to center. Content outside the new canvas is clipped. One undo restores the previous canvas.*
 
 ```bash
 pixelforge call --project hero.json \
@@ -173,9 +185,20 @@ pixelforge export sheet --project hero.json --output hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames
 ```
 
-`duplicateFrame` 把像素和时长复制到下一格，返回的 `index` 是新帧。**它不会把当前帧改成这份拷贝。** 当前帧仍显示原来的像素：若它的下标在插入点或之后，下标会加一；否则下标不变。要画拷贝，先 `frame select` / `setActiveFrame` 到返回的下标。网页「复制」按钮会代为选中；CLI 和 `duplicateFrame` 不会。`frame add` 在末尾追加一帧 100 毫秒的空白帧，不改变当前帧。`export png` 写出 `pixelforge-000.png` 起的文件。`export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大（`K` ≥ 1，默认 1）。`export sheet` 的网格是内核的 `ceil(sqrt(帧数))` 列，`scale` 不改变列数。约定见 [export.md](export.md)。
+`duplicateFrame` 把像素和时长复制到下一格，返回的 `index` 是新帧。**它不会把当前帧改成这份拷贝。** 当前帧仍显示原来的像素：若它的下标在插入点或之后，下标会加一；否则下标不变。要画拷贝，先 `frame select` / `setActiveFrame` 到返回的下标。网页「复制」按钮会代为选中；CLI 和 `duplicateFrame` 不会。`frame add` 在末尾追加一帧 100 毫秒的空白帧，不改变当前帧。`export png` 写出 `pixelforge-000.png` 起的文件。`export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大（`K` ≥ 1，默认 1）。`export sheet` 不传 `--cols` 时网格是 `ceil(sqrt(帧数))` 列；`--cols N` 指定列数，一行一个方向时 `N` 就是这个方向的帧数。`scale` 不改变列数。约定见 [export.md](export.md)。
 
-*`duplicateFrame` copies pixels and delay into the next slot and returns that index. It does not select the copy. The active frame keeps showing the same pixels: an index at or after the insertion point increases by one, and an earlier index stays put. `frame select` / `setActiveFrame` that index before painting the copy. The web duplicate button selects it; the CLI and `duplicateFrame` do not. `frame add` appends a blank 100 ms frame and does not change the active frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses `ceil(sqrt(frame count))` columns; scale does not change that count. See [export.md](export.md).*
+```bash
+pixelforge preview --project hero.json --frame 0 --scale 4
+pixelforge preview --project hero.json --frame 1 --scale 4
+pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2
+```
+
+`diff` 只读。stderr 上 `.` 是索引相同，`!` 是两边都有墨且不同，别的字形是唯一有墨的那边。`result.path` 的 PNG 是三格：frame、with、洋葱皮。洋葱皮不改像素。脚滑和穿插先看这张，再重画。
+
+*`diff` is read-only. On stderr, `.` is the same index, `!` means both cells differ, and any other glyph is the only ink. The PNG at `result.path` has three panels: frame, with, onion. The onion does not change pixels.*
+
+*`duplicateFrame` copies pixels and delay into the next slot and returns that index. It does not select the copy. The active frame keeps showing the same pixels: an index at or after the insertion point increases by one, and an earlier index stays put. `frame select` / `setActiveFrame` that index before painting the copy. The web duplicate button selects it; the CLI and `duplicateFrame` do not. `frame add` appends a blank 100 ms frame and does not change the active frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses `ceil(sqrt(frame count))` columns unless you pass `--cols N`. Scale does not change that count. See [export.md](export.md).*
 
 同一批修改也可以拆成子命令。子命令各自是一次进程，撤销栈不跨进程：
 

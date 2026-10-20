@@ -18,6 +18,7 @@ use serde_json::{Map, Number, Value};
 use crate::document::Document;
 use crate::error::KernelError;
 use crate::palette_file::PaletteImportMode;
+use crate::MAX_CANVAS_EDGE;
 
 /// Version written on every response. An omitted request version means this one.
 pub const TOOL_API_VERSION: u32 = 1;
@@ -50,6 +51,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "loadProject",
     "exportPngSequence",
     "exportSpriteSheet",
+    "previewFrame",
+    "diffFrames",
+    "flipHorizontal",
+    "resizeCanvas",
 ];
 
 const U8_MAX: u64 = 255;
@@ -306,16 +311,36 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(empty())
         }
         "copyRect" => {
-            let (src_x, src_y, width, height, dst_x, dst_y) = parse_blit(tool, params)?;
+            let blit = parse_blit(tool, params)?;
+            let (src_frame, dst_frame) = blit_frames(document, &blit);
             document
-                .copy_rect(src_x, src_y, width, height, dst_x, dst_y)
+                .copy_rect_from(
+                    src_frame,
+                    blit.src_x,
+                    blit.src_y,
+                    blit.width,
+                    blit.height,
+                    dst_frame,
+                    blit.dst_x,
+                    blit.dst_y,
+                )
                 .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "moveRect" => {
-            let (src_x, src_y, width, height, dst_x, dst_y) = parse_blit(tool, params)?;
+            let blit = parse_blit(tool, params)?;
+            let (src_frame, dst_frame) = blit_frames(document, &blit);
             document
-                .move_rect(src_x, src_y, width, height, dst_x, dst_y)
+                .move_rect_from(
+                    src_frame,
+                    blit.src_x,
+                    blit.src_y,
+                    blit.width,
+                    blit.height,
+                    dst_frame,
+                    blit.dst_x,
+                    blit.dst_y,
+                )
                 .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
@@ -424,14 +449,16 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             }))
         }
         "exportSpriteSheet" => {
-            let scale = parse_scale(tool, params)?;
-            let layout = document.sprite_sheet_layout();
+            let (scale, columns) = parse_sheet(params)?;
+            let layout = document
+                .sprite_sheet_layout_with(columns)
+                .map_err(ToolFailure::Kernel)?;
             let (sheet_width, sheet_height) = document
-                .scaled_sheet_size(scale)
+                .scaled_sheet_size_with(scale, columns)
                 .map_err(ToolFailure::Kernel)?;
             let png = encode_base64(
                 &document
-                    .export_sprite_sheet_scaled(scale)
+                    .export_sprite_sheet_scaled_with(scale, columns)
                     .map_err(ToolFailure::Kernel)?,
             );
             Ok(serde_json::json!({
@@ -441,6 +468,72 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "sheetWidth": sheet_width,
                 "sheetHeight": sheet_height,
                 "scale": scale,
+            }))
+        }
+        "previewFrame" => {
+            let (frame, scale) = parse_preview(params, document.active_frame())?;
+            let (png_width, png_height) = document
+                .scaled_frame_size(scale)
+                .map_err(ToolFailure::Kernel)?;
+            let png = document
+                .export_frame_png_scaled(frame, scale)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "frame": frame,
+                "activeFrame": document.active_frame(),
+                "width": document.width(),
+                "height": document.height(),
+                "scale": scale,
+                "pngWidth": png_width,
+                "pngHeight": png_height,
+                "png": encode_base64(&png),
+            }))
+        }
+        "diffFrames" => {
+            let (frame, with, scale) = parse_diff(params)?;
+            let diff = document
+                .diff_frames(frame, with, scale)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "frame": diff.frame,
+                "with": diff.with,
+                "activeFrame": document.active_frame(),
+                "width": diff.width,
+                "height": diff.height,
+                "scale": diff.scale,
+                "changed": diff.changed,
+                "panels": ["frame", "with", "onion"],
+                "diffRows": diff.diff_rows,
+                "pngWidth": diff.png_width,
+                "pngHeight": diff.png_height,
+                "png": encode_base64(&diff.png),
+            }))
+        }
+        "flipHorizontal" => {
+            let spec = parse_flip(params)?;
+            let frame = spec.frame.unwrap_or(document.active_frame());
+            let (x, y, width, height) =
+                spec.rect
+                    .unwrap_or((0, 0, document.width(), document.height()));
+            document
+                .flip_horizontal(frame, x, y, width, height)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(empty())
+        }
+        "resizeCanvas" => {
+            let (width, height, offset) = parse_resize(params)?;
+            let (offset_x, offset_y) = offset.unwrap_or((
+                center_offset(document.width(), width),
+                center_offset(document.height(), height),
+            ));
+            document
+                .resize_canvas(width, height, offset_x, offset_y)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "width": document.width(),
+                "height": document.height(),
+                "offsetX": offset_x,
+                "offsetY": offset_y,
             }))
         }
         _ => Err(ToolFailure::UnknownTool {
@@ -541,12 +634,32 @@ fn rect_from(tool: &str, map: &Map<String, Value>) -> Result<(u16, u16, u16, u16
     Ok((x, y, width, height))
 }
 
-fn parse_blit(tool: &str, params: Value) -> Result<(u16, u16, u16, u16, u16, u16), ToolFailure> {
+struct Blit {
+    src_x: u16,
+    src_y: u16,
+    width: u16,
+    height: u16,
+    dst_x: u16,
+    dst_y: u16,
+    from_frame: Option<usize>,
+    to_frame: Option<usize>,
+}
+
+fn parse_blit(tool: &str, params: Value) -> Result<Blit, ToolFailure> {
     let map = expect_object(tool, params)?;
     reject_params(
         tool,
         &map,
-        &["srcX", "srcY", "width", "height", "dstX", "dstY"],
+        &[
+            "srcX",
+            "srcY",
+            "width",
+            "height",
+            "dstX",
+            "dstY",
+            "fromFrame",
+            "toFrame",
+        ],
     )?;
     let src_x = require_u16(tool, &map, "srcX")?;
     let src_y = require_u16(tool, &map, "srcY")?;
@@ -554,7 +667,146 @@ fn parse_blit(tool: &str, params: Value) -> Result<(u16, u16, u16, u16, u16, u16
     let height = require_u16_at_least(tool, &map, "height", 1)?;
     let dst_x = require_u16(tool, &map, "dstX")?;
     let dst_y = require_u16(tool, &map, "dstY")?;
-    Ok((src_x, src_y, width, height, dst_x, dst_y))
+    let from_frame = optional_frame(tool, &map, "fromFrame")?;
+    let to_frame = optional_frame(tool, &map, "toFrame")?;
+    Ok(Blit {
+        src_x,
+        src_y,
+        width,
+        height,
+        dst_x,
+        dst_y,
+        from_frame,
+        to_frame,
+    })
+}
+
+fn blit_frames(document: &Document, blit: &Blit) -> (usize, usize) {
+    let active = document.active_frame();
+    (
+        blit.from_frame.unwrap_or(active),
+        blit.to_frame.unwrap_or(active),
+    )
+}
+
+fn parse_sheet(params: Value) -> Result<(u32, Option<u32>), ToolFailure> {
+    let map = expect_object("exportSpriteSheet", params)?;
+    reject_params("exportSpriteSheet", &map, &["scale", "columns"])?;
+    let scale = match map.get("scale") {
+        None => 1,
+        Some(_) => require_u32_at_least("exportSpriteSheet", &map, "scale", 1)?,
+    };
+    let columns = match map.get("columns") {
+        None => None,
+        Some(_) => Some(require_u32_at_least(
+            "exportSpriteSheet",
+            &map,
+            "columns",
+            1,
+        )?),
+    };
+    Ok((scale, columns))
+}
+
+fn parse_preview(params: Value, active: usize) -> Result<(usize, u32), ToolFailure> {
+    let map = expect_object("previewFrame", params)?;
+    reject_params("previewFrame", &map, &["frame", "scale"])?;
+    let frame = match optional_frame("previewFrame", &map, "frame")? {
+        Some(frame) => frame,
+        None => active,
+    };
+    let scale = match map.get("scale") {
+        None => 1,
+        Some(_) => require_u32_at_least("previewFrame", &map, "scale", 1)?,
+    };
+    Ok((frame, scale))
+}
+
+fn parse_diff(params: Value) -> Result<(usize, usize, u32), ToolFailure> {
+    let map = expect_object("diffFrames", params)?;
+    reject_params("diffFrames", &map, &["frame", "with", "scale"])?;
+    let frame = require_frame("diffFrames", &map, "frame")?;
+    let with = require_frame("diffFrames", &map, "with")?;
+    let scale = match map.get("scale") {
+        None => 1,
+        Some(_) => require_u32_at_least("diffFrames", &map, "scale", 1)?,
+    };
+    Ok((frame, with, scale))
+}
+
+struct FlipSpec {
+    frame: Option<usize>,
+    rect: Option<(u16, u16, u16, u16)>,
+}
+
+fn parse_flip(params: Value) -> Result<FlipSpec, ToolFailure> {
+    let map = expect_object("flipHorizontal", params)?;
+    reject_params(
+        "flipHorizontal",
+        &map,
+        &["frame", "x", "y", "width", "height"],
+    )?;
+    let frame = optional_frame("flipHorizontal", &map, "frame")?;
+    let present = ["x", "y", "width", "height"]
+        .iter()
+        .filter(|key| map.contains_key(**key))
+        .count();
+    let rect = if present == 0 {
+        None
+    } else if present == 4 {
+        Some(rect_from("flipHorizontal", &map)?)
+    } else {
+        return Err(invalid_params(
+            "flipHorizontal",
+            "x, y, width, and height must all be set, or all omitted",
+        ));
+    };
+    Ok(FlipSpec { frame, rect })
+}
+
+fn parse_resize(params: Value) -> Result<(u16, u16, Option<(i32, i32)>), ToolFailure> {
+    let map = expect_object("resizeCanvas", params)?;
+    reject_params(
+        "resizeCanvas",
+        &map,
+        &["width", "height", "offsetX", "offsetY"],
+    )?;
+    let edge = u64::from(MAX_CANVAS_EDGE);
+    let width = require_u16_range("resizeCanvas", &map, "width", 1, edge)?;
+    let height = require_u16_range("resizeCanvas", &map, "height", 1, edge)?;
+    let offset_x = optional_i32("resizeCanvas", &map, "offsetX")?;
+    let offset_y = optional_i32("resizeCanvas", &map, "offsetY")?;
+    let offset = match (offset_x, offset_y) {
+        (None, None) => None,
+        (Some(x), Some(y)) => Some((x, y)),
+        _ => {
+            return Err(invalid_params(
+                "resizeCanvas",
+                "offsetX and offsetY must both be set, or both omitted",
+            ))
+        }
+    };
+    Ok((width, height, offset))
+}
+
+fn center_offset(old: u16, new: u16) -> i32 {
+    (i32::from(new) - i32::from(old)) / 2
+}
+
+fn optional_frame(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<usize>, ToolFailure> {
+    if map.get(key).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(require_frame(tool, map, key)?))
+}
+
+fn require_frame(tool: &str, map: &Map<String, Value>, key: &str) -> Result<usize, ToolFailure> {
+    let index = require_u32(tool, map, key)?;
+    Ok(usize::try_from(index).expect("u32 fits in usize"))
 }
 
 fn parse_scale(tool: &str, params: Value) -> Result<u32, ToolFailure> {
@@ -679,20 +931,53 @@ fn require_u16_at_least(
     key: &str,
     min: u64,
 ) -> Result<u16, ToolFailure> {
+    require_u16_range(tool, map, key, min, U16_MAX)
+}
+
+fn require_u16_range(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+    min: u64,
+    max: u64,
+) -> Result<u16, ToolFailure> {
     match map.get(key) {
         None => Err(invalid_params(tool, &format!("missing {key}"))),
         Some(Value::Number(number)) => match number.as_u64() {
-            Some(value) if (min..=U16_MAX).contains(&value) => {
-                Ok(u16::try_from(value).expect("value was bounded by u16::MAX"))
+            Some(value) if (min..=max).contains(&value) => {
+                Ok(u16::try_from(value).expect("value was bounded by u16"))
             }
             _ => Err(invalid_params(
                 tool,
-                &format!("{key} must be an integer from {min} to {U16_MAX}"),
+                &format!("{key} must be an integer from {min} to {max}"),
             )),
         },
         Some(_) => Err(invalid_params(
             tool,
-            &format!("{key} must be an integer from {min} to {U16_MAX}"),
+            &format!("{key} must be an integer from {min} to {max}"),
+        )),
+    }
+}
+
+fn optional_i32(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<i32>, ToolFailure> {
+    match map.get(key) {
+        None => Ok(None),
+        Some(Value::Number(number)) => match number.as_i64() {
+            Some(value) if i64::from(i32::MIN) <= value && value <= i64::from(i32::MAX) => Ok(
+                Some(i32::try_from(value).expect("value was bounded by i32")),
+            ),
+            _ => Err(invalid_params(
+                tool,
+                &format!("{key} must be an integer from {} to {}", i32::MIN, i32::MAX),
+            )),
+        },
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be an integer from {} to {}", i32::MIN, i32::MAX),
         )),
     }
 }

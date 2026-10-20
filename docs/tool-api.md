@@ -85,6 +85,7 @@
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
+| `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
 | `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
@@ -95,13 +96,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出、`previewFrame`、`diffFrames`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect` 或 `moveRect` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, and both exports) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, both exports, `previewFrame`, and `diffFrames`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, or `moveRect` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, or `resizeCanvas` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -164,21 +165,21 @@
 
 `params`：`srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`。宽高是 `1..=65535`。坐标是源矩形和目标矩形的左上角。
 
-在当前帧上把源矩形的调色板索引原样抄到目标矩形，包括索引 0。源矩形保持不动。源或目标只要有一格出界，整次失败，一格都不写。重叠时先读源，再写目标。改变了的格子是一步撤销；未结束的 gesture 会收进这些格子。没有变化不进栈。锁定的调色板不阻止这次复制。v1 只在当前帧上复制，不跨帧。
+在一帧上把源矩形的调色板索引原样抄到另一帧的目标矩形，包括索引 0。源矩形保持不动。可选 `fromFrame` 是源帧，可选 `toFrame` 是目标帧；省略时都是当前帧。这次调用不改变 `activeFrame`。源或目标只要有一格出界，整次失败，一格都不写。同一帧上重叠时先读源，再写目标。改变了的格子是一步撤销；未结束的 gesture 会收进这些格子。没有变化不进栈。锁定的调色板不阻止这次复制。
 
-*Copies palette indices, including 0, from one rectangle to another on the active frame. The source stays. If the source or the destination would fall outside the canvas, the call fails and writes nothing. Overlap reads the source before writing the destination. Changed cells are one undo step; an open gesture absorbs them. A copy that changes nothing is not recorded. A locked palette does not block the copy. v1 stays on the active frame.*
+*Copies palette indices, including 0, from one rectangle to another. Optional `fromFrame` is the source frame and optional `toFrame` is the destination; omit either one and it is the active frame. The call does not change `activeFrame`. The source stays. If the source or the destination would fall outside the canvas, the call fails and writes nothing. Overlap on the same frame reads the source before writing the destination. Changed cells are one undo step; an open gesture absorbs them. A copy that changes nothing is not recorded. A locked palette does not block the copy.*
 
-错误：`OutOfBounds`。
+错误：`OutOfBounds`、`FrameIndex`。
 
 ### `moveRect`
 
-`params` 与 `copyRect` 相同。
+`params` 与 `copyRect` 相同，包括可选的 `fromFrame` 和 `toFrame`。
 
-把源矩形的索引搬到目标矩形，包括索引 0。不在目标里的源格子变成索引 0。源和目标都要整块落在画布内，否则一格都不写。重叠时以搬动前的源为准，落在目标里的源格子保留搬过去的索引，不会被清掉。整次移动是一步撤销。挪到自己身上等于没改，不进栈。v1 只在当前帧上移动。
+把源矩形的索引搬到目标矩形，包括索引 0。不在目标里的源格子变成索引 0。跨帧时目标在另一帧上，所以整个源矩形都会清掉。源和目标都要整块落在画布内，否则一格都不写。同一帧上重叠时以搬动前的源为准，落在目标里的源格子保留搬过去的索引，不会被清掉。整次移动是一步撤销。挪到自己身上等于没改，不进栈。不改变 `activeFrame`。
 
-*Moves palette indices, including 0, to the destination and clears source cells that are not part of the destination. Both rectangles must lie inside the canvas. Overlap uses the source from before the move, so a source cell that lands inside the destination keeps the moved index. The move is one undo step. A move onto the same rectangle changes nothing and is not recorded. v1 stays on the active frame.*
+*Moves palette indices, including 0, to the destination and clears source cells that are not part of the destination. `fromFrame` and `toFrame` follow `copyRect`. Across frames the whole source rectangle is cleared, because the destination is on the other frame. Both rectangles must lie inside the canvas. Overlap on the same frame uses the source from before the move, so a source cell that lands inside the destination keeps the moved index. The move is one undo step. A move onto the same rectangle changes nothing and is not recorded. The active frame stays put.*
 
-错误：`OutOfBounds`。
+错误：`OutOfBounds`、`FrameIndex`。
 
 ### `setPaletteColor`
 
@@ -291,20 +292,93 @@
 | 字段 Field | 含义 Meaning |
 | --- | --- |
 | `png` | 网格 sprite sheet 的 Base64 PNG |
-| `columns`, `rows` | `ceil(sqrt(帧数))` 和 `ceil(帧数 / 列数)`。`scale` 不改变这两格 |
+| `columns`, `rows` | 未传 `columns` 时是 `ceil(sqrt(帧数))` 和 `ceil(帧数 / 列数)`。传入 `columns` 时用那个列数，行数是 `ceil(帧数 / columns)`。`scale` 不改变这两格 |
 | `sheetWidth`, `sheetHeight` | 整张图的像素尺寸，已乘 `scale` |
 | `scale` | 使用的倍数，缺省请求时为 1 |
 
+可选 `columns`（整数 `1..=4294967295`）。缺省时仍是接近正方形的网格。走路或四方向可以传帧数，让一行就是一个方向。列数大于帧数时，多出来的格子是透明空位。`columns` 为 0 是 `InvalidParams`。列数让整张图放不进 PNG 时是 `SheetColumns`。
+
 每一格帧变成 `帧宽 × scale` 乘 `帧高 × scale`。末尾的透明空位同样放大。排布和 Godot / Unity 约定见 [export.md](export.md)。
 
+*Optional `columns` (an integer `1..=4294967295`). Omit it and the grid stays nearly square. Pass the frame count to keep one direction on one row. Columns past the frame count are transparent padding. `0` is `InvalidParams`. A column count that does not fit in a PNG is `SheetColumns`.*
+
 *Each frame cell becomes `frame width × scale` by `frame height × scale`. Columns and rows stay the frame grid. Padding cells scale as transparent blocks.*
+
+### `previewFrame`
+
+`params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）。
+
+只读。不改 `activeFrame`，不进撤销栈。`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `frame` | 画出的帧 |
+| `activeFrame` | 文档当前帧，不会因为这次预览而改变 |
+| `width`, `height` | 画布格子数 |
+| `scale` | 使用的倍数 |
+| `pngWidth`, `pngHeight` | 放大后的像素尺寸 |
+| `png` | 这一帧的 Base64 RGBA PNG。内核先按 `scale` 最近邻重复索引，再解析调色板 |
+
+CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PNG 写到 `result.path`（默认是工程旁边的 `<stem>.preview.png`），stdout 里不带 base64。
+
+*Read-only. Does not change `activeFrame` and does not push undo. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64.*
+
+错误：`FrameIndex`、`ExportScale`。`scale` 为 0 是 `InvalidParams`。
+
+### `diffFrames`
+
+`params`：`frame`、`with`（都必填），可选 `scale`（缺省为 1）。
+
+只读。比较两个帧的索引，不把洋葱皮写回像素。`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `frame`, `with` | 参与比较的两帧 |
+| `activeFrame` | 文档当前帧 |
+| `width`, `height` | 画布格子数 |
+| `scale` | 使用的倍数 |
+| `changed` | 索引不同的格子数 |
+| `diffRows` | 一行一个字符串。`.` 表示索引相同；`!` 表示两边都非 0 且不同；否则是那个非 0 索引的字形（和 `preview` 相同：`1`–`9`、`A`–`Z`、`a`–`z`、`*`） |
+| `panels` | `["frame", "with", "onion"]` |
+| `pngWidth`, `pngHeight` | PNG 像素尺寸。宽是三格并排 |
+| `png` | Base64 RGBA PNG。左是 `frame`，中是 `with`，右是洋葱皮 |
+
+洋葱皮只存在于这张视图里：索引相同就用那一个调色板颜色；只有一边非 0 就用那边的颜色；两边都非 0 且不同时，把两个调色板颜色各通道取平均。平均色不写回工程，也不进调色板。
+
+*Read-only. Compares indices and does not write onion skin back into pixels. `diffRows`: `.` same index, `!` both non-zero and different, otherwise the glyph of the only non-zero index. The PNG is three panels: `frame`, `with`, then the onion. The onion uses the shared palette color when indices match, the only ink when one side is transparent, and the average of the two palette colors when both differ. That average is a view. It is not stored and it is not a new palette entry.*
+
+CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png`），并在 stdout 里附上两帧的 ASCII `rows` / `withRows`。
+
+错误：`FrameIndex`、`ExportScale`。缺 `frame` 或 `with` 是 `InvalidParams`。
+
+### `flipHorizontal`
+
+`params`：可选 `frame`（缺省为当前帧）。可选 `x`、`y`、`width`、`height`：四个一起给出就是那块矩形，四个都省略就是整帧。只给一部分是 `InvalidParams`。
+
+把矩形里的索引左右对调。格子 `x` 收到镜像列上的索引：整帧宽 64 时就是 `63 - x`。不改调色板，也不改高光颜色。一步撤销。对称的矩形不进栈。不改变 `activeFrame`。出界则一格都不写。
+
+*Mirrors indices left to right. Cell `x` receives the index from the mirrored column (`63 - x` on a full frame of width 64). The palette is unchanged, including highlight colors. One undo step. A symmetric rectangle is not recorded. `frame` is not selected. An out-of-bounds rectangle writes nothing.*
+
+错误：`OutOfBounds`、`FrameIndex`。
+
+### `resizeCanvas`
+
+`params`：`width`、`height`（`1..=256`）。可选 `offsetX`、`offsetY`（`i32`，可负）。两个偏移都省略时居中：`offset = (new - old) / 2`，向 0 取整。只给一个是 `InvalidParams`。
+
+把每一帧的索引拷进新画布。旧原点落在 `(offsetX, offsetY)`。没有源的格子是索引 0。落在新画布外的旧格子被裁掉。时长、调色板、锁定和当前帧不变。工程仍是 version 1，只是 `width`、`height` 和各帧 `pixels` 变了。一步撤销能回到原来的缓冲。尺寸和索引都没变时不进栈。
+
+*Copies every frame's indices onto the new canvas. The old origin lands at `(offsetX, offsetY)`. Omit both offsets to center with `offset = (new - old) / 2`, truncating toward zero. Cells without a source stay index 0. Old cells that fall outside are clipped. Delays, the palette, the lock, and the active frame stay. The file stays version 1. One undo restores the previous buffers. A resize that leaves every index in place is not recorded.*
+
+`result`：`{ "width", "height", "offsetX", "offsetY" }`，偏移是实际使用的值。
+
+错误：`InvalidSize`（内核拒绝的边长）。`width` 超出 `1..=256` 是 `InvalidParams`。
 
 ## 不变量 Invariants
 
 - 改像素、调色板、帧和时长只通过 `Document` 的公开方法。Tool API 不写第二份缓冲。
 - 这些修改记在同一条撤销栈上。界面随后 `undo`，撤销的是 Agent 的那一步。
 - 非法下标、锁定的调色板、坏的工程文件都返回上表里的 `error`，并且不留下半次修改。
-- 洋葱皮只存在于外壳视图。这个接口不提供把它写回像素的工具。
+- 洋葱皮只是视图。`diffFrames` 会返回一张，但不会把它写回像素。这个接口没有可编辑的洋葱层。
 
 *Pixel, palette, frame, and delay edits go through `Document`'s public methods only. The Tool API does not keep a second buffer.*
 
@@ -312,4 +386,4 @@
 
 *A bad index, a locked palette, and a bad project file return an `error` from the tables above and do not leave a partial edit.*
 
-*Onion skin is a shell view. This API has no tool that writes it back into pixels.*
+*Onion skin is a view. `diffFrames` returns one and does not write it back into pixels. This API has no tool that stores an onion layer.*

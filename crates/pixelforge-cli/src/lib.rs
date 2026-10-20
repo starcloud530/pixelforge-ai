@@ -15,15 +15,15 @@ mod session;
 
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use pixelforge_kernel::{TOOL_API_VERSION, TOOL_NAMES};
 use serde_json::{json, Value};
 
 use crate::cli::{
-    BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FrameCmd, ImportMode,
-    PaintArgs, PaletteCmd, ProjectArgs,
+    BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
+    ImportMode, PaintArgs, PaletteCmd, ProjectArgs, ResizeArgs,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -50,7 +50,19 @@ fn execute(cli: Cli) -> i32 {
         Command::Inspect { doc, preview } => {
             apply_with(&doc, vec![request("inspect", json!({}))], preview)
         }
-        Command::Preview { doc, frame } => cmd_preview(&doc, frame),
+        Command::Preview {
+            doc,
+            frame,
+            scale,
+            output,
+        } => cmd_preview(&doc, frame, scale, output.as_deref()),
+        Command::Diff {
+            doc,
+            frame,
+            with,
+            scale,
+            output,
+        } => cmd_diff(&doc, frame, with, scale, output.as_deref()),
         Command::Call {
             doc,
             request,
@@ -66,6 +78,9 @@ fn execute(cli: Cli) -> i32 {
         Command::EraseRect(args) => cmd_erase_rect(args),
         Command::CopyRect(args) => cmd_blit("copyRect", args),
         Command::MoveRect(args) => cmd_blit("moveRect", args),
+        Command::Flip(args) => cmd_flip(args, false),
+        Command::Hflip(args) => cmd_flip(args, true),
+        Command::Resize(args) => cmd_resize(args),
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
@@ -146,47 +161,235 @@ fn cmd_erase_rect(args: EraseRectArgs) -> i32 {
 }
 
 fn cmd_blit(tool: &str, args: BlitRectArgs) -> i32 {
+    let mut params = json!({
+        "srcX": args.src_x,
+        "srcY": args.src_y,
+        "width": args.width,
+        "height": args.height,
+        "dstX": args.dst_x,
+        "dstY": args.dst_y,
+    });
+    if let Some(frame) = args.from_frame {
+        params["fromFrame"] = json!(frame);
+    }
+    if let Some(frame) = args.to_frame {
+        params["toFrame"] = json!(frame);
+    }
+    apply_with(&args.doc, vec![request(tool, params)], args.preview)
+}
+
+fn cmd_flip(args: FlipArgs, alias: bool) -> i32 {
+    if !args.horizontal && !alias {
+        return emit(CliFailure::new(
+            "Cli",
+            "flip mirrors indices horizontally; pass --horizontal or run hflip",
+        ));
+    }
+    let rect = match (args.x, args.y, args.width, args.height) {
+        (None, None, None, None) => None,
+        (Some(x), Some(y), Some(width), Some(height)) => Some((x, y, width, height)),
+        _ => {
+            return emit(CliFailure::new(
+                "Cli",
+                "flip needs x, y, width, and height together, or none of them",
+            ))
+        }
+    };
+    let mut params = json!({});
+    if let Some(frame) = args.frame {
+        params["frame"] = json!(frame);
+    }
+    if let Some((x, y, width, height)) = rect {
+        params["x"] = json!(x);
+        params["y"] = json!(y);
+        params["width"] = json!(width);
+        params["height"] = json!(height);
+    }
     apply_with(
         &args.doc,
-        vec![request(
-            tool,
-            json!({
-                "srcX": args.src_x,
-                "srcY": args.src_y,
-                "width": args.width,
-                "height": args.height,
-                "dstX": args.dst_x,
-                "dstY": args.dst_y,
-            }),
-        )],
+        vec![request("flipHorizontal", params)],
         args.preview,
     )
 }
 
-fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>) -> i32 {
-    let session = match Session::open(&doc.project) {
+fn cmd_resize(args: ResizeArgs) -> i32 {
+    match (args.offset_x, args.offset_y) {
+        (None, None) | (Some(_), Some(_)) => {}
+        _ => {
+            return emit(CliFailure::new(
+                "Cli",
+                "resize needs --offset-x and --offset-y together, or neither to center",
+            ))
+        }
+    }
+    let mut params = json!({
+        "width": args.width,
+        "height": args.height,
+    });
+    if let (Some(x), Some(y)) = (args.offset_x, args.offset_y) {
+        params["offsetX"] = json!(x);
+        params["offsetY"] = json!(y);
+    }
+    apply_with(
+        &args.doc,
+        vec![request("resizeCanvas", params)],
+        args.preview,
+    )
+}
+
+fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>, scale: u32, output: Option<&Path>) -> i32 {
+    let mut session = match Session::open(&doc.project) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
-    let index = match frame {
-        Some(index) => usize::try_from(index).expect("u32 fits in usize"),
-        None => session.document().active_frame(),
+    let mut params = json!({ "scale": scale });
+    if let Some(frame) = frame {
+        params["frame"] = json!(frame);
+    }
+    let response = session.call(&request("previewFrame", params));
+    if let Some((code, message)) = tool_refusal(&response) {
+        return emit(CliFailure::new(code, message));
+    }
+    let value: Value = match serde_json::from_str(&response) {
+        Ok(value) => value,
+        Err(_) => return emit(CliFailure::new("Cli", "tool response is not JSON")),
     };
-    let frame = match preview::render_frame(session.document(), index) {
+    let index = value["result"]["frame"].as_u64().unwrap_or(0) as usize;
+    let ascii = match preview::render_frame(session.document(), index) {
         Ok(frame) => frame,
         Err(err) => return emit(CliFailure::kernel(err)),
     };
+    let path = output
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| sibling_png(&doc.project, "preview"));
+    let bytes = match export_files::write_png_b64(&path, value["result"]["png"].as_str()) {
+        Ok(bytes) => bytes,
+        Err(failure) => return emit(failure),
+    };
+    let Some(path_text) = path.to_str() else {
+        return emit(CliFailure::new(
+            "Cli",
+            format!("path is not UTF-8: {}", path.display()),
+        ));
+    };
+    let mut result = preview::result_json(&ascii);
+    if let Some(object) = result.as_object_mut() {
+        object.insert("scale".to_string(), value["result"]["scale"].clone());
+        object.insert("pngWidth".to_string(), value["result"]["pngWidth"].clone());
+        object.insert(
+            "pngHeight".to_string(),
+            value["result"]["pngHeight"].clone(),
+        );
+        object.insert("path".to_string(), json!(path_text));
+        object.insert("bytes".to_string(), json!(bytes));
+    }
     let body = json!({
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
-        "result": preview::result_json(&frame),
+        "tool": "previewFrame",
+        "result": result,
     });
     let line = serde_json::to_string(&body).expect("preview is JSON");
     if !print_line(&line) {
         return 2;
     }
-    preview::eprint_frame(&frame);
+    preview::eprint_frame(&ascii);
+    eprintln!("pixelforge: wrote {}", path.display());
     0
+}
+
+fn cmd_diff(doc: &ProjectArgs, frame: u32, with: u32, scale: u32, output: Option<&Path>) -> i32 {
+    let mut session = match Session::open(&doc.project) {
+        Ok(session) => session,
+        Err(failure) => return emit(failure),
+    };
+    let response = session.call(&request(
+        "diffFrames",
+        json!({ "frame": frame, "with": with, "scale": scale }),
+    ));
+    if let Some((code, message)) = tool_refusal(&response) {
+        return emit(CliFailure::new(code, message));
+    }
+    let value: Value = match serde_json::from_str(&response) {
+        Ok(value) => value,
+        Err(_) => return emit(CliFailure::new("Cli", "tool response is not JSON")),
+    };
+    let result = &value["result"];
+    let path = output
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| sibling_png(&doc.project, "diff"));
+    let bytes = match export_files::write_png_b64(&path, result["png"].as_str()) {
+        Ok(bytes) => bytes,
+        Err(failure) => return emit(failure),
+    };
+    let Some(path_text) = path.to_str() else {
+        return emit(CliFailure::new(
+            "Cli",
+            format!("path is not UTF-8: {}", path.display()),
+        ));
+    };
+    let frame_index = usize::try_from(frame).expect("u32 fits in usize");
+    let with_index = usize::try_from(with).expect("u32 fits in usize");
+    let left = preview::render_frame(session.document(), frame_index);
+    let right = preview::render_frame(session.document(), with_index);
+    let (left, right) = match (left, right) {
+        (Ok(left), Ok(right)) => (left, right),
+        (Err(err), _) | (_, Err(err)) => return emit(CliFailure::kernel(err)),
+    };
+    let summary = json!({
+        "ok": true,
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "diffFrames",
+        "result": {
+            "frame": result["frame"].clone(),
+            "with": result["with"].clone(),
+            "activeFrame": result["activeFrame"].clone(),
+            "width": result["width"].clone(),
+            "height": result["height"].clone(),
+            "scale": result["scale"].clone(),
+            "changed": result["changed"].clone(),
+            "panels": result["panels"].clone(),
+            "rows": left.rows,
+            "withRows": right.rows,
+            "diffRows": result["diffRows"].clone(),
+            "pngWidth": result["pngWidth"].clone(),
+            "pngHeight": result["pngHeight"].clone(),
+            "path": path_text,
+            "bytes": bytes,
+        },
+    });
+    let line = serde_json::to_string(&summary).expect("diff is JSON");
+    if !print_line(&line) {
+        return 2;
+    }
+    eprintln!(
+        "pixelforge: diff frame {frame} with {with} changed {}",
+        result["changed"]
+    );
+    if let Some(rows) = result["diffRows"].as_array() {
+        for row in rows {
+            if let Some(text) = row.as_str() {
+                eprintln!("{text}");
+            }
+        }
+    }
+    eprintln!(
+        "pixelforge: diff legend . = same index, ! = both differ, other glyphs are the only ink"
+    );
+    eprintln!("pixelforge: wrote {}", path.display());
+    0
+}
+
+fn sibling_png(project: &Path, kind: &str) -> PathBuf {
+    let stem = project
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("pixelforge");
+    let name = format!("{stem}.{kind}.png");
+    match project.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.join(name),
+        _ => PathBuf::from(name),
+    }
 }
 
 fn cmd_palette(command: PaletteCmd) -> i32 {
@@ -280,12 +483,17 @@ fn cmd_export(command: ExportCmd) -> i32 {
             };
             export_files::export_png_sequence(&mut session, &out_dir, scale)
         }
-        ExportCmd::Sheet { doc, output, scale } => {
+        ExportCmd::Sheet {
+            doc,
+            output,
+            scale,
+            cols,
+        } => {
             let mut session = match Session::open(&doc.project) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
-            export_files::export_sprite_sheet(&mut session, &output, scale)
+            export_files::export_sprite_sheet(&mut session, &output, scale, cols)
         }
     }
 }
