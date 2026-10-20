@@ -94,13 +94,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出）不进撤销栈。和当前值相同的绘制、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出）不进撤销栈。和当前值相同的绘制、矩形填充、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
 
-撤销栈上限是 `MAX_UNDO`（100）。多次绘制要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, and both exports) do not push undo entries. A paint, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, and both exports) do not push undo entries. A paint, rectangle fill, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. Wrap several paints in `beginGesture` … `endGesture` when they should undo as one step.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect` is already one undo step. Wrap several paints or several fills in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -130,6 +130,16 @@
 写入的是索引，不是 RGB。锁定的调色板不阻止绘制。
 
 *Writes an index, not RGB. A locked palette does not block paint.*
+
+错误：`OutOfBounds`、`PaletteIndex`。
+
+### `fillRect`
+
+`params`：`x`、`y`（矩形左上角，含这一格，`0..=65535`，还须落在画布内）、`width`、`height`（`1..=65535`，矩形的每一格都须落在画布内）、`colorIndex`（`1..=255`，且必须是已有的不透明索引）。
+
+在当前帧上把这块轴对齐矩形写成同一个索引。写入的是索引，不是 RGB。锁定的调色板不阻止这次填充。已经是该索引的格子不记入撤销。整块矩形是一步撤销；如果此时有未结束的 gesture，这些格子并进那一步。矩形里只要有一格出界，或者宽高加出来越过画布，整次调用失败，一格都不写。`width` 或 `height` 为 0、缺了、或不是该范围内的整数，是 `InvalidParams`（`message` 形如 `fillRect: width must be an integer from 1 to 65535`）。
+
+*Fills an axis-aligned rectangle on the active frame with one palette index. `x` and `y` are the inclusive top-left cell. Writes an index, not RGB. A locked palette does not block the fill. Cells that already hold the index are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. If any cell would fall outside the canvas, the call fails and writes nothing. A `width` or `height` of 0, a missing field, or a number outside `1..=65535` is `InvalidParams` (for example `fillRect: width must be an integer from 1 to 65535`).*
 
 错误：`OutOfBounds`、`PaletteIndex`。
 

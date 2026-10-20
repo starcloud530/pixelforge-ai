@@ -16,11 +16,20 @@ editor.
 Examples:
   pixelforge new --width 16 --height 16 --output hero.json
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
+  pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3
+  pixelforge preview --project hero.json
+  pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --preview
   pixelforge call --project hero.json \\
       --request '{\"tool\":\"beginGesture\"}' \\
-      --request '{\"tool\":\"paint\",\"params\":{\"x\":1,\"y\":2,\"colorIndex\":3}}' \\
+      --request '{\"tool\":\"fillRect\",\"params\":{\"x\":1,\"y\":2,\"width\":4,\"height\":6,\"colorIndex\":3}}' \\
       --request '{\"tool\":\"endGesture\"}'
-  pixelforge export sheet --project hero.json --output hero-sheet.png";
+  pixelforge export sheet --project hero.json --output hero-sheet.png
+
+`preview` and `--preview` print an ASCII view of the active frame on stderr
+(one glyph per cell: `.` is transparent, `1`-`9` and `A`-`Z` / `a`-`z` are
+indices, `*` is index 62 or above). Stdout stays JSON. `preview` also puts
+those rows in `result.rows`. A standing figure needs a tall canvas (64x128
+or 96x128); a 48x64 full body stays schematic.";
 
 #[derive(Parser)]
 #[command(
@@ -55,6 +64,17 @@ pub enum Command {
     Inspect {
         #[command(flatten)]
         doc: ProjectArgs,
+        /// Also print an ASCII view of the active frame on stderr.
+        #[arg(long)]
+        preview: bool,
+    },
+    /// Print an ASCII view of the active frame.
+    ///
+    /// Stdout is one JSON line (`result.rows` and `result.legend`). The same
+    /// rows are written to stderr. Does not change the project file.
+    Preview {
+        #[command(flatten)]
+        doc: ProjectArgs,
     },
     /// Run one or more Tool API requests against one document.
     ///
@@ -70,9 +90,17 @@ pub enum Command {
         /// One JSON value, a JSON array, or one JSON value per line.
         #[arg(long, value_name = "FILE")]
         request_file: Option<PathBuf>,
+        /// After the batch, print an ASCII view of the active frame on stderr.
+        #[arg(long)]
+        preview: bool,
     },
     /// Paint one cell with a palette index. Does not write RGB.
     Paint(PaintArgs),
+    /// Fill an axis-aligned rectangle on the active frame with one palette index.
+    ///
+    /// One undo step. The rectangle must lie entirely inside the canvas.
+    /// Does not write RGB. A locked palette still allows this.
+    FillRect(FillRectArgs),
     /// Set one cell back to transparent index 0.
     Erase(EraseArgs),
     /// Palette edits. Paint of an existing index still works while locked.
@@ -128,6 +156,33 @@ pub struct PaintArgs {
     /// Palette index to store. Index 0 is refused; use erase.
     #[arg(long)]
     pub color_index: u8,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct FillRectArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Left column, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Top row, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: u16,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: u16,
+    /// Palette index to store. Index 0 is refused.
+    #[arg(long)]
+    pub color_index: u8,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
 }
 
 #[derive(Args)]

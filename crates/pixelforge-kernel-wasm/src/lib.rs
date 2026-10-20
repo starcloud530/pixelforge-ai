@@ -1,7 +1,7 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `erase`, palette edits, palette lock, palette import,
+//! `snapshot()`, `paint`, `fillRect`, `erase`, palette edits, palette lock, palette import,
 //! frame-list methods, per-frame delay, timeline scrub, loop playback, undo /
 //! redo, project save / load, `frameRgba`, and PNG export. `callTool` is the
 //! same Tool API as [`pixelforge_kernel::Document::call_tool`]: one JSON
@@ -82,6 +82,24 @@ impl PixelDocument {
 
     pub fn paint(&mut self, x: u16, y: u16, color_index: u8) -> Result<(), String> {
         self.inner.paint(x, y, color_index).map_err(reject)
+    }
+
+    /// Fills an axis-aligned rectangle on the active frame. One undo step.
+    ///
+    /// `width` and `height` are at least 1. The rectangle must lie entirely
+    /// inside the canvas. A locked palette still allows this. Index 0 is refused.
+    #[wasm_bindgen(js_name = fillRect)]
+    pub fn fill_rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+    ) -> Result<(), String> {
+        self.inner
+            .fill_rect(x, y, width, height, color_index)
+            .map_err(reject)
     }
 
     pub fn erase(&mut self, x: u16, y: u16) -> Result<(), String> {
@@ -650,10 +668,21 @@ mod tests {
         );
         document.paint(1, 0, 2).unwrap();
         assert_eq!(document.pixels()[1], 2);
+        document.fill_rect(2, 0, 2, 1, 3).unwrap();
+        assert_eq!(document.pixels()[2], 3);
+        assert_eq!(document.pixels()[3], 3);
+        let filled = document.call_tool(
+            r#"{"tool":"fillRect","params":{"x":0,"y":1,"width":2,"height":1,"colorIndex":4}}"#,
+        );
+        assert!(filled.contains("\"ok\":true"), "{filled}");
+        assert_eq!(document.pixels()[16], 4);
+        assert_eq!(document.pixels()[17], 4);
 
         let loaded = PixelDocument::load_project(&document.save_project()).unwrap();
         assert!(loaded.palette_locked());
         assert_eq!(loaded.pixels()[1], 2);
+        assert_eq!(loaded.pixels()[2], 3);
+        assert_eq!(loaded.pixels()[16], 4);
         assert!(!loaded.can_undo());
         assert_eq!(
             document.import_palette("ff0000\n", "nope").unwrap_err(),

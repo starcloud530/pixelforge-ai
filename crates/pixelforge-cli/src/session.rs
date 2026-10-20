@@ -44,6 +44,10 @@ impl Session {
         &self.path
     }
 
+    pub fn document(&self) -> &Document {
+        &self.document
+    }
+
     pub fn call(&mut self, request: &str) -> String {
         self.document.call_tool(request)
     }

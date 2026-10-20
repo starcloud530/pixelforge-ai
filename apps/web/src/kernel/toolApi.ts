@@ -13,6 +13,7 @@ export const TOOL_API_VERSION = 1;
 export const TOOL_NAMES = [
   "inspect",
   "paint",
+  "fillRect",
   "erase",
   "setPaletteColor",
   "addPaletteColor",
