@@ -41,7 +41,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 
 ## 不变量 Invariants
 
-- 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的 `1..=255` 索引，不写 RGB。
+- 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的 `1..=255` 索引，不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
 - `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加或导入。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
@@ -49,7 +49,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。洋葱皮只是视图，没有把它写回像素的工具。
 
-*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
+*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
 *One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. Onion skin is a view and has no tool.*
 
@@ -76,20 +76,24 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 
 *Do not paint every frame blind. After each major stage — silhouette, flats, details, pose — look, then fix.*
 
-1. 用 `fill-rect` 和一次短的 `call` 画完这一阶段。
-2. `pixelforge preview --project …`，或者 `export png` 然后打开 PNG。
-3. 读 stderr 上的 ASCII（或 `result.rows`），或者读 PNG。
+1. 用 `fill-rect`、`erase-rect`、`copy-rect` 或 `move-rect`，再加一次短的 `call`，画完这一阶段。
+2. `pixelforge preview --project …`（要看别的帧就加 `--frame N`，不会切当前帧），或者 `export png --scale K` 然后打开 PNG。
+3. 读 stderr 上的 ASCII（或 `result.rows`），或者读放大后的 PNG。
 4. 改完形状再进入下一阶段。
 
-*Draw that stage with `fill-rect` and a short `call` batch. Then `pixelforge preview --project …`, or `export png` and open the PNG. Read the ASCII grid or the PNG. Fix the shape before the next stage.*
+*Draw that stage with `fill-rect`, `erase-rect`, `copy-rect`, or `move-rect`, and a short `call` batch. Then `pixelforge preview --project …` (`--frame N` reads another frame without selecting it), or `export png --scale K` and open the PNG. Read the ASCII grid or the scaled PNG. Fix the shape before the next stage.*
 
-字形：`.` 是透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 会写出那些索引和 `#rrggbb`）。stdout 仍然是 JSON。
+字形：`.` 是透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 会写出那些索引和 `#rrggbb`）。stdout 仍然是 JSON。`preview --frame N` 画第 N 帧，不改 `activeFrame`，也不写文件。`result.frame` 是这张图，`result.activeFrame` 仍是文档的当前帧。
 
-*Glyphs: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the stderr legend names those indices and a `#rrggbb`). Stdout stays JSON.*
+*Glyphs: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the stderr legend names those indices and a `#rrggbb`). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame.*
 
-平涂优先 `fillRect`，一次 `pixelforge call` 里放多个 `--request`，不要为了一块纯色打出几千次 `paint`。一块 `fillRect` 已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
+`export png --scale K` 和 `export sheet --scale K` 在内核里做最近邻放大（`K` 是 ≥ 1 的整数，默认 1）。每个索引变成 `K × K` 的块，再由内核解析颜色。只为看颜色时，不要再用外部工具放大 PNG。
 
-*Prefer `fillRect` for a solid region, and one `pixelforge call` with several `--request` flags, over thousands of lone `paint` calls. A single `fillRect` is already one undo step. Wrap several rects in `beginGesture` / `endGesture` when they should undo together.*
+*`export png --scale K` and `export sheet --scale K` nearest-neighbor upscale inside the kernel (`K` is an integer ≥ 1, default 1). Each index becomes a `K` by `K` block, then the kernel resolves color. Do not scale the PNG externally when you only need to judge color.*
+
+平涂优先 `fillRect`，挖剪影优先 `eraseRect`，挪姿势或道具优先 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`，不要为了一块纯色打出几千次 `paint` 或 `erase`。一块 `fillRect`、`eraseRect`、`copyRect` 或 `moveRect` 已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
+
+*Prefer `fillRect` for a solid region, `eraseRect` for cutting a silhouette, and `copyRect` / `moveRect` for a pose shift or a prop that moves. One `pixelforge call` with several `--request` flags beats thousands of lone `paint` or `erase` calls. A single `fillRect`, `eraseRect`, `copyRect`, or `moveRect` is already one undo step. Wrap several rects in `beginGesture` / `endGesture` when they should undo together.*
 
 ## 配方 Recipes
 
@@ -107,14 +111,22 @@ stdout 是 `inspect` 的响应。文件是 version 1 `pixelforge-project`。`new
 
 ```bash
 pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3 --preview
+pixelforge erase-rect --project hero.json --x 4 --y 40 --width 16 --height 8
+pixelforge copy-rect --project hero.json --src-x 8 --src-y 70 --width 6 --height 10 --dst-x 40 --dst-y 78
+pixelforge move-rect --project hero.json --src-x 40 --src-y 78 --width 6 --height 10 --dst-x 44 --dst-y 80
 pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
 pixelforge erase --project hero.json --x 1 --y 2
 pixelforge preview --project hero.json
+pixelforge preview --project hero.json --frame 1
 ```
 
 `fill-rect` 在当前帧上用一个调色板索引填一块轴对齐矩形。`x`、`y` 是左上角。`width` 和 `height` 至少为 1，整块必须落在画布里；只要有一格会出界，一格都不写。色板锁定时仍然可以填。`call` 里的工具名是 `fillRect`。
 
 *`fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x` and `y` are the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.*
+
+`erase-rect` 把同样的矩形清成索引 0（`eraseRect`）。`copy-rect` 原样复制索引，包括 0（`copyRect` 的参数是 `srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`）。`move-rect` 在同一步撤销里搬走这些索引，并把不在目标里的源格子清成 0（`moveRect`）。v1 只在当前帧上操作。源或目标出界时，一格都不写。
+
+*`erase-rect` clears that rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`). `move-rect` moves those indices and clears source cells outside the destination, as one undo step (`moveRect`). v1 stays on the active frame. If the source or the destination would leave the canvas, nothing is written.*
 
 ```bash
 pixelforge call --project hero.json \
@@ -127,9 +139,9 @@ pixelforge call --project hero.json \
 
 ### 站立立绘 Standing 立绘
 
-都市人变成丧尸这类站立图，用 `new --width 64 --height 128`（或 96×128）。先用 `fill-rect` 铺头、躯干、腿，`preview`，再改剪影。衣服和皮肤继续用矩形，再 `preview`。眼睛、牙、破布才用 `paint`。`duplicateFrame` 做丧尸姿势，同一套「画一段、看一眼、再改」。某一阶段要当真正的图像看时，`export png` 再打开那张 PNG。不要自己编 RGB，也不要为一块平涂逐格 `paint`。
+都市人变成丧尸这类站立图，用 `new --width 64 --height 128`（或 96×128）。先用 `fill-rect` 铺头、躯干、腿，`preview`，再用 `erase-rect` 改剪影，不要几百次 `erase`。衣服和皮肤继续用矩形，再 `preview`。眼睛、牙、破布才用 `paint`。手臂或掉落的手机用 `move-rect` / `copy-rect` 挪，然后再 `preview`。`duplicateFrame` 做丧尸姿势之后，必须 `setActiveFrame` / `frame select` 到返回的新下标——复制不会切到新帧——再重复「画一段、看一眼、再改」。`preview --frame N` 可以不切帧就对比另一帧。某一阶段要当真正的图像看时，`export png --scale 2`（或 4）再打开那张 PNG。不要自己编 RGB，也不要为一块平涂逐格 `paint` 或 `erase`。
 
-*For a standing portrait such as a city person turning into a zombie, `new --width 64 --height 128` (or 96×128). Block the head, torso, and legs with `fill-rect`, `preview`, then correct the silhouette. Add cloth and skin as more rects, `preview` again, then `paint` only the details (eyes, teeth, torn cloth). `duplicateFrame` for the zombie pose and repeat the same look-then-fix loop. `export png` when a stage should be read as a real image. Do not invent RGB, and do not emit a `paint` per pixel for a flat area.*
+*For a standing portrait such as a city person turning into a zombie, `new --width 64 --height 128` (or 96×128). Block the head, torso, and legs with `fill-rect`, `preview`, then correct the silhouette with `erase-rect` instead of hundreds of `erase` calls. Add cloth and skin as more rects, `preview` again, then `paint` only the details (eyes, teeth, torn cloth). Shift an arm or a dropped phone with `move-rect` or `copy-rect`, then `preview`. `duplicateFrame` for the zombie pose, then `setActiveFrame` / `frame select` the returned index — duplicate does not switch to the new frame — and repeat the same look-then-fix loop. `preview --frame N` compares another frame without selecting it. `export png --scale 2` (or 4) when a stage should be read as a real image. Do not invent RGB, and do not emit a `paint` or `erase` per pixel for a flat area.*
 
 ### 一笔撤销 A stroke as one undo
 
@@ -161,7 +173,9 @@ pixelforge export sheet --project hero.json --output hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames
 ```
 
-`duplicateFrame` 把像素和时长复制到下一格。`frame add` 在末尾追加一帧 100 毫秒的空白帧，不改变当前帧。`export png` 写出 `pixelforge-000.png` 起的文件。`export sheet` 的网格是内核的 `ceil(sqrt(帧数))` 列。约定见 [export.md](export.md)。
+`duplicateFrame` 把像素和时长复制到下一格，返回的 `index` 是新帧。**它不会把当前帧改成这份拷贝。** 当前帧仍显示原来的像素：若它的下标在插入点或之后，下标会加一；否则下标不变。要画拷贝，先 `frame select` / `setActiveFrame` 到返回的下标。网页「复制」按钮会代为选中；CLI 和 `duplicateFrame` 不会。`frame add` 在末尾追加一帧 100 毫秒的空白帧，不改变当前帧。`export png` 写出 `pixelforge-000.png` 起的文件。`export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大（`K` ≥ 1，默认 1）。`export sheet` 的网格是内核的 `ceil(sqrt(帧数))` 列，`scale` 不改变列数。约定见 [export.md](export.md)。
+
+*`duplicateFrame` copies pixels and delay into the next slot and returns that index. It does not select the copy. The active frame keeps showing the same pixels: an index at or after the insertion point increases by one, and an earlier index stays put. `frame select` / `setActiveFrame` that index before painting the copy. The web duplicate button selects it; the CLI and `duplicateFrame` do not. `frame add` appends a blank 100 ms frame and does not change the active frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses `ceil(sqrt(frame count))` columns; scale does not change that count. See [export.md](export.md).*
 
 同一批修改也可以拆成子命令。子命令各自是一次进程，撤销栈不跨进程：
 

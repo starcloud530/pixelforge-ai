@@ -1,8 +1,9 @@
 //! Undo stack of kernel operations.
 //!
 //! Each entry is one document edit: a paint, an erase, a rectangle fill, a
-//! palette color change, a palette import, a palette lock, a frame-list change,
-//! an active-frame change, a per-frame delay change, or a whole gesture of those.
+//! rectangle erase, a rectangle copy or move, a palette color change, a
+//! palette import, a palette lock, a frame-list change, an active-frame
+//! change, a per-frame delay change, or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].

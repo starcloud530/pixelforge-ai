@@ -15,14 +15,15 @@ use crate::TRANSPARENT_INDEX;
 
 /// Indexed pixel document: size, palette, frames, delays, and the undo stack.
 ///
-/// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill, palette
-/// edits, frame edits, and delay edits record kernel operations on this
-/// document. Undo restores those operations; it does not patch a buffer owned
-/// by the shell. Loop playback is preview state: [`Self::tick`] moves the
-/// active frame from each frame's delay and does not push undo entries.
-/// Project open and save encode pixels, palette, the palette lock, frames, and
-/// delays, not the undo stack or the playback clock. PNG export reads this
-/// state and does not record an undo entry.
+/// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
+/// rectangle erase, rectangle copy, rectangle move, palette edits, frame
+/// edits, and delay edits record kernel operations on this document. Undo
+/// restores those operations; it does not patch a buffer owned by the shell.
+/// Loop playback is preview state: [`Self::tick`] moves the active frame from
+/// each frame's delay and does not push undo entries. Project open and save
+/// encode pixels, palette, the palette lock, frames, and delays, not the undo
+/// stack or the playback clock. PNG export reads this state and does not
+/// record an undo entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     width: u16,
@@ -300,7 +301,7 @@ impl Document {
     /// already hold that index are skipped. The cells that do change are one
     /// undo step, or part of the open gesture when one is open. A fill that
     /// changes nothing is not recorded. A locked palette does not block this
-    /// write. Index 0 is rejected; use [`Self::erase`] on single cells.
+    /// write. Index 0 is rejected; use [`Self::erase`] or [`Self::erase_rect`].
     pub fn fill_rect(
         &mut self,
         x: u16,
@@ -331,6 +332,157 @@ impl Document {
                     after: color_index,
                 });
             }
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Sets an axis-aligned rectangle on the active frame to [`TRANSPARENT_INDEX`].
+    ///
+    /// Bounds match [`Self::fill_rect`]: a zero edge or any cell outside the
+    /// canvas is refused and writes nothing. Cells that are already transparent
+    /// are skipped. The cells that do change are one undo step, or part of the
+    /// open gesture when one is open. A rectangle that changes nothing is not
+    /// recorded. A locked palette does not block this write.
+    pub fn erase_rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
+        let frame = self.active;
+        let mut changes = Vec::new();
+        for row in y..=y1 {
+            let row_offset = pixel_len(self.width, row);
+            for col in x..=x1 {
+                let offset = row_offset + usize::from(col);
+                let before = self.frames[frame].pixels()[offset];
+                if before == TRANSPARENT_INDEX {
+                    continue;
+                }
+                self.frames[frame].set(offset, TRANSPARENT_INDEX);
+                changes.push(Change::Pixel {
+                    frame,
+                    offset,
+                    before,
+                    after: TRANSPARENT_INDEX,
+                });
+            }
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Copies palette indices from one rectangle to another on the active frame.
+    ///
+    /// `src_x` and `src_y` are the source top-left. `dst_x` and `dst_y` are the
+    /// destination top-left. `width` and `height` are the size in cells. Index
+    /// 0 is copied as transparent. The source stays. Both rectangles must lie
+    /// entirely on the canvas; if either would fall outside, nothing is written.
+    /// Overlap reads the source before any destination cell is written. The
+    /// cells that change are one undo step, or part of the open gesture. A copy
+    /// that changes nothing is not recorded. A locked palette does not block
+    /// this write. v1 stays on the active frame.
+    pub fn copy_rect(
+        &mut self,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), KernelError> {
+        self.blit_rect(src_x, src_y, width, height, dst_x, dst_y, false)
+    }
+
+    /// Moves palette indices from one rectangle to another on the active frame.
+    ///
+    /// Same bounds and overlap rules as [`Self::copy_rect`]. Destination cells
+    /// receive the source indices, including 0. Source cells that are not also
+    /// in the destination become [`TRANSPARENT_INDEX`]. The whole move is one
+    /// undo step, or part of the open gesture. A move onto itself changes
+    /// nothing and is not recorded. A locked palette does not block this write.
+    /// v1 stays on the active frame.
+    pub fn move_rect(
+        &mut self,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), KernelError> {
+        self.blit_rect(src_x, src_y, width, height, dst_x, dst_y, true)
+    }
+
+    /// Copies `width` by `height` indices from `(src_x, src_y)` to `(dst_x, dst_y)`.
+    ///
+    /// When `clear_source` is set, source cells outside the destination are
+    /// cleared to [`TRANSPARENT_INDEX`] in the same undo step.
+    fn blit_rect(
+        &mut self,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_x: u16,
+        dst_y: u16,
+        clear_source: bool,
+    ) -> Result<(), KernelError> {
+        let (src_x1, src_y1) = self.inclusive_rect(src_x, src_y, width, height)?;
+        let (dst_x1, dst_y1) = self.inclusive_rect(dst_x, dst_y, width, height)?;
+        let frame = self.active;
+        let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
+        {
+            let pixels = self.frames[frame].pixels();
+            for row in src_y..=src_y1 {
+                let row_offset = pixel_len(self.width, row);
+                for col in src_x..=src_x1 {
+                    sample.push(pixels[row_offset + usize::from(col)]);
+                }
+            }
+        }
+
+        let mut planned = vec![None; self.pixel_count()];
+        if clear_source {
+            for row in src_y..=src_y1 {
+                for col in src_x..=src_x1 {
+                    if col >= dst_x && col <= dst_x1 && row >= dst_y && row <= dst_y1 {
+                        continue;
+                    }
+                    let offset = pixel_len(self.width, row) + usize::from(col);
+                    planned[offset] = Some(TRANSPARENT_INDEX);
+                }
+            }
+        }
+        let mut sample_at = 0;
+        for row in dst_y..=dst_y1 {
+            let row_offset = pixel_len(self.width, row);
+            for col in dst_x..=dst_x1 {
+                let offset = row_offset + usize::from(col);
+                planned[offset] = Some(sample[sample_at]);
+                sample_at += 1;
+            }
+        }
+
+        let mut changes = Vec::new();
+        for (offset, after) in planned.into_iter().enumerate() {
+            let Some(after) = after else {
+                continue;
+            };
+            let before = self.frames[frame].pixels()[offset];
+            if before == after {
+                continue;
+            }
+            self.frames[frame].set(offset, after);
+            changes.push(Change::Pixel {
+                frame,
+                offset,
+                before,
+                after,
+            });
         }
         self.history.record_group(changes);
         Ok(())
@@ -395,8 +547,12 @@ impl Document {
         index
     }
 
-    /// Inserts a copy after `index`. Active frame still names the same content
-    /// when it sat before the insertion point; later frames shift right.
+    /// Inserts a copy after `index` and returns the new index.
+    ///
+    /// Does not select the copy. The active frame keeps showing the same
+    /// pixels: an active index at or after the insertion point increases by
+    /// one, and an earlier active index stays put. Call
+    /// [`Self::set_active_frame`] with the returned index to edit the copy.
     pub fn duplicate_frame(&mut self, index: usize) -> Result<usize, KernelError> {
         let frame = self
             .frames
@@ -1083,6 +1239,151 @@ mod tests {
         assert_eq!(document.get(3, 0).unwrap(), TRANSPARENT_INDEX);
         assert!(document.can_redo());
         assert_eq!(document.frame_pixels(0).unwrap()[16], 3);
+    }
+
+    #[test]
+    fn erase_rect_is_one_undo_and_refuses_a_partial_rectangle() {
+        let mut document = doc();
+        document.fill_rect(1, 2, 3, 2, 4).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.erase_rect(1, 2, 2, 2).unwrap();
+        assert_eq!(document.get(1, 2).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(2, 3).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(3, 2).unwrap(), 4);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+        document.undo().unwrap();
+        assert_eq!(document.get(1, 2).unwrap(), 4);
+        assert_eq!(document.get(2, 3).unwrap(), 4);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+        document.redo().unwrap();
+        assert_eq!(document.get(1, 2).unwrap(), TRANSPARENT_INDEX);
+
+        document.erase_rect(1, 2, 2, 2).unwrap();
+        document.undo().unwrap();
+        assert_eq!(document.get(1, 2).unwrap(), 4);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+
+        let before = document.pixels().to_vec();
+        assert!(matches!(
+            document.erase_rect(14, 0, 4, 1),
+            Err(KernelError::OutOfBounds { x: 16, y: 0, .. })
+        ));
+        assert!(document.erase_rect(0, 0, 0, 1).is_err());
+        assert_eq!(document.pixels(), before.as_slice());
+
+        document.set_palette_locked(true);
+        document.erase_rect(0, 0, 1, 1).unwrap();
+        assert_eq!(document.get(0, 0).unwrap(), TRANSPARENT_INDEX);
+        assert!(document.palette_locked());
+
+        let other = document.add_frame();
+        document.paint(0, 0, 2).unwrap();
+        document.set_active_frame(other).unwrap();
+        document.paint(0, 0, 5).unwrap();
+        document.erase_rect(0, 0, 1, 1).unwrap();
+        assert_eq!(document.get(0, 0).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 2);
+
+        document.paint(1, 0, 7).unwrap();
+        document.begin_gesture().unwrap();
+        document.erase_rect(1, 0, 1, 1).unwrap();
+        document.paint(2, 0, 6).unwrap();
+        document.end_gesture();
+        document.undo().unwrap();
+        assert_eq!(document.get(1, 0).unwrap(), 7);
+        assert_eq!(document.get(2, 0).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.frame_pixels(0).unwrap()[0], 2);
+    }
+
+    #[test]
+    fn copy_and_move_rects_are_one_undo_and_refuse_a_partial() {
+        let mut document = Document::new(4, 1).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        document.paint(2, 0, 3).unwrap();
+        document.clear_history();
+
+        document.copy_rect(0, 0, 2, 1, 2, 0).unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 1, 2]);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+        assert!(!document.can_undo());
+        document.redo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 1, 2]);
+        document.undo().unwrap();
+
+        document.copy_rect(0, 0, 2, 1, 1, 0).unwrap();
+        assert_eq!(document.pixels(), &[1, 1, 2, 0]);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+
+        let hole = document.pixels().to_vec();
+        document.erase(1, 0).unwrap();
+        document.copy_rect(0, 0, 2, 1, 2, 0).unwrap();
+        assert_eq!(document.pixels(), &[1, 0, 1, 0]);
+        document.undo().unwrap();
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), hole.as_slice());
+
+        document.copy_rect(0, 0, 2, 1, 0, 0).unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+        assert!(!document.can_undo());
+
+        document.move_rect(0, 0, 2, 1, 2, 0).unwrap();
+        assert_eq!(document.pixels(), &[0, 0, 1, 2]);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+        document.redo().unwrap();
+        document.undo().unwrap();
+
+        document.move_rect(0, 0, 2, 1, 1, 0).unwrap();
+        assert_eq!(document.pixels(), &[0, 1, 2, 0]);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+
+        document.move_rect(0, 0, 2, 1, 0, 0).unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+        assert!(!document.can_undo());
+
+        let before = document.pixels().to_vec();
+        assert!(matches!(
+            document.copy_rect(2, 0, 3, 1, 0, 0),
+            Err(KernelError::OutOfBounds { .. })
+        ));
+        assert!(matches!(
+            document.move_rect(0, 0, 2, 1, 3, 0),
+            Err(KernelError::OutOfBounds { .. })
+        ));
+        assert_eq!(document.pixels(), before.as_slice());
+        assert!(!document.can_undo());
+
+        document.set_palette_locked(true);
+        document.copy_rect(1, 0, 1, 1, 3, 0).unwrap();
+        assert_eq!(document.get(3, 0).unwrap(), 2);
+        document.move_rect(1, 0, 1, 1, 0, 0).unwrap();
+        assert_eq!(document.pixels(), &[2, 0, 3, 2]);
+        assert!(document.palette_locked());
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 2]);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 3, 0]);
+
+        let kept = document.pixels().to_vec();
+        let other = document.add_frame();
+        document.set_active_frame(other).unwrap();
+        document.paint(0, 0, 5).unwrap();
+        document.copy_rect(0, 0, 1, 1, 1, 0).unwrap();
+        assert_eq!(document.pixels(), &[5, 5, 0, 0]);
+        assert_eq!(document.frame_pixels(0).unwrap(), kept.as_slice());
+
+        document.begin_gesture().unwrap();
+        document.move_rect(0, 0, 1, 1, 2, 0).unwrap();
+        document.paint(3, 0, 6).unwrap();
+        document.end_gesture();
+        assert_eq!(document.pixels(), &[0, 5, 5, 6]);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[5, 5, 0, 0]);
+        assert_eq!(document.frame_pixels(0).unwrap(), kept.as_slice());
     }
 
     #[test]

@@ -17,19 +17,27 @@ Examples:
   pixelforge new --width 16 --height 16 --output hero.json
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
   pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3
+  pixelforge erase-rect --project hero.json --x 4 --y 8 --width 16 --height 8
+  pixelforge copy-rect --project hero.json --src-x 4 --src-y 8 --width 8 --height 12 --dst-x 20 --dst-y 8
+  pixelforge move-rect --project hero.json --src-x 20 --src-y 8 --width 8 --height 12 --dst-x 24 --dst-y 10
   pixelforge preview --project hero.json
+  pixelforge preview --project hero.json --frame 1
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --preview
   pixelforge call --project hero.json \\
       --request '{\"tool\":\"beginGesture\"}' \\
       --request '{\"tool\":\"fillRect\",\"params\":{\"x\":1,\"y\":2,\"width\":4,\"height\":6,\"colorIndex\":3}}' \\
       --request '{\"tool\":\"endGesture\"}'
-  pixelforge export sheet --project hero.json --output hero-sheet.png
+  pixelforge export png --project hero.json --out-dir ./frames --scale 2
+  pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2
 
-`preview` and `--preview` print an ASCII view of the active frame on stderr
-(one glyph per cell: `.` is transparent, `1`-`9` and `A`-`Z` / `a`-`z` are
-indices, `*` is index 62 or above). Stdout stays JSON. `preview` also puts
-those rows in `result.rows`. A standing figure needs a tall canvas (64x128
-or 96x128); a 48x64 full body stays schematic.";
+`preview` and `--preview` print an ASCII view on stderr (one glyph per cell:
+`.` is transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index
+62 or above). `preview --frame N` draws frame N and does not change
+activeFrame or the file. Stdout stays JSON. `preview` also puts those rows
+in `result.rows`. `export png` and `export sheet` take `--scale` (integer
+>= 1, default 1) and nearest-neighbor upscale inside the kernel. A standing
+figure needs a tall canvas (64x128 or 96x128); a 48x64 full body stays
+schematic. `frame duplicate` does not select the new frame.";
 
 #[derive(Parser)]
 #[command(
@@ -68,13 +76,18 @@ pub enum Command {
         #[arg(long)]
         preview: bool,
     },
-    /// Print an ASCII view of the active frame.
+    /// Print an ASCII view of one frame.
     ///
-    /// Stdout is one JSON line (`result.rows` and `result.legend`). The same
-    /// rows are written to stderr. Does not change the project file.
+    /// Stdout is one JSON line (`result.rows`, `result.frame`, `result.activeFrame`,
+    /// and `result.legend`). The same rows are written to stderr. Does not
+    /// change the project file or the active frame. `--frame` draws that
+    /// index; omit it to draw the active frame.
     Preview {
         #[command(flatten)]
         doc: ProjectArgs,
+        /// Frame to draw. Defaults to the active frame. Does not select it.
+        #[arg(long)]
+        frame: Option<u32>,
     },
     /// Run one or more Tool API requests against one document.
     ///
@@ -103,6 +116,20 @@ pub enum Command {
     FillRect(FillRectArgs),
     /// Set one cell back to transparent index 0.
     Erase(EraseArgs),
+    /// Clear an axis-aligned rectangle on the active frame to index 0.
+    ///
+    /// One undo step. The rectangle must lie entirely inside the canvas.
+    /// A locked palette still allows this.
+    EraseRect(EraseRectArgs),
+    /// Copy palette indices from one rectangle to another on the active frame.
+    ///
+    /// Includes index 0. One undo step. Source and destination must both lie
+    /// inside the canvas. Does not change the active frame.
+    CopyRect(BlitRectArgs),
+    /// Move palette indices on the active frame, then clear the source rectangle.
+    ///
+    /// One undo step. Source and destination must both lie inside the canvas.
+    MoveRect(BlitRectArgs),
     /// Palette edits. Paint of an existing index still works while locked.
     Palette {
         #[command(subcommand)]
@@ -180,6 +207,54 @@ pub struct FillRectArgs {
     /// Palette index to store. Index 0 is refused.
     #[arg(long)]
     pub color_index: u8,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct EraseRectArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Left column, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Top row, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: u16,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: u16,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct BlitRectArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Source left column, from 0.
+    #[arg(long)]
+    pub src_x: u16,
+    /// Source top row, from 0.
+    #[arg(long)]
+    pub src_y: u16,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: u16,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: u16,
+    /// Destination left column, from 0.
+    #[arg(long)]
+    pub dst_x: u16,
+    /// Destination top row, from 0.
+    #[arg(long)]
+    pub dst_y: u16,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -283,6 +358,12 @@ pub enum FrameCmd {
         index: u32,
     },
     /// Insert a copy of this frame (pixels and delay) after it.
+    ///
+    /// Does not select the copy. The result `index` is the new frame. Run
+    /// `frame select` on that index before painting it. If the active frame
+    /// sits at or after the insertion point, its index increases by one and
+    /// it still shows the same pixels. The web editor's duplicate button
+    /// selects the copy; this command does not.
     Duplicate {
         #[command(flatten)]
         doc: ProjectArgs,
@@ -320,6 +401,9 @@ pub enum ExportCmd {
         /// Directory to create and fill. Does not change the project file.
         #[arg(long, value_name = "DIR")]
         out_dir: PathBuf,
+        /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
     },
     /// Write one grid sprite sheet. Layout matches the kernel.
     Sheet {
@@ -328,5 +412,8 @@ pub enum ExportCmd {
         /// Destination PNG path.
         #[arg(short, long, value_name = "FILE")]
         output: PathBuf,
+        /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
     },
 }

@@ -22,7 +22,8 @@ use pixelforge_kernel::{TOOL_API_VERSION, TOOL_NAMES};
 use serde_json::{json, Value};
 
 use crate::cli::{
-    Cli, Command, ExportCmd, FillRectArgs, FrameCmd, ImportMode, PaintArgs, PaletteCmd, ProjectArgs,
+    BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FrameCmd, ImportMode,
+    PaintArgs, PaletteCmd, ProjectArgs,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -49,7 +50,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Inspect { doc, preview } => {
             apply_with(&doc, vec![request("inspect", json!({}))], preview)
         }
-        Command::Preview { doc } => cmd_preview(&doc),
+        Command::Preview { doc, frame } => cmd_preview(&doc, frame),
         Command::Call {
             doc,
             request,
@@ -62,6 +63,9 @@ fn execute(cli: Cli) -> i32 {
             &args.doc,
             vec![request("erase", json!({"x": args.x, "y": args.y}))],
         ),
+        Command::EraseRect(args) => cmd_erase_rect(args),
+        Command::CopyRect(args) => cmd_blit("copyRect", args),
+        Command::MoveRect(args) => cmd_blit("moveRect", args),
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
@@ -125,12 +129,53 @@ fn cmd_fill_rect(args: FillRectArgs) -> i32 {
     )
 }
 
-fn cmd_preview(doc: &ProjectArgs) -> i32 {
+fn cmd_erase_rect(args: EraseRectArgs) -> i32 {
+    apply_with(
+        &args.doc,
+        vec![request(
+            "eraseRect",
+            json!({
+                "x": args.x,
+                "y": args.y,
+                "width": args.width,
+                "height": args.height,
+            }),
+        )],
+        args.preview,
+    )
+}
+
+fn cmd_blit(tool: &str, args: BlitRectArgs) -> i32 {
+    apply_with(
+        &args.doc,
+        vec![request(
+            tool,
+            json!({
+                "srcX": args.src_x,
+                "srcY": args.src_y,
+                "width": args.width,
+                "height": args.height,
+                "dstX": args.dst_x,
+                "dstY": args.dst_y,
+            }),
+        )],
+        args.preview,
+    )
+}
+
+fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>) -> i32 {
     let session = match Session::open(&doc.project) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
-    let frame = preview::render(session.document());
+    let index = match frame {
+        Some(index) => usize::try_from(index).expect("u32 fits in usize"),
+        None => session.document().active_frame(),
+    };
+    let frame = match preview::render_frame(session.document(), index) {
+        Ok(frame) => frame,
+        Err(err) => return emit(CliFailure::kernel(err)),
+    };
     let body = json!({
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
@@ -224,19 +269,23 @@ fn cmd_frame(command: FrameCmd) -> i32 {
 
 fn cmd_export(command: ExportCmd) -> i32 {
     match command {
-        ExportCmd::Png { doc, out_dir } => {
+        ExportCmd::Png {
+            doc,
+            out_dir,
+            scale,
+        } => {
             let mut session = match Session::open(&doc.project) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
-            export_files::export_png_sequence(&mut session, &out_dir)
+            export_files::export_png_sequence(&mut session, &out_dir, scale)
         }
-        ExportCmd::Sheet { doc, output } => {
+        ExportCmd::Sheet { doc, output, scale } => {
             let mut session = match Session::open(&doc.project) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
-            export_files::export_sprite_sheet(&mut session, &output)
+            export_files::export_sprite_sheet(&mut session, &output, scale)
         }
     }
 }
