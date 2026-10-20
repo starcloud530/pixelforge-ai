@@ -4,7 +4,8 @@
 //! rectangle erase, a rectangle copy or move (including across frames), a
 //! horizontal index flip, a canvas resize, a palette color change, a palette
 //! import, a palette lock, a frame-list change, an active-frame change, a
-//! per-frame delay change, or a whole gesture of those.
+//! layer-stack change, an active-layer change, a per-frame delay change, or a
+//! whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
@@ -40,6 +41,7 @@ impl Operation {
 pub(crate) enum Change {
     Pixel {
         frame: usize,
+        layer: usize,
         offset: usize,
         before: u8,
         after: u8,
@@ -99,15 +101,57 @@ pub(crate) enum Change {
     },
     /// The canvas size changed. Each frame keeps its delay; only indices move.
     ///
-    /// `before_pixels` and `after_pixels` are one buffer per frame, in timeline
-    /// order, at the moment of the resize. Undo restores the previous size
-    /// before any later pixel edit is replayed.
+    /// `before_pixels` and `after_pixels` are one buffer per layer per frame,
+    /// in timeline order, at the moment of the resize. Undo restores the
+    /// previous size before any later pixel edit is replayed.
     CanvasResize {
         before_width: u16,
         before_height: u16,
         after_width: u16,
         after_height: u16,
-        before_pixels: Vec<Vec<u8>>,
+        before_pixels: Vec<Vec<Vec<u8>>>,
+        after_pixels: Vec<Vec<Vec<u8>>>,
+    },
+    /// A blank layer was inserted at `index` on every frame.
+    AddLayer {
+        index: usize,
+        name: String,
+        active_before: usize,
+        active_after: usize,
+    },
+    /// The layer at `index` was removed from every frame.
+    ///
+    /// `pixels` is one buffer per frame, in timeline order.
+    RemoveLayer {
+        index: usize,
+        name: String,
+        pixels: Vec<Vec<u8>>,
+        active_before: usize,
+        active_after: usize,
+    },
+    RenameLayer {
+        index: usize,
+        before: String,
+        after: String,
+    },
+    ActiveLayer {
+        before: usize,
+        after: usize,
+    },
+    /// The layer at `from` was moved so it sits at `to`.
+    ///
+    /// `to` is the index after the move. Undo moves it back the same way.
+    ReorderLayer {
+        from: usize,
+        to: usize,
+        active_before: usize,
+        active_after: usize,
+    },
+    /// Every frame was composited into the single default layer.
+    Flatten {
+        before_names: Vec<String>,
+        before_pixels: Vec<Vec<Vec<u8>>>,
+        before_active: usize,
         after_pixels: Vec<Vec<u8>>,
     },
 }
@@ -244,10 +288,12 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
     match change {
         Change::Pixel {
             frame,
+            layer,
             offset,
             before,
             after,
-        } => coalesce_pixel(changes, frame, offset, before, after),
+        } => coalesce_pixel(changes, frame, layer, offset, before, after),
+        Change::ActiveLayer { before, after } => coalesce_active_layer(changes, before, after),
         Change::PaletteColor {
             index,
             before,
@@ -263,16 +309,27 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
     }
 }
 
-fn coalesce_pixel(changes: &mut Vec<Change>, frame: usize, offset: usize, before: u8, after: u8) {
+fn coalesce_pixel(
+    changes: &mut Vec<Change>,
+    frame: usize,
+    layer: usize,
+    offset: usize,
+    before: u8,
+    after: u8,
+) {
     let mut index = changes.len();
     while index > 0 {
         index -= 1;
         match &changes[index] {
             Change::Pixel {
                 frame: existing_frame,
+                layer: existing_layer,
                 offset: existing_offset,
                 ..
-            } if *existing_frame == frame && *existing_offset == offset => {
+            } if *existing_frame == frame
+                && *existing_layer == layer
+                && *existing_offset == offset =>
+            {
                 let Change::Pixel {
                     before: original,
                     after: slot,
@@ -294,6 +351,7 @@ fn coalesce_pixel(changes: &mut Vec<Change>, frame: usize, offset: usize, before
 
     changes.push(Change::Pixel {
         frame,
+        layer,
         offset,
         before,
         after,
@@ -376,4 +434,21 @@ fn coalesce_active(changes: &mut Vec<Change>, before: usize, after: usize) {
     }
 
     changes.push(Change::ActiveFrame { before, after });
+}
+
+fn coalesce_active_layer(changes: &mut Vec<Change>, before: usize, after: usize) {
+    if let Some(Change::ActiveLayer {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(*slot, before, "active-layer history skipped a selection");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::ActiveLayer { before, after });
 }

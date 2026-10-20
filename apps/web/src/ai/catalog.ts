@@ -41,6 +41,7 @@ const BY_NAME = {
       x: int("Column, 0-based.", 0, 65535),
       y: int("Row, 0-based.", 0, 65535),
       colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
     ["x", "y", "colorIndex"],
   ),
@@ -53,6 +54,7 @@ const BY_NAME = {
       width: int("Width in cells, at least 1.", 1, 65535),
       height: int("Height in cells, at least 1.", 1, 65535),
       colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
     ["x", "y", "width", "height", "colorIndex"],
   ),
@@ -62,6 +64,7 @@ const BY_NAME = {
     {
       x: int("Column, 0-based.", 0, 65535),
       y: int("Row, 0-based.", 0, 65535),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
     ["x", "y"],
   ),
@@ -73,6 +76,7 @@ const BY_NAME = {
       y: int("Top row, 0-based.", 0, 65535),
       width: int("Width in cells, at least 1.", 1, 65535),
       height: int("Height in cells, at least 1.", 1, 65535),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
     ["x", "y", "width", "height"],
   ),
@@ -88,6 +92,7 @@ const BY_NAME = {
       dstY: int("Destination top row, 0-based.", 0, 65535),
       fromFrame: int("Source frame. Omit for the active frame.", 0, 4294967295),
       toFrame: int("Destination frame. Omit for the active frame.", 0, 4294967295),
+      layer: int("Layer to read and write. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
   ),
@@ -103,6 +108,7 @@ const BY_NAME = {
       dstY: int("Destination top row, 0-based.", 0, 65535),
       fromFrame: int("Source frame. Omit for the active frame.", 0, 4294967295),
       toFrame: int("Destination frame. Omit for the active frame.", 0, 4294967295),
+      layer: int("Layer to read and write. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
   ),
@@ -234,6 +240,7 @@ const BY_NAME = {
     {
       frame: int("Frame index to draw. Omit for the active frame.", 0, 4294967295),
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+      layer: int("Draw this layer only. Omit for the composite.", 0, 4294967295),
     },
   ),
   diffFrames: tool(
@@ -243,6 +250,7 @@ const BY_NAME = {
       frame: int("First frame, left panel.", 0, 4294967295),
       with: int("Second frame, middle panel.", 0, 4294967295),
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+      layer: int("Compare this layer only. Omit for the composite.", 0, 4294967295),
     },
     ["frame", "with"],
   ),
@@ -255,6 +263,7 @@ const BY_NAME = {
       y: int("Top row.", 0, 65535),
       width: int("Width in cells, at least 1.", 1, 65535),
       height: int("Height in cells, at least 1.", 1, 65535),
+      layer: int("Layer to mirror. Omit for the active layer. Does not select it.", 0, 4294967295),
     },
   ),
   resizeCanvas: tool(
@@ -267,6 +276,54 @@ const BY_NAME = {
       offsetY: int("Where the old top edge lands. Negative clips.", -2147483648, 2147483647),
     },
     ["width", "height"],
+  ),
+  listLayers: tool(
+    "listLayers",
+    "Read the layer stack. Index 0 is the bottom. Does not change the document.",
+  ),
+  addLayer: tool(
+    "addLayer",
+    "Insert a transparent layer above the active one on every frame and select it. Omit name for the next free Layer N. One undo step.",
+    {
+      name: { type: "string", description: "Layer name, 1 to 64 characters. Omit for Layer N." },
+    },
+  ),
+  deleteLayer: tool(
+    "deleteLayer",
+    "Remove a layer from every frame. At least one layer must remain. Omit index to remove the active layer.",
+    {
+      index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
+    },
+  ),
+  renameLayer: tool(
+    "renameLayer",
+    "Rename a layer. The stored name is trimmed. Omit index to rename the active layer. The same name is not recorded.",
+    {
+      index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
+      name: { type: "string", description: "New name, 1 to 64 characters." },
+    },
+    ["name"],
+  ),
+  setActiveLayer: tool(
+    "setActiveLayer",
+    "Select the layer the next paint writes. The same index is not recorded.",
+    {
+      index: int("Layer index, 0-based. 0 is the bottom.", 0, 4294967295),
+    },
+    ["index"],
+  ),
+  reorderLayer: tool(
+    "reorderLayer",
+    "Move a layer so it ends at `to`. Index 0 stays the bottom. The active layer follows the move. One undo step.",
+    {
+      from: int("Current layer index.", 0, 4294967295),
+      to: int("Index after the move.", 0, 4294967295),
+    },
+    ["from", "to"],
+  ),
+  flattenLayers: tool(
+    "flattenLayers",
+    "Composite every frame into one layer named Layer 1. Index 0 shows through; any other index covers the layer under it. The saved file is a single-layer project. One undo step. A document that is already that one layer is not recorded.",
   ),
 } satisfies Record<ToolName, ChatTool>;
 
@@ -281,6 +338,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "exportSpriteSheet",
   "previewFrame",
   "diffFrames",
+  "listLayers",
 ];
 
 function tool(

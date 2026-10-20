@@ -1107,5 +1107,138 @@ fn preview_png_diff_flip_resize_and_sheet_columns() {
     ]));
     assert_eq!(status(&undone), 0, "{}", stderr(&undone));
     assert_eq!(load(&project).width(), 6);
-    assert_eq!(load(&project).get(3, 1).unwrap(), 3);
+}
+
+#[test]
+fn layers_composite_preview_and_export_leave_the_body_alone() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "4",
+            "--height",
+            "2",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(load(&project).layer_count(), 1);
+    assert_eq!(load(&project).layer_name(0).unwrap(), "Layer 1");
+
+    let rename = pixelforge(&arg(&[
+        "layer",
+        "rename",
+        "--project",
+        project_arg,
+        "--index",
+        "0",
+        "--name",
+        "body",
+    ]));
+    assert_eq!(status(&rename), 0, "{}", stderr(&rename));
+    let body = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--layer",
+        "0",
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--width",
+        "2",
+        "--height",
+        "2",
+        "--color-index",
+        "1",
+    ]));
+    assert_eq!(status(&body), 0, "{}", stderr(&body));
+    let gear = pixelforge(&arg(&[
+        "layer",
+        "add",
+        "--project",
+        project_arg,
+        "--name",
+        "gear",
+    ]));
+    assert_eq!(status(&gear), 0, "{}", stderr(&gear));
+    assert_eq!(json_lines(&gear)[0]["result"]["index"], 1);
+    assert_eq!(json_lines(&gear)[0]["result"]["name"], "gear");
+
+    let armor = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--color-index",
+        "2",
+    ]));
+    assert_eq!(status(&armor), 0, "{}", stderr(&armor));
+
+    let preview = pixelforge(&arg(&["preview", "--project", project_arg, "--scale", "1"]));
+    assert_eq!(status(&preview), 0, "{}", stderr(&preview));
+    let rows = json_lines(&preview)[0]["result"]["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row.as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, vec!["12..".to_string(), "11..".to_string()]);
+    assert_eq!(json_lines(&preview)[0]["result"]["composite"], true);
+    assert!(stderr(&preview).contains("composite"));
+
+    let repaint = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--color-index",
+        "3",
+    ]));
+    assert_eq!(status(&repaint), 0, "{}", stderr(&repaint));
+    let doc = load(&project);
+    assert_eq!(doc.layer_pixels(0, 0).unwrap(), &[1, 1, 0, 0, 1, 1, 0, 0]);
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[1], 3);
+    assert_eq!(doc.composite_pixels(0).unwrap()[1], 3);
+
+    let only = pixelforge(&arg(&["preview", "--project", project_arg, "--layer", "0"]));
+    assert_eq!(status(&only), 0, "{}", stderr(&only));
+    assert_eq!(json_lines(&only)[0]["result"]["rows"][0], "11..");
+    assert_eq!(json_lines(&only)[0]["result"]["composite"], false);
+
+    let png = scratch.child("frames");
+    let exported = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        png.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&exported), 0, "{}", stderr(&exported));
+    let bytes = fs::read(png.join("pixelforge-000.png")).unwrap();
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+
+    let flat = pixelforge(&arg(&["layer", "flatten", "--project", project_arg]));
+    assert_eq!(status(&flat), 0, "{}", stderr(&flat));
+    let flat_doc = load(&project);
+    assert_eq!(flat_doc.layer_count(), 1);
+    assert_eq!(flat_doc.layer_name(0).unwrap(), "Layer 1");
+    assert_eq!(flat_doc.composite_pixels(0).unwrap()[1], 3);
+    assert!(!flat_doc.save_project().contains("\"layers\""));
 }

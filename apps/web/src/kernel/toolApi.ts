@@ -39,6 +39,13 @@ export const TOOL_NAMES = [
   "diffFrames",
   "flipHorizontal",
   "resizeCanvas",
+  "listLayers",
+  "addLayer",
+  "deleteLayer",
+  "renameLayer",
+  "setActiveLayer",
+  "reorderLayer",
+  "flattenLayers",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];
