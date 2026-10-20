@@ -1,8 +1,8 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! and per-frame delay. Paint, erase, and rectangle fill write palette
-//! indices, never raw RGB.
+//! and per-frame delay. Paint, erase, rectangle fill, rectangle erase, and
+//! rectangle copy or move write palette indices, never raw RGB.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
 //! Loop playback advances the active frame from those delays. The TypeScript

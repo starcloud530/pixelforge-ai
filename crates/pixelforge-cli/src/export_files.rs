@@ -12,8 +12,14 @@ use crate::output::{print_line, tool_refusal};
 use crate::session::Session;
 use pixelforge_kernel::TOOL_API_VERSION;
 
-pub fn export_png_sequence(session: &mut Session, out_dir: &Path) -> i32 {
-    let response = session.call(r#"{"apiVersion":1,"tool":"exportPngSequence"}"#);
+pub fn export_png_sequence(session: &mut Session, out_dir: &Path, scale: u32) -> i32 {
+    let request = serde_json::json!({
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "exportPngSequence",
+        "params": { "scale": scale },
+    })
+    .to_string();
+    let response = session.call(&request);
     if let Some(code) = refuse_or_print(&response) {
         return code;
     }
@@ -72,13 +78,24 @@ pub fn export_png_sequence(session: &mut Session, out_dir: &Path) -> i32 {
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
         "tool": "exportPngSequence",
-        "result": { "frames": written },
+        "result": {
+            "frames": written,
+            "scale": value["result"]["scale"].clone(),
+            "width": value["result"]["width"].clone(),
+            "height": value["result"]["height"].clone(),
+        },
     });
     finish_summary(&summary)
 }
 
-pub fn export_sprite_sheet(session: &mut Session, output: &Path) -> i32 {
-    let response = session.call(r#"{"apiVersion":1,"tool":"exportSpriteSheet"}"#);
+pub fn export_sprite_sheet(session: &mut Session, output: &Path, scale: u32) -> i32 {
+    let request = serde_json::json!({
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "exportSpriteSheet",
+        "params": { "scale": scale },
+    })
+    .to_string();
+    let response = session.call(&request);
     if let Some(code) = refuse_or_print(&response) {
         return code;
     }
@@ -132,6 +149,7 @@ pub fn export_sprite_sheet(session: &mut Session, output: &Path) -> i32 {
             "rows": result["rows"].clone(),
             "sheetWidth": result["sheetWidth"].clone(),
             "sheetHeight": result["sheetHeight"].clone(),
+            "scale": result["scale"].clone(),
         },
     });
     finish_summary(&summary)

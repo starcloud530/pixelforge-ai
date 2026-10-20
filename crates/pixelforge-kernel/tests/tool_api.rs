@@ -526,8 +526,177 @@ fn fill_rect_is_one_undo_step_and_rejects_a_partial_rectangle() {
 }
 
 #[test]
+fn erase_copy_and_move_rects_match_fill_rect_rules() {
+    let mut document = doc();
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 1, "y": 0, "width": 3, "height": 1, "colorIndex": 4}),
+    );
+    tool(
+        &mut document,
+        "eraseRect",
+        json!({"x": 1, "y": 0, "width": 2, "height": 1}),
+    );
+    let erased = tool(&mut document, "inspect", json!({}));
+    assert_eq!(erased["pixels"][1], json!(0));
+    assert_eq!(erased["pixels"][2], json!(0));
+    assert_eq!(erased["pixels"][3], json!(4));
+    tool(&mut document, "undo", json!({}));
+    let restored = tool(&mut document, "inspect", json!({}));
+    assert_eq!(restored["pixels"][1], json!(4));
+    assert_eq!(restored["pixels"][3], json!(4));
+    assert_eq!(restored["canUndo"], json!(true));
+
+    let overflow = tool_err(
+        &mut document,
+        "eraseRect",
+        json!({"x": 14, "y": 0, "width": 4, "height": 1}),
+    );
+    assert_eq!(overflow["code"], json!("OutOfBounds"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][14],
+        json!(0)
+    );
+    let zero = tool_err(
+        &mut document,
+        "eraseRect",
+        json!({"x": 0, "y": 0, "width": 0, "height": 1}),
+    );
+    assert_eq!(zero["code"], json!("InvalidParams"));
+
+    tool(&mut document, "beginGesture", json!({}));
+    tool(
+        &mut document,
+        "eraseRect",
+        json!({"x": 3, "y": 0, "width": 1, "height": 1}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 2}),
+    );
+    tool(&mut document, "endGesture", json!({}));
+    tool(&mut document, "undo", json!({}));
+    let gestured = tool(&mut document, "inspect", json!({}));
+    assert_eq!(gestured["pixels"][3], json!(4));
+    assert_eq!(gestured["pixels"][0], json!(0));
+
+    tool(
+        &mut document,
+        "copyRect",
+        json!({"srcX": 1, "srcY": 0, "width": 2, "height": 1, "dstX": 5, "dstY": 0}),
+    );
+    let copied = tool(&mut document, "inspect", json!({}));
+    assert_eq!(copied["pixels"][5], json!(4));
+    assert_eq!(copied["pixels"][6], json!(4));
+    assert_eq!(copied["pixels"][1], json!(4));
+    tool(&mut document, "undo", json!({}));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][5],
+        json!(0)
+    );
+
+    tool(
+        &mut document,
+        "moveRect",
+        json!({"srcX": 1, "srcY": 0, "width": 3, "height": 1, "dstX": 2, "dstY": 0}),
+    );
+    let moved = tool(&mut document, "inspect", json!({}));
+    assert_eq!(moved["pixels"][1], json!(0));
+    assert_eq!(moved["pixels"][2], json!(4));
+    assert_eq!(moved["pixels"][3], json!(4));
+    assert_eq!(moved["pixels"][4], json!(4));
+    tool(&mut document, "undo", json!({}));
+    let back = tool(&mut document, "inspect", json!({}));
+    assert_eq!(back["pixels"][1], json!(4));
+    assert_eq!(back["pixels"][4], json!(0));
+
+    let partial = tool_err(
+        &mut document,
+        "copyRect",
+        json!({"srcX": 0, "srcY": 0, "width": 2, "height": 1, "dstX": 15, "dstY": 0}),
+    );
+    assert_eq!(partial["code"], json!("OutOfBounds"));
+    let moved_off = tool_err(
+        &mut document,
+        "moveRect",
+        json!({"srcX": 14, "srcY": 0, "width": 4, "height": 1, "dstX": 0, "dstY": 0}),
+    );
+    assert_eq!(moved_off["code"], json!("OutOfBounds"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["pixels"][1],
+        json!(4)
+    );
+
+    tool(&mut document, "setPaletteLocked", json!({"locked": true}));
+    tool(
+        &mut document,
+        "eraseRect",
+        json!({"x": 1, "y": 0, "width": 1, "height": 1}),
+    );
+    tool(
+        &mut document,
+        "copyRect",
+        json!({"srcX": 2, "srcY": 0, "width": 1, "height": 1, "dstX": 1, "dstY": 0}),
+    );
+    let locked = tool(&mut document, "inspect", json!({}));
+    assert_eq!(locked["paletteLocked"], json!(true));
+    assert_eq!(locked["pixels"][1], json!(4));
+}
+
+#[test]
+fn export_scale_is_nearest_neighbor_and_defaults_to_one() {
+    let mut document = Document::new(4, 2).unwrap();
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 0, "colorIndex": 3}),
+    );
+    tool(&mut document, "addFrame", json!({}));
+    let plain = tool(&mut document, "exportPngSequence", json!({}));
+    let same = tool(&mut document, "exportPngSequence", json!({"scale": 1}));
+    assert_eq!(plain["frames"], same["frames"]);
+    assert_eq!(plain["scale"], json!(1));
+    assert_eq!(plain["width"], json!(4));
+    assert_eq!(plain["height"], json!(2));
+    let scaled = tool(&mut document, "exportPngSequence", json!({"scale": 2}));
+    assert_eq!(scaled["scale"], json!(2));
+    assert_eq!(scaled["width"], json!(8));
+    assert_eq!(scaled["height"], json!(4));
+    assert_ne!(scaled["frames"][0], plain["frames"][0]);
+
+    let sheet = tool(&mut document, "exportSpriteSheet", json!({"scale": 2}));
+    assert_eq!(sheet["columns"], json!(2));
+    assert_eq!(sheet["rows"], json!(1));
+    assert_eq!(sheet["sheetWidth"], json!(16));
+    assert_eq!(sheet["sheetHeight"], json!(4));
+    assert_eq!(sheet["scale"], json!(2));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["canUndo"],
+        json!(true)
+    );
+
+    let zero = tool_err(&mut document, "exportPngSequence", json!({"scale": 0}));
+    assert_eq!(zero["code"], json!("InvalidParams"));
+    assert_eq!(
+        zero["message"],
+        json!("exportPngSequence: scale must be an integer from 1 to 4294967295")
+    );
+    let extra = tool_err(
+        &mut document,
+        "exportSpriteSheet",
+        json!({"scale": 1, "filter": "linear"}),
+    );
+    assert_eq!(
+        extra["message"],
+        json!("exportSpriteSheet: unknown field filter")
+    );
+}
+
+#[test]
 fn every_catalog_name_is_a_known_tool() {
-    assert_eq!(TOOL_NAMES.len(), 21);
+    assert_eq!(TOOL_NAMES.len(), 24);
     for name in TOOL_NAMES {
         let mut document = doc();
         let response = call(&mut document, json!({ "tool": name }));

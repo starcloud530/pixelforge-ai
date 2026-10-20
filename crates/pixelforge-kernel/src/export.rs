@@ -6,6 +6,8 @@
 //!
 //! A sequence is one PNG per frame, in timeline order. A sprite sheet packs
 //! those same frames into one PNG. See [`sprite_sheet_layout`] for the grid.
+//! `scale` repeats each index into a square block before palette resolution
+//! (nearest neighbor, no filtering). Scale 1 is the canvas size.
 //! [`Document::frame_rgba`] returns that same resolved buffer for a view such
 //! as onion skin. It is not stored and is not encoded into the file.
 
@@ -94,58 +96,206 @@ impl Document {
         Ok(expand_indexed(self.palette_colors(), pixels))
     }
 
-    /// RGBA PNG of one frame. Index 0 and any zero-alpha palette entry are transparent.
+    /// RGBA PNG of one frame at scale 1.
+    ///
+    /// Index 0 and any zero-alpha palette entry are transparent.
     pub fn export_frame_png(&self, index: usize) -> Result<Vec<u8>, KernelError> {
-        let rgba = self.frame_rgba(index)?;
-        Ok(encode_rgba_png(
-            u32::from(self.width()),
-            u32::from(self.height()),
-            &rgba,
-        ))
+        self.export_frame_png_scaled(index, 1)
     }
 
-    /// One RGBA PNG per frame, timeline order. Same bytes as [`Self::export_frame_png`].
+    /// RGBA PNG of one frame, nearest-neighbor scaled by `scale` cells per pixel.
+    ///
+    /// `scale` is an integer >= 1. Each palette index is repeated into a
+    /// `scale` by `scale` block, then resolved through the palette. There is
+    /// no filtering. Scale 1 matches [`Self::export_frame_png`]. A scale of 0,
+    /// or a scaled size that does not fit in a PNG, is
+    /// [`KernelError::ExportScale`] and writes nothing.
+    pub fn export_frame_png_scaled(
+        &self,
+        index: usize,
+        scale: u32,
+    ) -> Result<Vec<u8>, KernelError> {
+        let pixels = self.frame_pixels(index)?;
+        let (width, height, rgba) = frame_rgba_scaled(
+            self.palette_colors(),
+            pixels,
+            self.width(),
+            self.height(),
+            scale,
+        )?;
+        Ok(encode_rgba_png(width, height, &rgba))
+    }
+
+    /// One RGBA PNG per frame at scale 1, timeline order.
+    ///
+    /// Same bytes as [`Self::export_frame_png`].
     pub fn export_png_sequence(&self) -> Vec<Vec<u8>> {
+        self.export_png_sequence_scaled(1)
+            .expect("scale 1 fits every canvas")
+    }
+
+    /// One RGBA PNG per frame, nearest-neighbor scaled. See [`Self::export_frame_png_scaled`].
+    pub fn export_png_sequence_scaled(&self, scale: u32) -> Result<Vec<Vec<u8>>, KernelError> {
+        let _ = self.scaled_frame_size(scale)?;
         (0..self.frame_count())
-            .map(|index| {
-                self.export_frame_png(index)
-                    .expect("frame index comes from the frame list")
-            })
+            .map(|index| self.export_frame_png_scaled(index, scale))
             .collect()
     }
 
+    /// Pixel size of one frame after nearest-neighbor `scale`.
+    pub fn scaled_frame_size(&self, scale: u32) -> Result<(u32, u32), KernelError> {
+        let scale = require_scale(scale)?;
+        Ok((
+            mul_scale(u32::from(self.width()), scale)?,
+            mul_scale(u32::from(self.height()), scale)?,
+        ))
+    }
+
     /// Grid this document would use for [`Self::export_sprite_sheet`].
+    ///
+    /// Cell size is the canvas. [`Self::export_sprite_sheet_scaled`] multiplies
+    /// that cell by `scale` and leaves `columns` and `rows` unchanged.
     pub fn sprite_sheet_layout(&self) -> SpriteSheetLayout {
         sprite_sheet_layout(self.frame_count(), self.width(), self.height())
     }
 
-    /// One RGBA PNG packing every frame with [`Self::sprite_sheet_layout`].
-    pub fn export_sprite_sheet(&self) -> Vec<u8> {
+    /// Pixel size of the sprite sheet after nearest-neighbor `scale`.
+    pub fn scaled_sheet_size(&self, scale: u32) -> Result<(u32, u32), KernelError> {
+        let scale = require_scale(scale)?;
         let layout = self.sprite_sheet_layout();
-        let sheet_width = layout.sheet_width() as usize;
-        let sheet_height = layout.sheet_height() as usize;
-        let mut rgba = vec![0; sheet_width * sheet_height * 4];
-        let frame_width = usize::from(self.width());
-        let frame_height = usize::from(self.height());
+        Ok((
+            mul_scale(layout.sheet_width(), scale)?,
+            mul_scale(layout.sheet_height(), scale)?,
+        ))
+    }
+
+    /// One RGBA PNG packing every frame at scale 1.
+    pub fn export_sprite_sheet(&self) -> Vec<u8> {
+        self.export_sprite_sheet_scaled(1)
+            .expect("scale 1 fits every canvas")
+    }
+
+    /// Sprite sheet with each cell nearest-neighbor scaled by `scale`.
+    ///
+    /// Columns and rows stay the frame grid from [`Self::sprite_sheet_layout`].
+    /// Each frame cell becomes `frame_width * scale` by `frame_height * scale`
+    /// pixels. Padding cells scale as transparent blocks. Scale 1 matches
+    /// [`Self::export_sprite_sheet`].
+    pub fn export_sprite_sheet_scaled(&self, scale: u32) -> Result<Vec<u8>, KernelError> {
+        let scale = require_scale(scale)?;
+        let (sheet_width, sheet_height) = self.scaled_sheet_size(scale)?;
+        let len = rgba_byte_len(sheet_width, sheet_height, scale)?;
+        let mut rgba = vec![0; len];
+        let layout = self.sprite_sheet_layout();
+        let cell_width = usize::try_from(mul_scale(u32::from(self.width()), scale)?)
+            .map_err(|_| KernelError::ExportScale { scale })?;
+        let cell_height = usize::try_from(mul_scale(u32::from(self.height()), scale)?)
+            .map_err(|_| KernelError::ExportScale { scale })?;
         let palette = self.palette_colors();
+        let sheet_stride =
+            usize::try_from(sheet_width).map_err(|_| KernelError::ExportScale { scale })?;
         for index in 0..self.frame_count() {
             let (origin_x, origin_y) = layout.frame_origin(index).expect("every frame has a cell");
+            let origin_x = mul_scale(origin_x, scale)?;
+            let origin_y = mul_scale(origin_y, scale)?;
             let pixels = self
                 .frame_pixels(index)
                 .expect("frame index comes from the frame list");
+            let scaled = nearest_indices(pixels, self.width(), self.height(), scale)?;
             blit_frame(
                 &mut rgba,
-                sheet_width,
-                origin_x as usize,
-                origin_y as usize,
-                frame_width,
-                frame_height,
-                pixels,
+                sheet_stride,
+                usize::try_from(origin_x).map_err(|_| KernelError::ExportScale { scale })?,
+                usize::try_from(origin_y).map_err(|_| KernelError::ExportScale { scale })?,
+                cell_width,
+                cell_height,
+                &scaled,
                 palette,
             );
         }
-        encode_rgba_png(layout.sheet_width(), layout.sheet_height(), &rgba)
+        Ok(encode_rgba_png(sheet_width, sheet_height, &rgba))
     }
+}
+
+fn require_scale(scale: u32) -> Result<u32, KernelError> {
+    if scale == 0 {
+        Err(KernelError::ExportScale { scale })
+    } else {
+        Ok(scale)
+    }
+}
+
+fn mul_scale(edge: u32, scale: u32) -> Result<u32, KernelError> {
+    if scale == 0 {
+        return Err(KernelError::ExportScale { scale });
+    }
+    edge.checked_mul(scale)
+        .ok_or(KernelError::ExportScale { scale })
+}
+
+fn rgba_byte_len(width: u32, height: u32, scale: u32) -> Result<usize, KernelError> {
+    let width = usize::try_from(width).map_err(|_| KernelError::ExportScale { scale })?;
+    let height = usize::try_from(height).map_err(|_| KernelError::ExportScale { scale })?;
+    width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(KernelError::ExportScale { scale })
+}
+
+fn frame_rgba_scaled(
+    palette: &[Rgba],
+    pixels: &[u8],
+    width: u16,
+    height: u16,
+    scale: u32,
+) -> Result<(u32, u32, Vec<u8>), KernelError> {
+    let scale = require_scale(scale)?;
+    let out_width = mul_scale(u32::from(width), scale)?;
+    let out_height = mul_scale(u32::from(height), scale)?;
+    let indexed = nearest_indices(pixels, width, height, scale)?;
+    let rgba = expand_indexed(palette, &indexed);
+    Ok((out_width, out_height, rgba))
+}
+
+/// Repeats each index into a `scale` by `scale` block. Scale 1 clones `pixels`.
+fn nearest_indices(
+    pixels: &[u8],
+    width: u16,
+    height: u16,
+    scale: u32,
+) -> Result<Vec<u8>, KernelError> {
+    let scale = require_scale(scale)?;
+    if scale == 1 {
+        return Ok(pixels.to_vec());
+    }
+    let out_width = mul_scale(u32::from(width), scale)?;
+    let out_height = mul_scale(u32::from(height), scale)?;
+    let len = usize::try_from(out_width)
+        .ok()
+        .and_then(|w| {
+            usize::try_from(out_height)
+                .ok()
+                .and_then(|h| w.checked_mul(h))
+        })
+        .ok_or(KernelError::ExportScale { scale })?;
+    let mut out = vec![0u8; len];
+    let src_width = usize::from(width);
+    let out_stride = usize::try_from(out_width).map_err(|_| KernelError::ExportScale { scale })?;
+    let scale_usize = usize::try_from(scale).map_err(|_| KernelError::ExportScale { scale })?;
+    for y in 0..u32::from(height) {
+        for x in 0..u32::from(width) {
+            let index = pixels[y as usize * src_width + x as usize];
+            let x0 = (x as usize) * scale_usize;
+            let y0 = (y as usize) * scale_usize;
+            for dy in 0..scale_usize {
+                let row = (y0 + dy) * out_stride;
+                for dx in 0..scale_usize {
+                    out[row + x0 + dx] = index;
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Smallest `columns` whose square covers `frame_count`.
@@ -378,6 +528,75 @@ mod tests {
         let _ = document.export_sprite_sheet();
         assert!(!document.can_undo());
         assert_eq!(document.frame_count(), 3);
+    }
+
+    #[test]
+    fn nearest_neighbor_scale_repeats_indices_and_leaves_the_document() {
+        let mut document = doc();
+        document.paint(1, 0, 3).unwrap();
+        document.set_palette_color(3, 10, 20, 30).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(0, 1, 2).unwrap();
+        let before = document.clone();
+
+        assert_eq!(document.scaled_frame_size(1).unwrap(), (4, 2));
+        assert_eq!(document.scaled_frame_size(2).unwrap(), (8, 4));
+        assert_eq!(
+            document.export_frame_png_scaled(0, 1).unwrap(),
+            document.export_frame_png(0).unwrap()
+        );
+        assert_eq!(
+            document.export_png_sequence_scaled(1).unwrap(),
+            document.export_png_sequence()
+        );
+        assert_eq!(
+            document.export_sprite_sheet_scaled(1).unwrap(),
+            document.export_sprite_sheet()
+        );
+
+        let (width, height, rgba) = decode_rgba(&document.export_frame_png_scaled(0, 2).unwrap());
+        assert_eq!((width, height), (8, 4));
+        let ink = [10, 20, 30, 255];
+        for (x, y) in [(2, 0), (3, 0), (2, 1), (3, 1)] {
+            assert_eq!(pixel_at(&rgba, 8, x, y), ink);
+        }
+        assert_eq!(pixel_at(&rgba, 8, 1, 0), [0, 0, 0, 0]);
+        assert_eq!(pixel_at(&rgba, 8, 4, 0), [0, 0, 0, 0]);
+        assert_eq!(pixel_at(&rgba, 8, 2, 2), [0, 0, 0, 0]);
+
+        let sequence = document.export_png_sequence_scaled(2).unwrap();
+        assert_eq!(sequence.len(), 2);
+        assert_eq!(png_size_of(&sequence[0]), (8, 4));
+        let (_, _, second) = decode_rgba(&sequence[1]);
+        let paper = document.palette_colors()[2];
+        for (x, y) in [(0, 2), (1, 2), (0, 3), (1, 3)] {
+            assert_eq!(pixel_at(&second, 8, x, y), rgba_bytes(paper));
+        }
+        assert_eq!(pixel_at(&second, 8, 0, 1), [0, 0, 0, 0]);
+
+        let (sheet_w, sheet_h) = document.scaled_sheet_size(2).unwrap();
+        assert_eq!((sheet_w, sheet_h), (16, 4));
+        let (width, height, sheet) = decode_rgba(&document.export_sprite_sheet_scaled(2).unwrap());
+        assert_eq!((width, height), (16, 4));
+        assert_eq!(pixel_at(&sheet, 16, 2, 0), ink);
+        assert_eq!(pixel_at(&sheet, 16, 8, 2), rgba_bytes(paper));
+        assert_eq!(pixel_at(&sheet, 16, 6, 0), [0, 0, 0, 0]);
+
+        assert_eq!(
+            document.export_frame_png_scaled(0, 0).unwrap_err(),
+            KernelError::ExportScale { scale: 0 }
+        );
+        assert_eq!(
+            document.export_sprite_sheet_scaled(0).unwrap_err(),
+            KernelError::ExportScale { scale: 0 }
+        );
+        assert_eq!(document, before);
+    }
+
+    fn png_size_of(bytes: &[u8]) -> (u32, u32) {
+        let (width, height, _) = decode_rgba(bytes);
+        (width, height)
     }
 
     fn pixel_at(rgba: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {

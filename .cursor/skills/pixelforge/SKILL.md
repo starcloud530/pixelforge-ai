@@ -3,9 +3,10 @@ name: pixelforge
 description: >-
   Edit PixelForge indexed-pixel projects with the pixelforge CLI and the kernel
   Tool API. Use when creating or changing a pixelforge-project, choosing a
-  canvas size, painting or erasing cells, filling a rectangle, previewing a
-  frame, editing the palette, adding or duplicating frames, setting delays,
-  undoing, or exporting a PNG sequence or sprite sheet.
+  canvas size, painting or erasing cells, filling or erasing a rectangle,
+  copying or moving a rectangle, previewing a frame, editing the palette,
+  adding or duplicating frames, setting delays, undoing, or exporting a PNG
+  sequence or sprite sheet.
 ---
 
 # PixelForge
@@ -39,7 +40,7 @@ A new file needs Rust stable (`cargo` 1.83 or newer). There is no Python service
 
 ## Invariants
 
-- Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index from 1 up, never raw RGB.
+- Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index from 1 up, never raw RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy the stored indices, including 0.
 - A blank project already has the studio palette (indices 1 through 8). Paint those. To introduce a color, `palette add` or `palette set`, then paint the index the tool returns.
 - `palette lock` still allows `paint` and `fillRect` of an existing index. It refuses recolor, append, and import.
 - Do not hand-edit the project JSON to plant a color. A bad index fails to load. Do not write a diffusion image back into the project.
@@ -67,14 +68,16 @@ A **48×64 full body looks schematic**: the head is a few pixels, the pose canno
 
 Do not paint every frame blind. After each major stage — silhouette, flats, details, pose — look at the picture and fix it before the next stage.
 
-1. Draw that stage with `fill-rect` and a short `call` batch.
-2. `pixelforge preview --project …`, or `export png` and open the PNG.
-3. Read the ASCII grid (stderr, or `result.rows`) or the PNG.
+1. Draw that stage with `fill-rect`, `erase-rect`, `copy-rect`, or `move-rect`, and a short `call` batch.
+2. `pixelforge preview --project …` (add `--frame N` to read another frame without selecting it), or `export png --scale K` and open the PNG.
+3. Read the ASCII grid (stderr, or `result.rows`) or the scaled PNG.
 4. Fix the shape, then go on. Repeat for the next stage.
 
-`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). Stdout stays JSON.
+`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame.
 
-Prefer `fillRect` for a solid region, and one `pixelforge call` with several `--request` flags, over thousands of lone `paint` calls. Wrap several rects in `beginGesture` / `endGesture` when they should undo as one step. A single `fillRect` is already one undo step.
+`export png --scale K` and `export sheet --scale K` nearest-neighbor upscale inside the kernel (`K` is an integer ≥ 1, default 1). Each palette index becomes a `K` by `K` block, then the kernel resolves RGB. Do not scale the PNG with an external tool when you only need to judge color.
+
+Prefer `fillRect` for a solid region, `eraseRect` for cutting a silhouette, and `copyRect` / `moveRect` for a pose shift or a prop that moves. One `pixelforge call` with several `--request` flags beats thousands of lone `paint` or `erase` calls. Wrap several rects in `beginGesture` / `endGesture` when they should undo as one step. A single `fillRect`, `eraseRect`, `copyRect`, or `moveRect` is already one undo step.
 
 ## Recipes
 
@@ -90,12 +93,18 @@ Stdout is the Tool API `inspect` response. The file is version 1 `pixelforge-pro
 
 ```bash
 pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3 --preview
+pixelforge erase-rect --project hero.json --x 4 --y 40 --width 16 --height 8
+pixelforge copy-rect --project hero.json --src-x 8 --src-y 70 --width 6 --height 10 --dst-x 40 --dst-y 78
+pixelforge move-rect --project hero.json --src-x 40 --src-y 78 --width 6 --height 10 --dst-x 44 --dst-y 80
 pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
 pixelforge erase --project hero.json --x 1 --y 2
 pixelforge preview --project hero.json
+pixelforge preview --project hero.json --frame 1
 ```
 
 `fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x`,`y` is the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.
+
+`erase-rect` clears that same kind of rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`). `move-rect` does that copy and clears source cells that are not part of the destination, as one undo step (`moveRect`). v1 stays on the active frame. If the source or the destination would leave the canvas, nothing is written.
 
 ```bash
 pixelforge call --project hero.json \
@@ -108,7 +117,7 @@ pixelforge call --project hero.json \
 
 ### Standing 立绘
 
-For a human-to-zombie standing portrait, `new --width 64 --height 128` (or 96×128). Block the head, torso, and legs with `fill-rect`, `preview`, then correct the silhouette. Add cloth and skin as more rects, `preview` again, then `paint` only the details (eyes, teeth, tears in cloth). `duplicateFrame` for the zombie pose and repeat the same look-then-fix loop. `export png` when a stage should be read as a real image. Do not invent RGB, and do not emit a `paint` per pixel for a flat area.
+For a human-to-zombie standing portrait, `new --width 64 --height 128` (or 96×128). Block the head, torso, and legs with `fill-rect`, `preview`, then correct the silhouette with `erase-rect` instead of hundreds of `erase` calls. Add cloth and skin as more rects, `preview` again, then `paint` only the details (eyes, teeth, tears in cloth). Shift an arm or a dropped phone with `move-rect` or `copy-rect`, then `preview`. `duplicateFrame` for the zombie pose, then `setActiveFrame` / `frame select` the returned index — duplicate does not switch to the new frame — and repeat the same look-then-fix loop. `preview --frame N` compares another frame without selecting it. `export png --scale 2` (or 4) when a stage should be read as a real image. Do not invent RGB, and do not emit a `paint` or `erase` per pixel for a flat area.
 
 ### A stroke that undoes as one step
 
@@ -136,7 +145,7 @@ pixelforge export sheet --project hero.json --output hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames
 ```
 
-`frame duplicate` copies pixels and delay to the next slot. `frame add` appends a blank frame at 100 ms and does not change the active frame. `frame delay` sets one frame. `export png` writes `pixelforge-000.png` onward. `export sheet` uses the kernel grid (`columns = ceil(sqrt(frame count))`).
+`frame duplicate` copies pixels and delay to the next slot and returns that index. It does **not** select the new frame. `activeFrame` stays on the same pixels: if it sat at or after the insertion point its index increases by one, otherwise it stays put. Paint the copy only after `frame select` / `setActiveFrame` on the returned index. The web editor's duplicate button selects the copy; the CLI and the `duplicateFrame` tool do not. `frame add` appends a blank frame at 100 ms and does not change the active frame. `frame delay` sets one frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses the kernel grid (`columns = ceil(sqrt(frame count))`); scale does not change the column count.
 
 The same edits as subcommands:
 

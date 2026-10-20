@@ -1,8 +1,9 @@
-//! ASCII view of the active frame.
+//! ASCII view of one frame.
 //!
 //! Cells stay palette indices. This module only picks a glyph so an agent can
 //! see the shape in the terminal. Index 0 is `.`. Indices 1–9 are digits,
 //! 10–35 are `A`–`Z`, 36–61 are `a`–`z`, and 62 and above share `*`.
+//! Rendering a frame does not change `activeFrame`.
 
 use pixelforge_kernel::{Document, Rgba};
 use serde_json::{json, Value};
@@ -10,6 +11,9 @@ use serde_json::{json, Value};
 pub struct AsciiFrame {
     pub width: u16,
     pub height: u16,
+    /// Frame whose pixels are in `rows`.
+    pub frame: usize,
+    /// Document active frame. Unchanged by a preview.
     pub active_frame: usize,
     pub rows: Vec<String>,
     pub legend: Vec<LegendEntry>,
@@ -32,9 +36,16 @@ pub fn glyph(index: u8) -> char {
 }
 
 pub fn render(document: &Document) -> AsciiFrame {
+    render_frame(document, document.active_frame()).expect("active frame is in range")
+}
+
+pub fn render_frame(
+    document: &Document,
+    frame: usize,
+) -> Result<AsciiFrame, pixelforge_kernel::KernelError> {
     let width = document.width();
     let height = document.height();
-    let pixels = document.pixels();
+    let pixels = document.frame_pixels(frame)?;
     let row_len = usize::from(width);
     let mut seen = [false; 256];
     let mut rows = Vec::with_capacity(usize::from(height));
@@ -63,13 +74,14 @@ pub fn render(document: &Document) -> AsciiFrame {
             color,
         });
     }
-    AsciiFrame {
+    Ok(AsciiFrame {
         width,
         height,
+        frame,
         active_frame: document.active_frame(),
         rows,
         legend,
-    }
+    })
 }
 
 pub fn result_json(frame: &AsciiFrame) -> Value {
@@ -90,6 +102,7 @@ pub fn result_json(frame: &AsciiFrame) -> Value {
     json!({
         "width": frame.width,
         "height": frame.height,
+        "frame": frame.frame,
         "activeFrame": frame.active_frame,
         "rows": frame.rows,
         "legend": legend,
@@ -98,10 +111,17 @@ pub fn result_json(frame: &AsciiFrame) -> Value {
 
 /// Prints the grid to stderr. Stdout stays JSON.
 pub fn eprint_frame(frame: &AsciiFrame) {
-    eprintln!(
-        "pixelforge: preview {}x{} frame {}",
-        frame.width, frame.height, frame.active_frame
-    );
+    if frame.frame == frame.active_frame {
+        eprintln!(
+            "pixelforge: preview {}x{} frame {}",
+            frame.width, frame.height, frame.frame
+        );
+    } else {
+        eprintln!(
+            "pixelforge: preview {}x{} frame {} active {}",
+            frame.width, frame.height, frame.frame, frame.active_frame
+        );
+    }
     for row in &frame.rows {
         eprintln!("{row}");
     }
@@ -155,7 +175,18 @@ mod tests {
         document.fill_rect(1, 0, 2, 1, 3).unwrap();
         let frame = render(&document);
         assert_eq!(frame.rows, vec![".33.".to_string(), "....".to_string()]);
+        assert_eq!(frame.frame, 0);
         assert_eq!(frame.active_frame, 0);
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(0, 1, 1).unwrap();
+        document.set_active_frame(0).unwrap();
+        let other = render_frame(&document, 1).unwrap();
+        assert_eq!(other.frame, 1);
+        assert_eq!(other.active_frame, 0);
+        assert_eq!(other.rows, vec!["....".to_string(), "1...".to_string()]);
+        assert_eq!(document.active_frame(), 0);
+        assert_eq!(document.get(0, 1).unwrap(), 0);
         let three = frame
             .legend
             .iter()
