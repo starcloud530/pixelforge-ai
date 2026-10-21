@@ -42,6 +42,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 ## 不变量 Invariants
 
 - 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的 `1..=255` 索引，不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
+- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层，文件就回到旧的单层工程。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
 - `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加或导入。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
@@ -49,7 +50,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip` 只搬索引，不改高光颜色。
 
-*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
+*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, and import. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
 *One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip` moves indices only and does not recolor highlights.*
 
@@ -210,6 +211,29 @@ pixelforge frame select --project hero.json --index 1
 pixelforge frame delay --project hero.json --index 1 --delay-ms 120
 pixelforge frame delete --project hero.json --index 1
 ```
+
+### 图层 Layers
+
+身体放在下层，装备放在上面的层。改装备不用重画身体。`preview` 能同时看见两层。`export png` 写出合成图。
+
+*Put the body on the bottom layer and the equipment above it. Repainting the equipment does not redraw the body. `preview` shows both. `export png` writes the composite.*
+
+```bash
+pixelforge new --width 32 --height 48 --output hero.json
+pixelforge layer rename --project hero.json --name body
+pixelforge fill-rect --project hero.json --x 8 --y 10 --width 16 --height 24 --color-index 3
+pixelforge layer add --project hero.json --name gear
+pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 5
+pixelforge preview --project hero.json --scale 4
+pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 6
+pixelforge preview --project hero.json --layer 0
+pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
+pixelforge layer flatten --project hero.json
+```
+
+`layer add` 在当前层上面插入一层透明索引，每一帧都有，并选中它。不写 `--name` 时，名字是从「当前层数 + 1」起第一个还没被占用的 `Layer N`。`layer list` 打印层栈。`layer select --index 0` 回到身体。`layer remove` 删当前层，也可以 `--index N`；最后一层不能删。`layer reorder --from 1 --to 0` 把装备挪到身体下面，`to` 是移动之后的下标。`fill-rect --layer 0` 画身体，但不切换当前层。新工程和旧工程都是一层，名字是 `Layer 1`。
+
+*`layer add` inserts a transparent layer above the active one on every frame and selects it. Omit `--name` and the name is the next free `Layer N`, starting at one past the current count. `layer list` prints the stack. `layer select --index 0` goes back to the body. `layer remove` deletes the active layer, or `--index N`; the last layer is refused. `layer reorder --from 1 --to 0` moves gear under the body. `fill-rect --layer 0` paints the body without selecting it. A new project and an old project are one layer named `Layer 1`.*
 
 ### 调色板 Palette
 

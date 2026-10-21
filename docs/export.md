@@ -1,6 +1,6 @@
 # 导出 Export
 
-内核把索引像素解析成 RGBA，再编码成 PNG。网页只负责下载这些字节。索引 0 是透明（`r = g = b = a = 0`）。其余颜色沿用调色板上存的 RGBA；画笔颜色是不透明的。导出不改文档，也不进撤销栈。洋葱皮使用同一套 RGBA 做视图叠加，但 PNG 里只有该帧自己的像素，不含前后帧。
+内核把索引像素解析成 RGBA，再编码成 PNG。网页只负责下载这些字节。索引 0 是透明（`r = g = b = a = 0`）。其余颜色沿用调色板上存的 RGBA；画笔颜色是不透明的。有多层时，导出先按层序叠索引：非 0 的索引盖住下面的层，索引 0 露出下层，不按调色板 alpha 在层与层之间混合，然后再把赢下的索引解析成 RGBA。导出不改文档，也不进撤销栈。洋葱皮使用同一套合成 RGBA 做视图叠加，但 PNG 里只有该帧自己的合成像素，不含前后帧。
 
 *The kernel resolves indexed pixels to RGBA and encodes the PNG. The page only downloads those bytes. Index 0 is transparent (`r = g = b = a = 0`). Every other entry keeps the RGBA stored on the palette; paint colors are opaque. Export does not change the document and does not push an undo entry. Onion skin uses that same RGBA as a view overlay. A PNG still contains only that frame's own pixels, not its neighbors.*
 

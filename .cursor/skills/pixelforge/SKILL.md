@@ -7,8 +7,8 @@ description: >-
   copying or moving a rectangle across frames, previewing a frame in color,
   diffing two frames, flipping a frame horizontally, resizing the canvas,
   editing the palette,
-  adding or duplicating frames, setting delays, undoing, or exporting a PNG
-  sequence or sprite sheet.
+  adding or duplicating frames, setting delays, editing layers, undoing, or
+  exporting a PNG sequence or sprite sheet.
 ---
 
 # PixelForge
@@ -43,6 +43,7 @@ A new file needs Rust stable (`cargo` 1.83 or newer). There is no Python service
 ## Invariants
 
 - Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index from 1 up, never raw RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy the stored indices, including 0.
+- Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or the layer named by `--layer`, and leaves the other layers alone. `--layer` does not select that layer. `preview`, `diff`, and `export png` / `export sheet` show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `preview --layer N` and `diff --layer N` show that layer only. `layer flatten` writes the composite back into one layer named `Layer 1`, which is the old single-layer file. A file that is still that one default layer omits `layers` and `activeLayer`.
 - A blank project already has the studio palette (indices 1 through 8). Paint those. To introduce a color, `palette add` or `palette set`, then paint the index the tool returns.
 - `palette lock` still allows `paint` and `fillRect` of an existing index. It refuses recolor, append, and import.
 - Do not hand-edit the project JSON to plant a color. A bad index fails to load. Do not write a diffusion image back into the project.
@@ -75,7 +76,7 @@ Do not paint every frame blind. After each major stage — silhouette, flats, de
 3. Read the ASCII grid (stderr, or `result.rows`) for holes and the silhouette. Read the scaled PNG for color: orange cloth, gray-green skin, a metal mask, and whether neighboring ramps stay apart.
 4. Fix the shape, then go on. Repeat for the next stage.
 
-`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `result.frame` is the picture; `result.activeFrame` is still the document's active frame. `preview` also writes a nearest-neighbor color PNG. `--scale K` matches export (`K` ≥ 1, default 1). The path is `result.path` (default `<stem>.preview.png` beside the project, or `--output`). `--preview` on a mutating command stays ASCII on stderr and does not write that PNG.
+`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). The picture is the composite of every layer unless `--layer N` is set. Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `preview --layer N` draws that layer and does not select it. `result.frame` is the picture; `result.activeFrame` is still the document's active frame. `preview` also writes a nearest-neighbor color PNG. `--scale K` matches export (`K` ≥ 1, default 1). The path is `result.path` (default `<stem>.preview.png` beside the project, or `--output`). `--preview` on a mutating command stays ASCII on stderr and does not write that PNG.
 
 `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale inside the kernel (`K` is an integer ≥ 1, default 1). Each palette index becomes a `K` by `K` block, then the kernel resolves RGB. Do not scale the PNG with an external tool when you only need to judge color. `export sheet --cols N` sets the column count; omit it and the grid stays `ceil(sqrt(frame count))`.
 
@@ -176,6 +177,25 @@ pixelforge frame duplicate --project hero.json --index 0
 pixelforge frame select --project hero.json --index 1
 pixelforge frame delay --project hero.json --index 1 --delay-ms 120
 ```
+
+### Layers
+
+Put the body on the bottom layer and the equipment on the layer above it. Repainting the equipment does not redraw the body. `preview` shows both. `export png` writes the composite.
+
+```bash
+pixelforge new --width 32 --height 48 --output hero.json
+pixelforge layer rename --project hero.json --name body
+pixelforge fill-rect --project hero.json --x 8 --y 10 --width 16 --height 24 --color-index 3
+pixelforge layer add --project hero.json --name gear
+pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 5
+pixelforge preview --project hero.json --scale 4
+pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 6
+pixelforge preview --project hero.json --layer 0
+pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
+pixelforge layer flatten --project hero.json
+```
+
+`layer add` inserts a transparent layer above the active one on every frame and selects it. Omit `--name` and the name is the next free `Layer N`, starting at one past the current count. `layer list` prints the stack. `layer select --index 0` goes back to the body. `layer remove` deletes the active layer, or `--index N`; the last layer is refused. `layer reorder --from 1 --to 0` moves gear under the body (`to` is the index after the move). `fill-rect --layer 0` paints the body without selecting it. A new project and an old project are one layer named `Layer 1`.
 
 ### Palette
 

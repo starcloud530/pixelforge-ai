@@ -23,7 +23,7 @@ use serde_json::{json, Value};
 
 use crate::cli::{
     BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
-    ImportMode, PaintArgs, PaletteCmd, ProjectArgs, ResizeArgs,
+    ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ResizeArgs,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -55,14 +55,16 @@ fn execute(cli: Cli) -> i32 {
             frame,
             scale,
             output,
-        } => cmd_preview(&doc, frame, scale, output.as_deref()),
+            layer,
+        } => cmd_preview(&doc, frame, scale, output.as_deref(), layer),
         Command::Diff {
             doc,
             frame,
             with,
             scale,
             output,
-        } => cmd_diff(&doc, frame, with, scale, output.as_deref()),
+            layer,
+        } => cmd_diff(&doc, frame, with, scale, output.as_deref(), layer),
         Command::Call {
             doc,
             request,
@@ -73,7 +75,10 @@ fn execute(cli: Cli) -> i32 {
         Command::FillRect(args) => cmd_fill_rect(args),
         Command::Erase(args) => apply(
             &args.doc,
-            vec![request("erase", json!({"x": args.x, "y": args.y}))],
+            vec![request(
+                "erase",
+                with_layer(json!({"x": args.x, "y": args.y}), args.layer),
+            )],
         ),
         Command::EraseRect(args) => cmd_erase_rect(args),
         Command::CopyRect(args) => cmd_blit("copyRect", args),
@@ -83,6 +88,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Resize(args) => cmd_resize(args),
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
+        Command::Layer { command } => cmd_layer(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
@@ -117,11 +123,14 @@ fn cmd_paint(args: PaintArgs) -> i32 {
         &args.doc,
         vec![request(
             "paint",
-            json!({
-                "x": args.x,
-                "y": args.y,
-                "colorIndex": args.color_index,
-            }),
+            with_layer(
+                json!({
+                    "x": args.x,
+                    "y": args.y,
+                    "colorIndex": args.color_index,
+                }),
+                args.layer,
+            ),
         )],
         args.preview,
     )
@@ -132,13 +141,16 @@ fn cmd_fill_rect(args: FillRectArgs) -> i32 {
         &args.doc,
         vec![request(
             "fillRect",
-            json!({
-                "x": args.x,
-                "y": args.y,
-                "width": args.width,
-                "height": args.height,
-                "colorIndex": args.color_index,
-            }),
+            with_layer(
+                json!({
+                    "x": args.x,
+                    "y": args.y,
+                    "width": args.width,
+                    "height": args.height,
+                    "colorIndex": args.color_index,
+                }),
+                args.layer,
+            ),
         )],
         args.preview,
     )
@@ -149,12 +161,15 @@ fn cmd_erase_rect(args: EraseRectArgs) -> i32 {
         &args.doc,
         vec![request(
             "eraseRect",
-            json!({
-                "x": args.x,
-                "y": args.y,
-                "width": args.width,
-                "height": args.height,
-            }),
+            with_layer(
+                json!({
+                    "x": args.x,
+                    "y": args.y,
+                    "width": args.width,
+                    "height": args.height,
+                }),
+                args.layer,
+            ),
         )],
         args.preview,
     )
@@ -175,7 +190,11 @@ fn cmd_blit(tool: &str, args: BlitRectArgs) -> i32 {
     if let Some(frame) = args.to_frame {
         params["toFrame"] = json!(frame);
     }
-    apply_with(&args.doc, vec![request(tool, params)], args.preview)
+    apply_with(
+        &args.doc,
+        vec![request(tool, with_layer(params, args.layer))],
+        args.preview,
+    )
 }
 
 fn cmd_flip(args: FlipArgs, alias: bool) -> i32 {
@@ -205,6 +224,7 @@ fn cmd_flip(args: FlipArgs, alias: bool) -> i32 {
         params["width"] = json!(width);
         params["height"] = json!(height);
     }
+    params = with_layer(params, args.layer);
     apply_with(
         &args.doc,
         vec![request("flipHorizontal", params)],
@@ -237,7 +257,13 @@ fn cmd_resize(args: ResizeArgs) -> i32 {
     )
 }
 
-fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>, scale: u32, output: Option<&Path>) -> i32 {
+fn cmd_preview(
+    doc: &ProjectArgs,
+    frame: Option<u32>,
+    scale: u32,
+    output: Option<&Path>,
+    layer: Option<u32>,
+) -> i32 {
     let mut session = match Session::open(&doc.project) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
@@ -245,6 +271,9 @@ fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>, scale: u32, output: Option
     let mut params = json!({ "scale": scale });
     if let Some(frame) = frame {
         params["frame"] = json!(frame);
+    }
+    if let Some(layer) = layer {
+        params["layer"] = json!(layer);
     }
     let response = session.call(&request("previewFrame", params));
     if let Some((code, message)) = tool_refusal(&response) {
@@ -255,7 +284,10 @@ fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>, scale: u32, output: Option
         Err(_) => return emit(CliFailure::new("Cli", "tool response is not JSON")),
     };
     let index = value["result"]["frame"].as_u64().unwrap_or(0) as usize;
-    let ascii = match preview::render_frame(session.document(), index) {
+    let layer = value["result"]["layer"]
+        .as_u64()
+        .map(|layer| layer as usize);
+    let ascii = match preview::render_view(session.document(), index, layer) {
         Ok(frame) => frame,
         Err(err) => return emit(CliFailure::kernel(err)),
     };
@@ -298,15 +330,23 @@ fn cmd_preview(doc: &ProjectArgs, frame: Option<u32>, scale: u32, output: Option
     0
 }
 
-fn cmd_diff(doc: &ProjectArgs, frame: u32, with: u32, scale: u32, output: Option<&Path>) -> i32 {
+fn cmd_diff(
+    doc: &ProjectArgs,
+    frame: u32,
+    with: u32,
+    scale: u32,
+    output: Option<&Path>,
+    layer: Option<u32>,
+) -> i32 {
     let mut session = match Session::open(&doc.project) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
-    let response = session.call(&request(
-        "diffFrames",
-        json!({ "frame": frame, "with": with, "scale": scale }),
-    ));
+    let mut params = json!({ "frame": frame, "with": with, "scale": scale });
+    if let Some(layer) = layer {
+        params["layer"] = json!(layer);
+    }
+    let response = session.call(&request("diffFrames", params));
     if let Some((code, message)) = tool_refusal(&response) {
         return emit(CliFailure::new(code, message));
     }
@@ -330,8 +370,9 @@ fn cmd_diff(doc: &ProjectArgs, frame: u32, with: u32, scale: u32, output: Option
     };
     let frame_index = usize::try_from(frame).expect("u32 fits in usize");
     let with_index = usize::try_from(with).expect("u32 fits in usize");
-    let left = preview::render_frame(session.document(), frame_index);
-    let right = preview::render_frame(session.document(), with_index);
+    let view_layer = result["layer"].as_u64().map(|layer| layer as usize);
+    let left = preview::render_view(session.document(), frame_index, view_layer);
+    let right = preview::render_view(session.document(), with_index, view_layer);
     let (left, right) = match (left, right) {
         (Ok(left), Ok(right)) => (left, right),
         (Err(err), _) | (_, Err(err)) => return emit(CliFailure::kernel(err)),
@@ -344,6 +385,9 @@ fn cmd_diff(doc: &ProjectArgs, frame: u32, with: u32, scale: u32, output: Option
             "frame": result["frame"].clone(),
             "with": result["with"].clone(),
             "activeFrame": result["activeFrame"].clone(),
+            "activeLayer": result["activeLayer"].clone(),
+            "layer": result["layer"].clone(),
+            "composite": result["composite"].clone(),
             "width": result["width"].clone(),
             "height": result["height"].clone(),
             "scale": result["scale"].clone(),
@@ -467,6 +511,42 @@ fn cmd_frame(command: FrameCmd) -> i32 {
                 json!({"index": index, "delayMs": delay_ms}),
             )],
         ),
+    }
+}
+
+fn cmd_layer(command: LayerCmd) -> i32 {
+    match command {
+        LayerCmd::List { doc } => apply(&doc, vec![request("listLayers", json!({}))]),
+        LayerCmd::Add { doc, name } => {
+            let mut params = json!({});
+            if let Some(name) = name {
+                params["name"] = json!(name);
+            }
+            apply(&doc, vec![request("addLayer", params)])
+        }
+        LayerCmd::Remove { doc, index } => {
+            let mut params = json!({});
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("deleteLayer", params)])
+        }
+        LayerCmd::Rename { doc, index, name } => {
+            let mut params = json!({ "name": name });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("renameLayer", params)])
+        }
+        LayerCmd::Select { doc, index } => apply(
+            &doc,
+            vec![request("setActiveLayer", json!({"index": index}))],
+        ),
+        LayerCmd::Reorder { doc, from, to } => apply(
+            &doc,
+            vec![request("reorderLayer", json!({"from": from, "to": to}))],
+        ),
+        LayerCmd::Flatten { doc } => apply(&doc, vec![request("flattenLayers", json!({}))]),
     }
 }
 
@@ -594,6 +674,13 @@ fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) ->
         preview::eprint_frame(&frame);
     }
     status
+}
+
+fn with_layer(mut params: Value, layer: Option<u32>) -> Value {
+    if let Some(layer) = layer {
+        params["layer"] = json!(layer);
+    }
+    params
 }
 
 fn request(tool: &str, params: Value) -> String {

@@ -34,6 +34,13 @@ pub enum KernelError {
     FrameIndex { index: usize, len: usize },
     /// The document always keeps one frame.
     LastFrame,
+    /// Layer index is outside the layer stack.
+    LayerIndex { index: usize, len: usize },
+    /// The document always keeps one layer.
+    LastLayer,
+    /// A layer name is empty, only whitespace, longer than
+    /// [`crate::MAX_LAYER_NAME_CHARS`], or contains a control character.
+    LayerName,
     /// Delay is outside [`crate::MIN_FRAME_DELAY_MS`]..=[`crate::MAX_FRAME_DELAY_MS`].
     FrameDelay { delay_ms: u32 },
     /// [`crate::Document::undo`] found an empty undo stack.
@@ -72,6 +79,25 @@ pub enum ProjectFileError {
     EmptyFrames,
     /// `activeFrame` is not an index into `frames`.
     ActiveFrame { index: u64, len: usize },
+    /// `activeLayer` is not an index into the layer stack.
+    ActiveLayer { index: u64, len: usize },
+    /// A layer name is empty or longer than [`crate::MAX_LAYER_NAME_CHARS`].
+    LayerName { index: usize },
+    /// A frame stores both a legacy `pixels` buffer and a `layers` array.
+    LayerPixels { frame: usize },
+    /// A frame's layer count does not match the document layer stack.
+    LayerCount {
+        frame: usize,
+        expected: usize,
+        actual: usize,
+    },
+    /// One layer buffer's length is not `width * height`.
+    LayerLength {
+        frame: usize,
+        layer: usize,
+        expected: usize,
+        actual: usize,
+    },
     /// A frame's `pixels` length is not `width * height`.
     FrameLength {
         index: usize,
@@ -103,6 +129,9 @@ impl KernelError {
             Self::PaletteImportMode => "PaletteImportMode",
             Self::FrameIndex { .. } => "FrameIndex",
             Self::LastFrame => "LastFrame",
+            Self::LayerIndex { .. } => "LayerIndex",
+            Self::LastLayer => "LastLayer",
+            Self::LayerName => "LayerName",
             Self::FrameDelay { .. } => "FrameDelay",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
@@ -148,6 +177,15 @@ impl fmt::Display for KernelError {
                 write!(f, "frame {index} is outside 0..{len}")
             }
             Self::LastFrame => write!(f, "cannot delete the only frame"),
+            Self::LayerIndex { index, len } => {
+                write!(f, "layer {index} is outside 0..{len}")
+            }
+            Self::LastLayer => write!(f, "cannot delete the only layer"),
+            Self::LayerName => write!(
+                f,
+                "layer name must be 1 to {} characters",
+                crate::MAX_LAYER_NAME_CHARS
+            ),
             Self::FrameDelay { delay_ms } => write!(
                 f,
                 "frame delay {delay_ms} ms is outside {}..={}",
@@ -191,6 +229,31 @@ impl fmt::Display for ProjectFileError {
             Self::ActiveFrame { index, len } => {
                 write!(f, "active frame {index} is outside 0..{len}")
             }
+            Self::ActiveLayer { index, len } => {
+                write!(f, "active layer {index} is outside 0..{len}")
+            }
+            Self::LayerName { index } => write!(
+                f,
+                "layer {index} name must be 1 to {} characters",
+                crate::MAX_LAYER_NAME_CHARS
+            ),
+            Self::LayerPixels { frame } => {
+                write!(f, "frame {frame} stores both pixels and layers")
+            }
+            Self::LayerCount {
+                frame,
+                expected,
+                actual,
+            } => write!(f, "frame {frame} has {actual} layers, expected {expected}"),
+            Self::LayerLength {
+                frame,
+                layer,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "frame {frame} layer {layer} has {actual} pixels, expected {expected}"
+            ),
             Self::FrameLength {
                 index,
                 expected,
