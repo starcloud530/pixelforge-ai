@@ -1,9 +1,11 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! and per-frame delay. Paint, erase, rectangle fill, rectangle erase,
+//! layers, and per-frame delay. Paint, erase, rectangle fill, rectangle erase,
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
-//! indices, never raw RGB.
+//! indices on the active layer, never raw RGB. Preview, diff, and PNG export
+//! composite the stack: index 0 is transparent and any other index covers the
+//! layer under it.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
 //! Loop playback advances the active frame from those delays. The TypeScript
@@ -53,6 +55,12 @@ pub const TRANSPARENT_INDEX: u8 = 0;
 
 /// Delay used when a frame is created, or when a project file omits `delayMs`.
 pub const DEFAULT_FRAME_DELAY_MS: u32 = 100;
+
+/// Name of the only layer when a project file has no layer stack.
+pub const DEFAULT_LAYER_NAME: &str = "Layer 1";
+
+/// Longest layer name, in Unicode scalar values, after trimming.
+pub const MAX_LAYER_NAME_CHARS: usize = 64;
 
 /// Shortest delay [`Document::set_frame_delay`] accepts.
 pub const MIN_FRAME_DELAY_MS: u32 = 1;

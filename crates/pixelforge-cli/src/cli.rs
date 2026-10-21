@@ -27,6 +27,10 @@ Examples:
   pixelforge preview --project hero.json --frame 1 --scale 4 --output hero-f1.png
   pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
   pixelforge resize --project hero.json --width 64 --height 64
+  pixelforge layer add --project hero.json --name gear
+  pixelforge fill-rect --project hero.json --layer 1 --x 4 --y 8 --width 8 --height 8 --color-index 5
+  pixelforge preview --project hero.json --scale 4
+  pixelforge layer flatten --project hero.json
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --preview
   pixelforge call --project hero.json \\
       --request '{\"tool\":\"beginGesture\"}' \\
@@ -37,16 +41,22 @@ Examples:
 
 `preview` prints an ASCII view on stderr (one glyph per cell: `.` is
 transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index 62 or
-above) and writes a nearest-neighbor color PNG. `--frame N` draws frame N
-and does not change activeFrame or the project file. `--scale K` matches
-export (integer >= 1, default 1). Stdout JSON keeps `result.rows` and adds
-`result.path`. `diff` is read-only: ASCII index diff plus a PNG with frame,
-with, and an onion blend. `flip --horizontal` / `hflip` mirrors indices and
-does not recolor. `copy-rect` and `move-rect` take optional `--from-frame`
-and `--to-frame`. `export sheet --cols N` keeps one row when N is the frame
-count. `resize` copies every frame into a new canvas; omit offsets to center.
+above) and writes a nearest-neighbor color PNG. The picture is the composite:
+index 0 shows the layer under it, and any other index covers that layer.
+`--layer N` draws that layer alone. `--frame N` draws frame N and does not
+change activeFrame or the project file. `--scale K` matches export (integer
+>= 1, default 1). Stdout JSON keeps `result.rows` and adds `result.path`.
+`diff` is read-only: ASCII index diff plus a PNG with frame, with, and an
+onion blend, all from the composite unless `--layer` is set. `flip
+--horizontal` / `hflip` mirrors indices on the active layer, or `--layer`,
+and does not recolor. `copy-rect` and `move-rect` take optional
+`--from-frame` and `--to-frame` and stay on one layer. `export` writes the
+composite. `layer flatten` collapses that composite into one layer.
+`export sheet --cols N` keeps one row when N is the frame count. `resize`
+copies every layer of every frame into a new canvas; omit offsets to center.
 A standing figure still wants a tall canvas (64x128 or 96x128). `frame
-duplicate` does not select the new frame.";
+duplicate` does not select the new frame. `layer add` inserts above the
+active layer and selects the new one.";
 
 #[derive(Parser)]
 #[command(
@@ -104,6 +114,9 @@ pub enum Command {
         /// Color PNG to write. Default is `<project-stem>.preview.png` beside the project.
         #[arg(short, long, value_name = "FILE")]
         output: Option<PathBuf>,
+        /// Draw this layer only. Omit to draw the composite. Does not select it.
+        #[arg(long)]
+        layer: Option<u32>,
     },
     /// Read-only index diff and onion PNG of two frames.
     ///
@@ -125,6 +138,9 @@ pub enum Command {
         /// Color PNG to write. Default is `<project-stem>.diff.png` beside the project.
         #[arg(short, long, value_name = "FILE")]
         output: Option<PathBuf>,
+        /// Compare this layer only. Omit to compare the composite.
+        #[arg(long)]
+        layer: Option<u32>,
     },
     /// Run one or more Tool API requests against one document.
     ///
@@ -193,6 +209,11 @@ pub enum Command {
         #[command(subcommand)]
         command: FrameCmd,
     },
+    /// Layer stack shared by every frame. Index 0 is the bottom.
+    Layer {
+        #[command(subcommand)]
+        command: LayerCmd,
+    },
     /// Undo the last edit recorded in this process.
     ///
     /// A freshly opened file has an empty stack, and the file does not store
@@ -236,6 +257,9 @@ pub struct PaintArgs {
     /// Palette index to store. Index 0 is refused; use erase.
     #[arg(long)]
     pub color_index: u8,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -260,6 +284,9 @@ pub struct FillRectArgs {
     /// Palette index to store. Index 0 is refused.
     #[arg(long)]
     pub color_index: u8,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -281,6 +308,9 @@ pub struct EraseRectArgs {
     /// Height in cells, from 1.
     #[arg(long)]
     pub height: u16,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -314,6 +344,9 @@ pub struct BlitRectArgs {
     /// Frame to write. Defaults to the active frame. Does not select it.
     #[arg(long)]
     pub to_frame: Option<u32>,
+    /// Layer to read and write. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -341,6 +374,9 @@ pub struct FlipArgs {
     /// Height in cells, from 1.
     #[arg(long)]
     pub height: Option<u16>,
+    /// Layer to mirror. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -377,6 +413,9 @@ pub struct EraseArgs {
     /// Row, from 0.
     #[arg(long)]
     pub y: u16,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
 }
 
 #[derive(Subcommand)]
@@ -496,6 +535,69 @@ pub enum FrameCmd {
         /// Delay in milliseconds, from 1 to 65535.
         #[arg(long)]
         delay_ms: u32,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum LayerCmd {
+    /// Print the layer stack. Index 0 is drawn first. Does not change the file.
+    List {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Insert a transparent layer above the active one and select it.
+    Add {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer name. Omit for the next free `Layer N`.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Remove a layer from every frame. The last layer is refused.
+    #[command(alias = "delete")]
+    Remove {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+    },
+    /// Rename a layer. The stored name is trimmed.
+    Rename {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+        /// New name, 1 to 64 characters.
+        #[arg(long)]
+        name: String,
+    },
+    /// Select the active layer. Drawing commands use it when `--layer` is omitted.
+    Select {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0.
+        #[arg(long)]
+        index: u32,
+    },
+    /// Move a layer so it ends at `--to`. Index 0 stays the bottom.
+    Reorder {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Current index.
+        #[arg(long)]
+        from: u32,
+        /// Index after the move.
+        #[arg(long)]
+        to: u32,
+    },
+    /// Composite every frame into one layer named `Layer 1`.
+    ///
+    /// The saved file is the single-layer project older tools already open.
+    Flatten {
+        #[command(flatten)]
+        doc: ProjectArgs,
     },
 }
 

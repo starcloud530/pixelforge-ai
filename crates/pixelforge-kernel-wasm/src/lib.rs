@@ -65,9 +65,14 @@ impl PixelDocument {
         bytes
     }
 
-    /// Palette indices for the active frame, row-major.
+    /// Composite palette indices for the active frame, row-major.
+    ///
+    /// Index 0 shows the layer underneath. Any other index covers it. The
+    /// shell draws this buffer. Paint still writes the active layer.
     pub fn pixels(&self) -> Vec<u8> {
-        self.inner.pixels().to_vec()
+        self.inner
+            .composite_pixels(self.inner.active_frame())
+            .expect("active frame is in range")
     }
 
     #[wasm_bindgen(js_name = frameCount)]

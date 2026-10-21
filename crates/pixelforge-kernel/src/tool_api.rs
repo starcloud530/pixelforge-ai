@@ -55,6 +55,13 @@ pub const TOOL_NAMES: &[&str] = &[
     "diffFrames",
     "flipHorizontal",
     "resizeCanvas",
+    "listLayers",
+    "addLayer",
+    "deleteLayer",
+    "renameLayer",
+    "setActiveLayer",
+    "reorderLayer",
+    "flattenLayers",
 ];
 
 const U8_MAX: u64 = 255;
@@ -285,36 +292,47 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(inspect_value(document))
         }
         "paint" => {
-            let (x, y, color_index) = parse_paint(params)?;
-            document
-                .paint(x, y, color_index)
-                .map_err(ToolFailure::Kernel)?;
+            let (x, y, color_index, layer) = parse_paint(params)?;
+            match layer {
+                Some(layer) => document.paint_on(layer, x, y, color_index),
+                None => document.paint(x, y, color_index),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "fillRect" => {
-            let (x, y, width, height, color_index) = parse_fill_rect(params)?;
-            document
-                .fill_rect(x, y, width, height, color_index)
-                .map_err(ToolFailure::Kernel)?;
+            let (x, y, width, height, color_index, layer) = parse_fill_rect(params)?;
+            match layer {
+                Some(layer) => document.fill_rect_on(layer, x, y, width, height, color_index),
+                None => document.fill_rect(x, y, width, height, color_index),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "erase" => {
-            let (x, y) = parse_cell(tool, params)?;
-            document.erase(x, y).map_err(ToolFailure::Kernel)?;
+            let (x, y, layer) = parse_cell(tool, params)?;
+            match layer {
+                Some(layer) => document.erase_on(layer, x, y),
+                None => document.erase(x, y),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "eraseRect" => {
-            let (x, y, width, height) = parse_rect(tool, params)?;
-            document
-                .erase_rect(x, y, width, height)
-                .map_err(ToolFailure::Kernel)?;
+            let (x, y, width, height, layer) = parse_rect(tool, params)?;
+            match layer {
+                Some(layer) => document.erase_rect_on(layer, x, y, width, height),
+                None => document.erase_rect(x, y, width, height),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "copyRect" => {
             let blit = parse_blit(tool, params)?;
             let (src_frame, dst_frame) = blit_frames(document, &blit);
-            document
-                .copy_rect_from(
+            match blit.layer {
+                Some(layer) => document.copy_rect_from_on(
+                    layer,
                     src_frame,
                     blit.src_x,
                     blit.src_y,
@@ -323,15 +341,27 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                     dst_frame,
                     blit.dst_x,
                     blit.dst_y,
-                )
-                .map_err(ToolFailure::Kernel)?;
+                ),
+                None => document.copy_rect_from(
+                    src_frame,
+                    blit.src_x,
+                    blit.src_y,
+                    blit.width,
+                    blit.height,
+                    dst_frame,
+                    blit.dst_x,
+                    blit.dst_y,
+                ),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "moveRect" => {
             let blit = parse_blit(tool, params)?;
             let (src_frame, dst_frame) = blit_frames(document, &blit);
-            document
-                .move_rect_from(
+            match blit.layer {
+                Some(layer) => document.move_rect_from_on(
+                    layer,
                     src_frame,
                     blit.src_x,
                     blit.src_y,
@@ -340,8 +370,19 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                     dst_frame,
                     blit.dst_x,
                     blit.dst_y,
-                )
-                .map_err(ToolFailure::Kernel)?;
+                ),
+                None => document.move_rect_from(
+                    src_frame,
+                    blit.src_x,
+                    blit.src_y,
+                    blit.width,
+                    blit.height,
+                    dst_frame,
+                    blit.dst_x,
+                    blit.dst_y,
+                ),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "setPaletteColor" => {
@@ -471,16 +512,19 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             }))
         }
         "previewFrame" => {
-            let (frame, scale) = parse_preview(params, document.active_frame())?;
+            let (frame, scale, layer) = parse_preview(params, document.active_frame())?;
             let (png_width, png_height) = document
                 .scaled_frame_size(scale)
                 .map_err(ToolFailure::Kernel)?;
             let png = document
-                .export_frame_png_scaled(frame, scale)
+                .export_view_png(frame, scale, layer)
                 .map_err(ToolFailure::Kernel)?;
             Ok(serde_json::json!({
                 "frame": frame,
                 "activeFrame": document.active_frame(),
+                "activeLayer": document.active_layer(),
+                "layer": layer,
+                "composite": layer.is_none(),
                 "width": document.width(),
                 "height": document.height(),
                 "scale": scale,
@@ -490,14 +534,17 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             }))
         }
         "diffFrames" => {
-            let (frame, with, scale) = parse_diff(params)?;
+            let (frame, with, scale, layer) = parse_diff(params)?;
             let diff = document
-                .diff_frames(frame, with, scale)
+                .diff_frames_on(frame, with, scale, layer)
                 .map_err(ToolFailure::Kernel)?;
             Ok(serde_json::json!({
                 "frame": diff.frame,
                 "with": diff.with,
                 "activeFrame": document.active_frame(),
+                "activeLayer": document.active_layer(),
+                "layer": layer,
+                "composite": layer.is_none(),
                 "width": diff.width,
                 "height": diff.height,
                 "scale": diff.scale,
@@ -515,9 +562,11 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             let (x, y, width, height) =
                 spec.rect
                     .unwrap_or((0, 0, document.width(), document.height()));
-            document
-                .flip_horizontal(frame, x, y, width, height)
-                .map_err(ToolFailure::Kernel)?;
+            match spec.layer {
+                Some(layer) => document.flip_horizontal_on(layer, frame, x, y, width, height),
+                None => document.flip_horizontal(frame, x, y, width, height),
+            }
+            .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
         "resizeCanvas" => {
@@ -534,6 +583,67 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "height": document.height(),
                 "offsetX": offset_x,
                 "offsetY": offset_y,
+            }))
+        }
+        "listLayers" => {
+            parse_empty(tool, params)?;
+            Ok(layers_value(document))
+        }
+        "addLayer" => {
+            let name = parse_add_layer(params)?;
+            let index = document
+                .add_layer(name.as_deref())
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "name": document.layer_name(index).expect("new layer is in range"),
+                "activeLayer": as_u32(document.active_layer()),
+            }))
+        }
+        "deleteLayer" => {
+            let index = parse_optional_index(tool, params)?.unwrap_or(document.active_layer());
+            document.delete_layer(index).map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "activeLayer": as_u32(document.active_layer()),
+                "layerCount": as_u32(document.layer_count()),
+            }))
+        }
+        "renameLayer" => {
+            let (index, name) = parse_rename_layer(params, document.active_layer())?;
+            document
+                .rename_layer(index, &name)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "name": document.layer_name(index).expect("renamed layer is in range"),
+            }))
+        }
+        "setActiveLayer" => {
+            let index = parse_index(tool, params)?;
+            document
+                .set_active_layer(index)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({ "index": as_u32(index) }))
+        }
+        "reorderLayer" => {
+            let (from, to) = parse_reorder(params)?;
+            document
+                .reorder_layer(from, to)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "from": as_u32(from),
+                "to": as_u32(to),
+                "activeLayer": as_u32(document.active_layer()),
+            }))
+        }
+        "flattenLayers" => {
+            parse_empty(tool, params)?;
+            document.flatten().map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "layerCount": as_u32(document.layer_count()),
+                "activeLayer": as_u32(document.active_layer()),
+                "name": document.layer_name(0).expect("flatten leaves one layer"),
             }))
         }
         _ => Err(ToolFailure::UnknownTool {
@@ -569,10 +679,36 @@ fn inspect_value(document: &Document) -> Value {
         "delayMs": delay_ms,
         "frameDelays": document.frame_delays(),
         "pixels": document.pixels(),
+        "composite": document.composite_pixels(active).expect("active frame is in range"),
+        "layerCount": document.layer_count(),
+        "activeLayer": document.active_layer(),
+        "layers": layer_entries(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
         "gestureOpen": document.gesture_open(),
     })
+}
+
+fn layers_value(document: &Document) -> Value {
+    serde_json::json!({
+        "layerCount": document.layer_count(),
+        "activeLayer": document.active_layer(),
+        "layers": layer_entries(document),
+    })
+}
+
+fn layer_entries(document: &Document) -> Vec<Value> {
+    document
+        .layer_names()
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            serde_json::json!({
+                "index": index,
+                "name": name,
+            })
+        })
+        .collect()
 }
 
 fn history_value(document: &Document) -> Value {
@@ -600,30 +736,37 @@ fn parse_empty(tool: &str, params: Value) -> Result<(), ToolFailure> {
     Ok(())
 }
 
-fn parse_paint(params: Value) -> Result<(u16, u16, u8), ToolFailure> {
+fn parse_paint(params: Value) -> Result<(u16, u16, u8, Option<usize>), ToolFailure> {
     let map = expect_object("paint", params)?;
-    reject_params("paint", &map, &["x", "y", "colorIndex"])?;
+    reject_params("paint", &map, &["x", "y", "colorIndex", "layer"])?;
     let (x, y) = cell_from("paint", &map)?;
     let color_index = require_u8("paint", &map, "colorIndex")?;
-    Ok((x, y, color_index))
+    let layer = optional_frame("paint", &map, "layer")?;
+    Ok((x, y, color_index, layer))
 }
 
-fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8), ToolFailure> {
+fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure> {
     let map = expect_object("fillRect", params)?;
     reject_params(
         "fillRect",
         &map,
-        &["x", "y", "width", "height", "colorIndex"],
+        &["x", "y", "width", "height", "colorIndex", "layer"],
     )?;
     let (x, y, width, height) = rect_from("fillRect", &map)?;
     let color_index = require_u8("fillRect", &map, "colorIndex")?;
-    Ok((x, y, width, height, color_index))
+    let layer = optional_frame("fillRect", &map, "layer")?;
+    Ok((x, y, width, height, color_index, layer))
 }
 
-fn parse_rect(tool: &str, params: Value) -> Result<(u16, u16, u16, u16), ToolFailure> {
+fn parse_rect(
+    tool: &str,
+    params: Value,
+) -> Result<(u16, u16, u16, u16, Option<usize>), ToolFailure> {
     let map = expect_object(tool, params)?;
-    reject_params(tool, &map, &["x", "y", "width", "height"])?;
-    rect_from(tool, &map)
+    reject_params(tool, &map, &["x", "y", "width", "height", "layer"])?;
+    let rect = rect_from(tool, &map)?;
+    let layer = optional_frame(tool, &map, "layer")?;
+    Ok((rect.0, rect.1, rect.2, rect.3, layer))
 }
 
 fn rect_from(tool: &str, map: &Map<String, Value>) -> Result<(u16, u16, u16, u16), ToolFailure> {
@@ -643,6 +786,7 @@ struct Blit {
     dst_y: u16,
     from_frame: Option<usize>,
     to_frame: Option<usize>,
+    layer: Option<usize>,
 }
 
 fn parse_blit(tool: &str, params: Value) -> Result<Blit, ToolFailure> {
@@ -659,6 +803,7 @@ fn parse_blit(tool: &str, params: Value) -> Result<Blit, ToolFailure> {
             "dstY",
             "fromFrame",
             "toFrame",
+            "layer",
         ],
     )?;
     let src_x = require_u16(tool, &map, "srcX")?;
@@ -669,6 +814,7 @@ fn parse_blit(tool: &str, params: Value) -> Result<Blit, ToolFailure> {
     let dst_y = require_u16(tool, &map, "dstY")?;
     let from_frame = optional_frame(tool, &map, "fromFrame")?;
     let to_frame = optional_frame(tool, &map, "toFrame")?;
+    let layer = optional_frame(tool, &map, "layer")?;
     Ok(Blit {
         src_x,
         src_y,
@@ -678,6 +824,7 @@ fn parse_blit(tool: &str, params: Value) -> Result<Blit, ToolFailure> {
         dst_y,
         from_frame,
         to_frame,
+        layer,
     })
 }
 
@@ -708,9 +855,9 @@ fn parse_sheet(params: Value) -> Result<(u32, Option<u32>), ToolFailure> {
     Ok((scale, columns))
 }
 
-fn parse_preview(params: Value, active: usize) -> Result<(usize, u32), ToolFailure> {
+fn parse_preview(params: Value, active: usize) -> Result<(usize, u32, Option<usize>), ToolFailure> {
     let map = expect_object("previewFrame", params)?;
-    reject_params("previewFrame", &map, &["frame", "scale"])?;
+    reject_params("previewFrame", &map, &["frame", "scale", "layer"])?;
     let frame = match optional_frame("previewFrame", &map, "frame")? {
         Some(frame) => frame,
         None => active,
@@ -719,24 +866,27 @@ fn parse_preview(params: Value, active: usize) -> Result<(usize, u32), ToolFailu
         None => 1,
         Some(_) => require_u32_at_least("previewFrame", &map, "scale", 1)?,
     };
-    Ok((frame, scale))
+    let layer = optional_frame("previewFrame", &map, "layer")?;
+    Ok((frame, scale, layer))
 }
 
-fn parse_diff(params: Value) -> Result<(usize, usize, u32), ToolFailure> {
+fn parse_diff(params: Value) -> Result<(usize, usize, u32, Option<usize>), ToolFailure> {
     let map = expect_object("diffFrames", params)?;
-    reject_params("diffFrames", &map, &["frame", "with", "scale"])?;
+    reject_params("diffFrames", &map, &["frame", "with", "scale", "layer"])?;
     let frame = require_frame("diffFrames", &map, "frame")?;
     let with = require_frame("diffFrames", &map, "with")?;
     let scale = match map.get("scale") {
         None => 1,
         Some(_) => require_u32_at_least("diffFrames", &map, "scale", 1)?,
     };
-    Ok((frame, with, scale))
+    let layer = optional_frame("diffFrames", &map, "layer")?;
+    Ok((frame, with, scale, layer))
 }
 
 struct FlipSpec {
     frame: Option<usize>,
     rect: Option<(u16, u16, u16, u16)>,
+    layer: Option<usize>,
 }
 
 fn parse_flip(params: Value) -> Result<FlipSpec, ToolFailure> {
@@ -744,9 +894,10 @@ fn parse_flip(params: Value) -> Result<FlipSpec, ToolFailure> {
     reject_params(
         "flipHorizontal",
         &map,
-        &["frame", "x", "y", "width", "height"],
+        &["frame", "x", "y", "width", "height", "layer"],
     )?;
     let frame = optional_frame("flipHorizontal", &map, "frame")?;
+    let layer = optional_frame("flipHorizontal", &map, "layer")?;
     let present = ["x", "y", "width", "height"]
         .iter()
         .filter(|key| map.contains_key(**key))
@@ -761,7 +912,38 @@ fn parse_flip(params: Value) -> Result<FlipSpec, ToolFailure> {
             "x, y, width, and height must all be set, or all omitted",
         ));
     };
-    Ok(FlipSpec { frame, rect })
+    Ok(FlipSpec { frame, rect, layer })
+}
+
+fn parse_add_layer(params: Value) -> Result<Option<String>, ToolFailure> {
+    let map = expect_object("addLayer", params)?;
+    reject_params("addLayer", &map, &["name"])?;
+    match map.get("name") {
+        None => Ok(None),
+        Some(_) => Ok(Some(require_string("addLayer", &map, "name")?)),
+    }
+}
+
+fn parse_optional_index(tool: &str, params: Value) -> Result<Option<usize>, ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["index"])?;
+    optional_frame(tool, &map, "index")
+}
+
+fn parse_rename_layer(params: Value, active: usize) -> Result<(usize, String), ToolFailure> {
+    let map = expect_object("renameLayer", params)?;
+    reject_params("renameLayer", &map, &["index", "name"])?;
+    let index = optional_frame("renameLayer", &map, "index")?.unwrap_or(active);
+    let name = require_string("renameLayer", &map, "name")?;
+    Ok((index, name))
+}
+
+fn parse_reorder(params: Value) -> Result<(usize, usize), ToolFailure> {
+    let map = expect_object("reorderLayer", params)?;
+    reject_params("reorderLayer", &map, &["from", "to"])?;
+    let from = require_frame("reorderLayer", &map, "from")?;
+    let to = require_frame("reorderLayer", &map, "to")?;
+    Ok((from, to))
 }
 
 fn parse_resize(params: Value) -> Result<(u16, u16, Option<(i32, i32)>), ToolFailure> {
@@ -818,10 +1000,12 @@ fn parse_scale(tool: &str, params: Value) -> Result<u32, ToolFailure> {
     }
 }
 
-fn parse_cell(tool: &str, params: Value) -> Result<(u16, u16), ToolFailure> {
+fn parse_cell(tool: &str, params: Value) -> Result<(u16, u16, Option<usize>), ToolFailure> {
     let map = expect_object(tool, params)?;
-    reject_params(tool, &map, &["x", "y"])?;
-    cell_from(tool, &map)
+    reject_params(tool, &map, &["x", "y", "layer"])?;
+    let (x, y) = cell_from(tool, &map)?;
+    let layer = optional_frame(tool, &map, "layer")?;
+    Ok((x, y, layer))
 }
 
 fn cell_from(tool: &str, map: &Map<String, Value>) -> Result<(u16, u16), ToolFailure> {

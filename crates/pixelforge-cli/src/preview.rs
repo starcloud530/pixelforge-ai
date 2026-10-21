@@ -15,6 +15,12 @@ pub struct AsciiFrame {
     pub frame: usize,
     /// Document active frame. Unchanged by a preview.
     pub active_frame: usize,
+    /// Document active layer. Unchanged by a preview.
+    pub active_layer: usize,
+    /// `None` is the composite. `Some` is that layer alone.
+    pub layer: Option<usize>,
+    /// How many layers the document has. Used only to label the preview.
+    pub layer_count: usize,
     pub rows: Vec<String>,
     pub legend: Vec<LegendEntry>,
 }
@@ -30,16 +36,17 @@ pub fn glyph(index: u8) -> char {
 }
 
 pub fn render(document: &Document) -> AsciiFrame {
-    render_frame(document, document.active_frame()).expect("active frame is in range")
+    render_view(document, document.active_frame(), None).expect("active frame is in range")
 }
 
-pub fn render_frame(
+pub fn render_view(
     document: &Document,
     frame: usize,
+    layer: Option<usize>,
 ) -> Result<AsciiFrame, pixelforge_kernel::KernelError> {
     let width = document.width();
     let height = document.height();
-    let pixels = document.frame_pixels(frame)?;
+    let pixels = document.view_pixels(frame, layer)?;
     let row_len = usize::from(width);
     let mut seen = [false; 256];
     let mut rows = Vec::with_capacity(usize::from(height));
@@ -73,6 +80,9 @@ pub fn render_frame(
         height,
         frame,
         active_frame: document.active_frame(),
+        active_layer: document.active_layer(),
+        layer,
+        layer_count: document.layer_count(),
         rows,
         legend,
     })
@@ -98,6 +108,9 @@ pub fn result_json(frame: &AsciiFrame) -> Value {
         "height": frame.height,
         "frame": frame.frame,
         "activeFrame": frame.active_frame,
+        "activeLayer": frame.active_layer,
+        "layer": frame.layer,
+        "composite": frame.layer.is_none(),
         "rows": frame.rows,
         "legend": legend,
     })
@@ -105,14 +118,19 @@ pub fn result_json(frame: &AsciiFrame) -> Value {
 
 /// Prints the grid to stderr. Stdout stays JSON.
 pub fn eprint_frame(frame: &AsciiFrame) {
+    let stack = match frame.layer {
+        Some(layer) => format!(" layer {layer}"),
+        None if frame.layer_count > 1 => " composite".to_string(),
+        None => String::new(),
+    };
     if frame.frame == frame.active_frame {
         eprintln!(
-            "pixelforge: preview {}x{} frame {}",
+            "pixelforge: preview {}x{} frame {}{stack}",
             frame.width, frame.height, frame.frame
         );
     } else {
         eprintln!(
-            "pixelforge: preview {}x{} frame {} active {}",
+            "pixelforge: preview {}x{} frame {} active {}{stack}",
             frame.width, frame.height, frame.frame, frame.active_frame
         );
     }
@@ -175,7 +193,7 @@ mod tests {
         document.set_active_frame(1).unwrap();
         document.paint(0, 1, 1).unwrap();
         document.set_active_frame(0).unwrap();
-        let other = render_frame(&document, 1).unwrap();
+        let other = render_view(&document, 1, None).unwrap();
         assert_eq!(other.frame, 1);
         assert_eq!(other.active_frame, 0);
         assert_eq!(other.rows, vec!["....".to_string(), "1...".to_string()]);

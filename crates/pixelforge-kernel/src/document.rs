@@ -7,18 +7,22 @@ use crate::palette::Palette;
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
+use crate::DEFAULT_LAYER_NAME;
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_FRAME_DELAY_MS;
+use crate::MAX_LAYER_NAME_CHARS;
 use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, frames, delays, and the undo stack.
+/// Indexed pixel document: size, palette, frames, layers, delays, and the undo stack.
 ///
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
-/// edits, and delay edits record kernel operations on this document. Undo
-/// restores those operations; it does not patch a buffer owned by the shell.
+/// edits, layer edits, and delay edits record kernel operations on this
+/// document. Drawing writes the active layer. Preview and export composite
+/// the stack. Undo restores those operations; it does not patch a buffer
+/// owned by the shell.
 /// Loop playback is preview state: [`Self::tick`] moves the active frame from
 /// each frame's delay and does not push undo entries. Project open and save
 /// encode pixels, palette, the palette lock, frames, and delays, not the undo
@@ -33,6 +37,9 @@ pub struct Document {
     palette_locked: bool,
     frames: Vec<Frame>,
     active: usize,
+    /// Bottom layer is index 0. The same names and order apply to every frame.
+    layer_names: Vec<String>,
+    active_layer: usize,
     history: History,
     playback: Playback,
 }
@@ -68,8 +75,10 @@ impl Document {
             height,
             palette,
             palette_locked: false,
-            frames: vec![Frame::blank(len, DEFAULT_FRAME_DELAY_MS)],
+            frames: vec![Frame::blank(1, len, DEFAULT_FRAME_DELAY_MS)],
             active: 0,
+            layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
+            active_layer: 0,
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -104,19 +113,60 @@ impl Document {
         self.active
     }
 
-    /// Palette indices for the active frame, row-major, length `width * height`.
+    /// Palette indices for the active layer of the active frame, row-major.
+    ///
+    /// This is the buffer [`Self::paint`] writes. It is not the composite.
+    /// [`Self::composite_pixels`] stacks every layer.
     pub fn pixels(&self) -> &[u8] {
-        self.frames[self.active].pixels()
+        self.frames[self.active].layer_pixels(self.active_layer)
     }
 
+    /// Active-layer indices for one frame. Not the composite.
     pub fn frame_pixels(&self, index: usize) -> Result<&[u8], KernelError> {
-        self.frames
-            .get(index)
-            .map(Frame::pixels)
-            .ok_or(KernelError::FrameIndex {
-                index,
-                len: self.frames.len(),
-            })
+        let index = self.frame_or_err(index)?;
+        Ok(self.frames[index].layer_pixels(self.active_layer))
+    }
+
+    /// Indices stored on one layer of one frame.
+    pub fn layer_pixels(&self, frame: usize, layer: usize) -> Result<&[u8], KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        let layer = self.layer_or_err(layer)?;
+        Ok(self.frames[frame].layer_pixels(layer))
+    }
+
+    /// Bottom-to-top composite of one frame.
+    ///
+    /// Index 0 leaves the lower layer visible. Any other index replaces it.
+    /// The winning index is resolved to RGBA only at preview and export time,
+    /// so a translucent palette entry does not blend with the layer under it.
+    pub fn composite_pixels(&self, frame: usize) -> Result<Vec<u8>, KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        Ok(self.frames[frame].composite())
+    }
+
+    /// Composite, or one layer when `layer` is set.
+    pub fn view_pixels(&self, frame: usize, layer: Option<usize>) -> Result<Vec<u8>, KernelError> {
+        match layer {
+            Some(layer) => Ok(self.layer_pixels(frame, layer)?.to_vec()),
+            None => self.composite_pixels(frame),
+        }
+    }
+
+    pub fn layer_count(&self) -> usize {
+        self.layer_names.len()
+    }
+
+    pub fn active_layer(&self) -> usize {
+        self.active_layer
+    }
+
+    pub fn layer_names(&self) -> &[String] {
+        &self.layer_names
+    }
+
+    pub fn layer_name(&self, index: usize) -> Result<&str, KernelError> {
+        let index = self.layer_or_err(index)?;
+        Ok(&self.layer_names[index])
     }
 
     pub fn get(&self, x: u16, y: u16) -> Result<u8, KernelError> {
@@ -124,18 +174,31 @@ impl Document {
         Ok(self.pixels()[offset])
     }
 
-    /// Writes a non-transparent palette index. Index 0 is rejected; use [`Self::erase`].
+    /// Writes a non-transparent palette index on the active layer. Index 0 is
+    /// rejected; use [`Self::erase`].
     ///
     /// The cell stores `color_index`, not the entry's RGB. Recoloring that
     /// entry later changes how the cell is shown and exported. A cell that
     /// already holds `color_index` is left alone and is not recorded. A locked
-    /// palette does not block this write.
+    /// palette does not block this write. Other layers are left alone.
     pub fn paint(&mut self, x: u16, y: u16, color_index: u8) -> Result<(), KernelError> {
+        self.paint_on(self.active_layer, x, y, color_index)
+    }
+
+    /// [`Self::paint`] on one layer. Does not change the active layer.
+    pub fn paint_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        color_index: u8,
+    ) -> Result<(), KernelError> {
         if !self.palette.contains_paint_index(color_index) {
             return Err(KernelError::PaletteIndex { index: color_index });
         }
+        let layer = self.layer_or_err(layer)?;
         let offset = self.offset(x, y)?;
-        self.write_index(self.active, offset, color_index);
+        self.write_index(self.active, layer, offset, color_index);
         Ok(())
     }
 
@@ -220,14 +283,17 @@ impl Document {
         if colors.len() < self.palette.len() {
             let limit = u8::try_from(colors.len()).expect("palette length fits in u8");
             for (frame, pixels) in self.frames.iter().enumerate() {
-                for (offset, index) in pixels.pixels().iter().copied().enumerate() {
-                    if index >= limit {
-                        changes.push(Change::Pixel {
-                            frame,
-                            offset,
-                            before: index,
-                            after: TRANSPARENT_INDEX,
-                        });
+                for (layer, buffer) in pixels.layers().iter().enumerate() {
+                    for (offset, index) in buffer.iter().copied().enumerate() {
+                        if index >= limit {
+                            changes.push(Change::Pixel {
+                                frame,
+                                layer,
+                                offset,
+                                before: index,
+                                after: TRANSPARENT_INDEX,
+                            });
+                        }
                     }
                 }
             }
@@ -235,6 +301,7 @@ impl Document {
         for change in &changes {
             let Change::Pixel {
                 frame,
+                layer,
                 offset,
                 after,
                 ..
@@ -242,7 +309,7 @@ impl Document {
             else {
                 continue;
             };
-            self.frames[*frame].set(*offset, *after);
+            self.frames[*frame].set_on(*layer, *offset, *after);
         }
         let before = self.palette.colors().to_vec();
         self.palette = checked;
@@ -292,7 +359,8 @@ impl Document {
         }
     }
 
-    /// Fills an axis-aligned rectangle on the active frame with one palette index.
+    /// Fills an axis-aligned rectangle on the active layer of the active frame
+    /// with one palette index.
     ///
     /// `x` and `y` are the inclusive top-left cell. `width` and `height` are
     /// the size in cells. Every cell must lie on the canvas; a zero edge, an
@@ -310,9 +378,23 @@ impl Document {
         height: u16,
         color_index: u8,
     ) -> Result<(), KernelError> {
+        self.fill_rect_on(self.active_layer, x, y, width, height, color_index)
+    }
+
+    /// [`Self::fill_rect`] on one layer. Does not change the active layer.
+    pub fn fill_rect_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+    ) -> Result<(), KernelError> {
         if !self.palette.contains_paint_index(color_index) {
             return Err(KernelError::PaletteIndex { index: color_index });
         }
+        let layer = self.layer_or_err(layer)?;
         let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
         let frame = self.active;
         let mut changes = Vec::new();
@@ -320,13 +402,14 @@ impl Document {
             let row_offset = pixel_len(self.width, row);
             for col in x..=x1 {
                 let offset = row_offset + usize::from(col);
-                let before = self.frames[frame].pixels()[offset];
+                let before = self.frames[frame].layer_pixels(layer)[offset];
                 if before == color_index {
                     continue;
                 }
-                self.frames[frame].set(offset, color_index);
+                self.frames[frame].set_on(layer, offset, color_index);
                 changes.push(Change::Pixel {
                     frame,
+                    layer,
                     offset,
                     before,
                     after: color_index,
@@ -351,6 +434,19 @@ impl Document {
         width: u16,
         height: u16,
     ) -> Result<(), KernelError> {
+        self.erase_rect_on(self.active_layer, x, y, width, height)
+    }
+
+    /// [`Self::erase_rect`] on one layer. Does not change the active layer.
+    pub fn erase_rect_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        let layer = self.layer_or_err(layer)?;
         let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
         let frame = self.active;
         let mut changes = Vec::new();
@@ -358,13 +454,14 @@ impl Document {
             let row_offset = pixel_len(self.width, row);
             for col in x..=x1 {
                 let offset = row_offset + usize::from(col);
-                let before = self.frames[frame].pixels()[offset];
+                let before = self.frames[frame].layer_pixels(layer)[offset];
                 if before == TRANSPARENT_INDEX {
                     continue;
                 }
-                self.frames[frame].set(offset, TRANSPARENT_INDEX);
+                self.frames[frame].set_on(layer, offset, TRANSPARENT_INDEX);
                 changes.push(Change::Pixel {
                     frame,
+                    layer,
                     offset,
                     before,
                     after: TRANSPARENT_INDEX,
@@ -395,7 +492,17 @@ impl Document {
         dst_y: u16,
     ) -> Result<(), KernelError> {
         let frame = self.active;
-        self.copy_rect_from(frame, src_x, src_y, width, height, frame, dst_x, dst_y)
+        self.copy_rect_from_on(
+            self.active_layer,
+            frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            frame,
+            dst_x,
+            dst_y,
+        )
     }
 
     /// Copies indices from `src_frame` onto `dst_frame`. Does not change the
@@ -414,8 +521,35 @@ impl Document {
         dst_x: u16,
         dst_y: u16,
     ) -> Result<(), KernelError> {
+        self.copy_rect_from_on(
+            self.active_layer,
+            src_frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_frame,
+            dst_x,
+            dst_y,
+        )
+    }
+
+    /// [`Self::copy_rect_from`] on one layer of both frames. Does not change
+    /// the active layer. The copy does not read or write any other layer.
+    pub fn copy_rect_from_on(
+        &mut self,
+        layer: usize,
+        src_frame: usize,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_frame: usize,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), KernelError> {
         self.blit_between(
-            src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, false,
+            layer, src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, false,
         )
     }
 
@@ -436,7 +570,17 @@ impl Document {
         dst_y: u16,
     ) -> Result<(), KernelError> {
         let frame = self.active;
-        self.move_rect_from(frame, src_x, src_y, width, height, frame, dst_x, dst_y)
+        self.move_rect_from_on(
+            self.active_layer,
+            frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            frame,
+            dst_x,
+            dst_y,
+        )
     }
 
     /// Moves indices from `src_frame` onto `dst_frame`. Does not change the
@@ -454,8 +598,35 @@ impl Document {
         dst_x: u16,
         dst_y: u16,
     ) -> Result<(), KernelError> {
+        self.move_rect_from_on(
+            self.active_layer,
+            src_frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_frame,
+            dst_x,
+            dst_y,
+        )
+    }
+
+    /// [`Self::move_rect_from`] on one layer of both frames. Does not change
+    /// the active layer.
+    pub fn move_rect_from_on(
+        &mut self,
+        layer: usize,
+        src_frame: usize,
+        src_x: u16,
+        src_y: u16,
+        width: u16,
+        height: u16,
+        dst_frame: usize,
+        dst_x: u16,
+        dst_y: u16,
+    ) -> Result<(), KernelError> {
         self.blit_between(
-            src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, true,
+            layer, src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, true,
         )
     }
 
@@ -473,11 +644,25 @@ impl Document {
         width: u16,
         height: u16,
     ) -> Result<(), KernelError> {
+        self.flip_horizontal_on(self.active_layer, frame, x, y, width, height)
+    }
+
+    /// [`Self::flip_horizontal`] on one layer. Does not change the active layer.
+    pub fn flip_horizontal_on(
+        &mut self,
+        layer: usize,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        let layer = self.layer_or_err(layer)?;
         let frame = self.frame_or_err(frame)?;
         let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
         let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
         {
-            let pixels = self.frames[frame].pixels();
+            let pixels = self.frames[frame].layer_pixels(layer);
             for row in y..=y1 {
                 let row_offset = pixel_len(self.width, row);
                 for col in x..=x1 {
@@ -495,13 +680,14 @@ impl Document {
                 let mirrored = span - 1 - local_x;
                 let after = sample[local_y * span + mirrored];
                 let offset = row_offset + usize::from(col);
-                let before = self.frames[frame].pixels()[offset];
+                let before = self.frames[frame].layer_pixels(layer)[offset];
                 if before == after {
                     continue;
                 }
-                self.frames[frame].set(offset, after);
+                self.frames[frame].set_on(layer, offset, after);
                 changes.push(Change::Pixel {
                     frame,
+                    layer,
                     offset,
                     before,
                     after,
@@ -530,23 +716,28 @@ impl Document {
         offset_y: i32,
     ) -> Result<(), KernelError> {
         check_size(width, height)?;
-        let before_pixels: Vec<Vec<u8>> = self
+        let before_pixels: Vec<Vec<Vec<u8>>> = self
             .frames
             .iter()
-            .map(|frame| frame.pixels().to_vec())
+            .map(|frame| frame.layers().to_vec())
             .collect();
-        let after_pixels: Vec<Vec<u8>> = before_pixels
+        let after_pixels: Vec<Vec<Vec<u8>>> = before_pixels
             .iter()
-            .map(|pixels| {
-                place_pixels(
-                    pixels,
-                    self.width,
-                    self.height,
-                    width,
-                    height,
-                    offset_x,
-                    offset_y,
-                )
+            .map(|layers| {
+                layers
+                    .iter()
+                    .map(|pixels| {
+                        place_pixels(
+                            pixels,
+                            self.width,
+                            self.height,
+                            width,
+                            height,
+                            offset_x,
+                            offset_y,
+                        )
+                    })
+                    .collect()
             })
             .collect();
         if self.width == width && self.height == height && before_pixels == after_pixels {
@@ -557,7 +748,7 @@ impl Document {
         self.width = width;
         self.height = height;
         for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
-            frame.set_pixels(pixels);
+            frame.set_all_layers(pixels);
         }
         self.history.record(Change::CanvasResize {
             before_width,
@@ -578,6 +769,7 @@ impl Document {
     /// is cleared.
     fn blit_between(
         &mut self,
+        layer: usize,
         src_frame: usize,
         src_x: u16,
         src_y: u16,
@@ -588,13 +780,14 @@ impl Document {
         dst_y: u16,
         clear_source: bool,
     ) -> Result<(), KernelError> {
+        let layer = self.layer_or_err(layer)?;
         let src_frame = self.frame_or_err(src_frame)?;
         let dst_frame = self.frame_or_err(dst_frame)?;
         let (src_x1, src_y1) = self.inclusive_rect(src_x, src_y, width, height)?;
         let (dst_x1, dst_y1) = self.inclusive_rect(dst_x, dst_y, width, height)?;
         let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
         {
-            let pixels = self.frames[src_frame].pixels();
+            let pixels = self.frames[src_frame].layer_pixels(layer);
             for row in src_y..=src_y1 {
                 let row_offset = pixel_len(self.width, row);
                 for col in src_x..=src_x1 {
@@ -649,30 +842,48 @@ impl Document {
         }
 
         let mut changes = Vec::new();
-        self.push_plan(src_frame, &src_plan, &mut changes);
+        self.push_plan(src_frame, layer, &src_plan, &mut changes);
         if let Some(plan) = &dst_plan {
-            self.push_plan(dst_frame, plan, &mut changes);
+            self.push_plan(dst_frame, layer, plan, &mut changes);
         }
         self.history.record_group(changes);
         Ok(())
     }
 
-    fn push_plan(&mut self, frame: usize, plan: &[Option<u8>], changes: &mut Vec<Change>) {
+    fn push_plan(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        plan: &[Option<u8>],
+        changes: &mut Vec<Change>,
+    ) {
         for (offset, after) in plan.iter().enumerate() {
             let Some(after) = after else {
                 continue;
             };
-            let before = self.frames[frame].pixels()[offset];
+            let before = self.frames[frame].layer_pixels(layer)[offset];
             if before == *after {
                 continue;
             }
-            self.frames[frame].set(offset, *after);
+            self.frames[frame].set_on(layer, offset, *after);
             changes.push(Change::Pixel {
                 frame,
+                layer,
                 offset,
                 before,
                 after: *after,
             });
+        }
+    }
+
+    fn layer_or_err(&self, index: usize) -> Result<usize, KernelError> {
+        if index < self.layer_names.len() {
+            Ok(index)
+        } else {
+            Err(KernelError::LayerIndex {
+                index,
+                len: self.layer_names.len(),
+            })
         }
     }
 
@@ -732,16 +943,21 @@ impl Document {
     ///
     /// An empty cell is left alone and is not recorded.
     pub fn erase(&mut self, x: u16, y: u16) -> Result<(), KernelError> {
+        self.erase_on(self.active_layer, x, y)
+    }
+
+    /// [`Self::erase`] on one layer. Does not change the active layer.
+    pub fn erase_on(&mut self, layer: usize, x: u16, y: u16) -> Result<(), KernelError> {
+        let layer = self.layer_or_err(layer)?;
         let offset = self.offset(x, y)?;
-        self.write_index(self.active, offset, TRANSPARENT_INDEX);
+        self.write_index(self.active, layer, offset, TRANSPARENT_INDEX);
         Ok(())
     }
 
     /// Appends a blank frame and returns its index. The active frame stays put.
     pub fn add_frame(&mut self) -> usize {
         let index = self.frames.len();
-        self.frames
-            .push(Frame::blank(self.pixel_count(), DEFAULT_FRAME_DELAY_MS));
+        self.frames.push(self.blank_frame());
         self.history.record(Change::AddFrame { index });
         index
     }
@@ -823,6 +1039,153 @@ impl Document {
         self.history.record(Change::ActiveFrame {
             before,
             after: index,
+        });
+        Ok(())
+    }
+
+    /// Inserts a transparent layer above the active one and selects it.
+    ///
+    /// The same layer is added to every frame. `name` is trimmed. Omit it and
+    /// the name is the first free `Layer N`. The insert is one undo step.
+    pub fn add_layer(&mut self, name: Option<&str>) -> Result<usize, KernelError> {
+        let name = match name {
+            Some(name) => normalize_layer_name(name)?,
+            None => self.next_layer_name(),
+        };
+        let index = self.active_layer + 1;
+        let active_before = self.active_layer;
+        let blank = vec![TRANSPARENT_INDEX; self.pixel_count()];
+        for frame in &mut self.frames {
+            frame.insert_layer(index, blank.clone());
+        }
+        self.layer_names.insert(index, name.clone());
+        self.active_layer = index;
+        self.history.record(Change::AddLayer {
+            index,
+            name,
+            active_before,
+            active_after: index,
+        });
+        Ok(index)
+    }
+
+    /// Removes one layer from every frame. The last layer cannot be removed.
+    ///
+    /// When the active layer is removed, the layer that slides into that index
+    /// stays selected, or the new top layer when the top one was removed.
+    pub fn delete_layer(&mut self, index: usize) -> Result<(), KernelError> {
+        if self.layer_names.len() == 1 {
+            return Err(KernelError::LastLayer);
+        }
+        let index = self.layer_or_err(index)?;
+        let active_before = self.active_layer;
+        let name = self.layer_names.remove(index);
+        let mut pixels = Vec::with_capacity(self.frames.len());
+        for frame in &mut self.frames {
+            pixels.push(frame.remove_layer(index));
+        }
+        self.active_layer = if active_before > index {
+            active_before - 1
+        } else if active_before == index {
+            index.min(self.layer_names.len() - 1)
+        } else {
+            active_before
+        };
+        self.history.record(Change::RemoveLayer {
+            index,
+            name,
+            pixels,
+            active_before,
+            active_after: self.active_layer,
+        });
+        Ok(())
+    }
+
+    /// Renames one layer. The same name is not recorded. The stored name is trimmed.
+    pub fn rename_layer(&mut self, index: usize, name: &str) -> Result<(), KernelError> {
+        let index = self.layer_or_err(index)?;
+        let name = normalize_layer_name(name)?;
+        if self.layer_names[index] == name {
+            return Ok(());
+        }
+        let before = std::mem::replace(&mut self.layer_names[index], name.clone());
+        self.history.record(Change::RenameLayer {
+            index,
+            before,
+            after: name,
+        });
+        Ok(())
+    }
+
+    /// Selects a layer. The same index is not recorded.
+    pub fn set_active_layer(&mut self, index: usize) -> Result<(), KernelError> {
+        let index = self.layer_or_err(index)?;
+        if index == self.active_layer {
+            return Ok(());
+        }
+        let before = self.active_layer;
+        self.active_layer = index;
+        self.history.record(Change::ActiveLayer {
+            before,
+            after: index,
+        });
+        Ok(())
+    }
+
+    /// Moves the layer at `from` so it ends at `to`.
+    ///
+    /// `to` is the index after the move. The same index is not recorded. The
+    /// active layer follows the moved layer, and layers between the two ends
+    /// shift by one.
+    pub fn reorder_layer(&mut self, from: usize, to: usize) -> Result<(), KernelError> {
+        let from = self.layer_or_err(from)?;
+        let to = self.layer_or_err(to)?;
+        if from == to {
+            return Ok(());
+        }
+        let active_before = self.active_layer;
+        self.move_layer(from, to);
+        let active_after = remap_layer_index(active_before, from, to);
+        self.active_layer = active_after;
+        self.history.record(Change::ReorderLayer {
+            from,
+            to,
+            active_before,
+            active_after,
+        });
+        Ok(())
+    }
+
+    /// Composites every frame into one layer named [`DEFAULT_LAYER_NAME`].
+    ///
+    /// The result is the single-layer project file downstream tools already
+    /// open. A document that is already that one default layer is not recorded.
+    /// One undo restores the previous stack.
+    pub fn flatten(&mut self) -> Result<(), KernelError> {
+        if self.layer_names.len() == 1
+            && self.layer_names[0] == DEFAULT_LAYER_NAME
+            && self.active_layer == 0
+        {
+            return Ok(());
+        }
+        let before_names = self.layer_names.clone();
+        let before_pixels = self
+            .frames
+            .iter()
+            .map(|frame| frame.layers().to_vec())
+            .collect();
+        let before_active = self.active_layer;
+        let after_pixels: Vec<Vec<u8>> = self.frames.iter().map(Frame::composite).collect();
+        for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
+            frame.set_all_layers(vec![pixels]);
+        }
+        self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
+        self.active_layer = 0;
+        self.history.record(Change::Flatten {
+            before_names,
+            before_pixels,
+            before_active,
+            after_pixels,
         });
         Ok(())
     }
@@ -1037,13 +1400,23 @@ impl Document {
         palette_locked: bool,
         frames: Vec<Frame>,
         active: usize,
+        layer_names: Vec<String>,
+        active_layer: usize,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
+        debug_assert!(
+            !layer_names.is_empty(),
+            "project files keep at least one layer"
+        );
+        debug_assert!(active_layer < layer_names.len(), "active layer was checked");
         let len = pixel_len(width, height);
         debug_assert!(
-            frames.iter().all(|frame| frame.pixels().len() == len),
-            "frame length was checked"
+            frames.iter().all(|frame| {
+                frame.layer_count() == layer_names.len()
+                    && frame.layers().iter().all(|pixels| pixels.len() == len)
+            }),
+            "layer buffers were checked"
         );
         Self {
             width,
@@ -1052,38 +1425,70 @@ impl Document {
             palette_locked,
             frames,
             active,
+            layer_names,
+            active_layer,
             history: History::new(),
             playback: Playback::stopped(),
         }
     }
 
-    fn write_index(&mut self, frame: usize, offset: usize, value: u8) {
+    fn write_index(&mut self, frame: usize, layer: usize, offset: usize, value: u8) {
         debug_assert!(
             value == TRANSPARENT_INDEX || self.palette.contains_paint_index(value),
             "pixels store palette indices"
         );
-        let before = self.frames[frame].pixels()[offset];
+        let before = self.frames[frame].layer_pixels(layer)[offset];
         if before == value {
             return;
         }
-        self.frames[frame].set(offset, value);
+        self.frames[frame].set_on(layer, offset, value);
         self.history.record(Change::Pixel {
             frame,
+            layer,
             offset,
             before,
             after: value,
         });
     }
 
+    fn blank_frame(&self) -> Frame {
+        Frame::blank(
+            self.layer_names.len(),
+            self.pixel_count(),
+            DEFAULT_FRAME_DELAY_MS,
+        )
+    }
+
+    fn next_layer_name(&self) -> String {
+        let mut n = self.layer_names.len() + 1;
+        loop {
+            let candidate = format!("Layer {n}");
+            if !self.layer_names.iter().any(|name| name == &candidate) {
+                return candidate;
+            }
+            n += 1;
+        }
+    }
+
+    fn move_layer(&mut self, from: usize, to: usize) {
+        let name = self.layer_names.remove(from);
+        self.layer_names.insert(to, name);
+        for frame in &mut self.frames {
+            let pixels = frame.remove_layer(from);
+            frame.insert_layer(to, pixels);
+        }
+    }
+
     fn apply_change(&mut self, change: &Change, forward: bool) {
         match change {
             Change::Pixel {
                 frame,
+                layer,
                 offset,
                 before,
                 after,
             } => {
-                let current = self.frames[*frame].pixels()[*offset];
+                let current = self.frames[*frame].layer_pixels(*layer)[*offset];
                 let (expected, next) = if forward {
                     (*before, *after)
                 } else {
@@ -1093,13 +1498,12 @@ impl Document {
                     current, expected,
                     "undo stack diverged from the document pixels"
                 );
-                self.frames[*frame].set(*offset, next);
+                self.frames[*frame].set_on(*layer, *offset, next);
             }
             Change::AddFrame { index } => {
                 if forward {
                     debug_assert_eq!(*index, self.frames.len());
-                    self.frames
-                        .push(Frame::blank(self.pixel_count(), DEFAULT_FRAME_DELAY_MS));
+                    self.frames.push(self.blank_frame());
                 } else {
                     debug_assert_eq!(self.frames.len() - 1, *index);
                     self.frames.remove(*index);
@@ -1181,10 +1585,7 @@ impl Document {
                 } else {
                     debug_assert_eq!(usize::from(*index) + 1, self.palette.len());
                     debug_assert!(
-                        !self
-                            .frames
-                            .iter()
-                            .any(|frame| frame.pixels().contains(index)),
+                        !self.frames.iter().any(|frame| frame.contains_index(*index)),
                         "palette index {index} is still stored in a frame"
                     );
                     let removed = self.palette.pop();
@@ -1215,7 +1616,100 @@ impl Document {
                 self.width = width;
                 self.height = height;
                 for (frame, pixels) in self.frames.iter_mut().zip(pixels.iter()) {
-                    frame.set_pixels(pixels.clone());
+                    frame.set_all_layers(pixels.clone());
+                }
+            }
+            Change::AddLayer {
+                index,
+                name,
+                active_before,
+                active_after,
+            } => {
+                if forward {
+                    let blank = vec![TRANSPARENT_INDEX; self.pixel_count()];
+                    for frame in &mut self.frames {
+                        frame.insert_layer(*index, blank.clone());
+                    }
+                    self.layer_names.insert(*index, name.clone());
+                    self.active_layer = *active_after;
+                } else {
+                    self.layer_names.remove(*index);
+                    for frame in &mut self.frames {
+                        frame.remove_layer(*index);
+                    }
+                    self.active_layer = *active_before;
+                }
+            }
+            Change::RemoveLayer {
+                index,
+                name,
+                pixels,
+                active_before,
+                active_after,
+            } => {
+                if forward {
+                    self.layer_names.remove(*index);
+                    for frame in &mut self.frames {
+                        frame.remove_layer(*index);
+                    }
+                    self.active_layer = *active_after;
+                } else {
+                    debug_assert_eq!(pixels.len(), self.frames.len());
+                    self.layer_names.insert(*index, name.clone());
+                    for (frame, buffer) in self.frames.iter_mut().zip(pixels.iter()) {
+                        frame.insert_layer(*index, buffer.clone());
+                    }
+                    self.active_layer = *active_before;
+                }
+            }
+            Change::RenameLayer {
+                index,
+                before,
+                after,
+            } => {
+                self.layer_names[*index] = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
+            }
+            Change::ActiveLayer { before, after } => {
+                self.active_layer = if forward { *after } else { *before };
+            }
+            Change::ReorderLayer {
+                from,
+                to,
+                active_before,
+                active_after,
+            } => {
+                if forward {
+                    self.move_layer(*from, *to);
+                    self.active_layer = *active_after;
+                } else {
+                    self.move_layer(*to, *from);
+                    self.active_layer = *active_before;
+                }
+            }
+            Change::Flatten {
+                before_names,
+                before_pixels,
+                before_active,
+                after_pixels,
+            } => {
+                if forward {
+                    debug_assert_eq!(after_pixels.len(), self.frames.len());
+                    for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter()) {
+                        frame.set_all_layers(vec![pixels.clone()]);
+                    }
+                    self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
+                    self.active_layer = 0;
+                } else {
+                    debug_assert_eq!(before_pixels.len(), self.frames.len());
+                    for (frame, layers) in self.frames.iter_mut().zip(before_pixels.iter()) {
+                        frame.set_all_layers(layers.clone());
+                    }
+                    self.layer_names = before_names.clone();
+                    self.active_layer = *before_active;
                 }
             }
         }
@@ -1295,6 +1789,29 @@ fn check_size(width: u16, height: u16) -> Result<(), KernelError> {
 
 fn pixel_len(width: u16, height: u16) -> usize {
     usize::from(width) * usize::from(height)
+}
+
+fn normalize_layer_name(name: &str) -> Result<String, KernelError> {
+    let trimmed = name.trim();
+    let chars = trimmed.chars().count();
+    if trimmed.is_empty() || chars > MAX_LAYER_NAME_CHARS || trimmed.chars().any(char::is_control) {
+        Err(KernelError::LayerName)
+    } else {
+        Ok(trimmed.to_string())
+    }
+}
+
+/// Where `active` sits after `move_layer(from, to)`.
+fn remap_layer_index(active: usize, from: usize, to: usize) -> usize {
+    if active == from {
+        to
+    } else if from < to && active > from && active <= to {
+        active - 1
+    } else if to < from && active >= to && active < from {
+        active + 1
+    } else {
+        active
+    }
 }
 
 /// Copies `source` onto a new buffer. `offset_x`/`offset_y` is where the old

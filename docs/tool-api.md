@@ -80,6 +80,9 @@
 | `PaletteTooLarge` | 调色板会超过 256 色 |
 | `FrameIndex` | 帧下标越界 |
 | `LastFrame` | 删掉仅剩的一帧 |
+| `LayerIndex` | 层下标越界 |
+| `LastLayer` | 删掉仅剩的一层 |
+| `LayerName` | 层名是空的、只有空白、含控制字符，或超过 64 个字符 |
 | `FrameDelay` | `delayMs` 不在 `1..=65535` |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
@@ -96,7 +99,7 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出、`previewFrame`、`diffFrames`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定，以及不改变文档的导入，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、改层名、选层，以及不改变文档的导入和压平，也不进栈。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
@@ -121,7 +124,11 @@
 | `activeFrame` | 当前帧，从 0 计 |
 | `delayMs` | 当前帧的时长，毫秒 |
 | `frameDelays` | 每一帧的时长，时间轴顺序 |
-| `pixels` | 当前帧的调色板索引，行优先，长度 `width * height`。0 是空格子 |
+| `pixels` | **当前层**、当前帧的调色板索引，行优先，长度 `width * height`。0 是空格子。这是下一次绘制会改的缓冲，不是合成图 |
+| `composite` | 当前帧按层序叠出来的索引，规则见下面的「图层」 |
+| `layerCount` | 层数，至少 1。每一帧都有同样多的层 |
+| `activeLayer` | 当前层，从 0 计。0 在最下面 |
+| `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
 
@@ -129,11 +136,11 @@
 
 `params`：`x`、`y`（`0..=65535`，还须落在画布内）、`colorIndex`（`1..=255`，且必须是已有的不透明索引）。
 
-写入的是索引，不是 RGB。锁定的调色板不阻止绘制。
+写入的是索引，不是 RGB。锁定的调色板不阻止绘制。可选 `layer` 指定要改的层，不写就是当前层；这次调用不改变 `activeLayer`。别的层一格都不动。
 
-*Writes an index, not RGB. A locked palette does not block paint.*
+*Writes an index, not RGB. A locked palette does not block paint. Optional `layer` chooses the layer and does not change `activeLayer`. Other layers stay put.*
 
-错误：`OutOfBounds`、`PaletteIndex`。
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。
 
 ### `fillRect`
 
@@ -143,13 +150,13 @@
 
 *Fills an axis-aligned rectangle on the active frame with one palette index. `x` and `y` are the inclusive top-left cell. Writes an index, not RGB. A locked palette does not block the fill. Cells that already hold the index are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. If any cell would fall outside the canvas, the call fails and writes nothing. A `width` or `height` of 0, a missing field, or a number outside `1..=65535` is `InvalidParams` (for example `fillRect: width must be an integer from 1 to 65535`).*
 
-错误：`OutOfBounds`、`PaletteIndex`。
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。可选 `layer` 与 `paint` 相同。
 
 ### `erase`
 
-`params`：`x`、`y`。把该格设回索引 0。
+`params`：`x`、`y`。可选 `layer`。把该格设回索引 0。只改这一层。
 
-错误：`OutOfBounds`。
+错误：`OutOfBounds`、`LayerIndex`。
 
 ### `eraseRect`
 
@@ -159,7 +166,7 @@
 
 *Clears an axis-aligned rectangle on the active frame to index 0. Bounds match `fillRect`: if any cell would fall outside the canvas, the call fails and writes nothing. Cells that are already transparent are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. A locked palette does not block the erase. Prefer this over erasing cell by cell when reshaping a silhouette.*
 
-错误：`OutOfBounds`。`width` 或 `height` 为 0 是 `InvalidParams`。
+错误：`OutOfBounds`、`LayerIndex`。`width` 或 `height` 为 0 是 `InvalidParams`。可选 `layer` 与 `paint` 相同。
 
 ### `copyRect`
 
@@ -169,7 +176,7 @@
 
 *Copies palette indices, including 0, from one rectangle to another. Optional `fromFrame` is the source frame and optional `toFrame` is the destination; omit either one and it is the active frame. The call does not change `activeFrame`. The source stays. If the source or the destination would fall outside the canvas, the call fails and writes nothing. Overlap on the same frame reads the source before writing the destination. Changed cells are one undo step; an open gesture absorbs them. A copy that changes nothing is not recorded. A locked palette does not block the copy.*
 
-错误：`OutOfBounds`、`FrameIndex`。
+错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`。可选 `layer`：源和目标都用这一层，不在层与层之间抄像素，也不改变 `activeLayer`。
 
 ### `moveRect`
 
@@ -179,7 +186,7 @@
 
 *Moves palette indices, including 0, to the destination and clears source cells that are not part of the destination. `fromFrame` and `toFrame` follow `copyRect`. Across frames the whole source rectangle is cleared, because the destination is on the other frame. Both rectangles must lie inside the canvas. Overlap on the same frame uses the source from before the move, so a source cell that lands inside the destination keeps the moved index. The move is one undo step. A move onto the same rectangle changes nothing and is not recorded. The active frame stays put.*
 
-错误：`OutOfBounds`、`FrameIndex`。
+错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`。可选 `layer` 与 `copyRect` 相同。
 
 ### `setPaletteColor`
 
@@ -306,7 +313,7 @@
 
 ### `previewFrame`
 
-`params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）。
+`params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）、可选 `layer`。不写 `layer` 时画合成图；写了就只画那一层，并且不改变 `activeLayer`。
 
 只读。不改 `activeFrame`，不进撤销栈。`result`：
 
@@ -314,6 +321,9 @@
 | --- | --- |
 | `frame` | 画出的帧 |
 | `activeFrame` | 文档当前帧，不会因为这次预览而改变 |
+| `activeLayer` | 文档当前层 |
+| `layer` | 画出的层。合成图时是 `null` |
+| `composite` | 没指定 `layer` 时为 `true` |
 | `width`, `height` | 画布格子数 |
 | `scale` | 使用的倍数 |
 | `pngWidth`, `pngHeight` | 放大后的像素尺寸 |
@@ -323,18 +333,21 @@ CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PN
 
 *Read-only. Does not change `activeFrame` and does not push undo. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64.*
 
-错误：`FrameIndex`、`ExportScale`。`scale` 为 0 是 `InvalidParams`。
+错误：`FrameIndex`、`LayerIndex`、`ExportScale`。`scale` 为 0 是 `InvalidParams`。
 
 ### `diffFrames`
 
-`params`：`frame`、`with`（都必填），可选 `scale`（缺省为 1）。
+`params`：`frame`、`with`（都必填），可选 `scale`（缺省为 1），可选 `layer`。不写 `layer` 时比较两帧的合成索引；写了就只比较那一层。
 
-只读。比较两个帧的索引，不把洋葱皮写回像素。`result`：
+只读。比较索引，不把洋葱皮写回像素。`result`：
 
 | 字段 Field | 含义 Meaning |
 | --- | --- |
 | `frame`, `with` | 参与比较的两帧 |
 | `activeFrame` | 文档当前帧 |
+| `activeLayer` | 文档当前层 |
+| `layer` | 参与比较的层。合成图时是 `null` |
+| `composite` | 没指定 `layer` 时为 `true` |
 | `width`, `height` | 画布格子数 |
 | `scale` | 使用的倍数 |
 | `changed` | 索引不同的格子数 |
@@ -349,7 +362,7 @@ CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PN
 
 CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png`），并在 stdout 里附上两帧的 ASCII `rows` / `withRows`。
 
-错误：`FrameIndex`、`ExportScale`。缺 `frame` 或 `with` 是 `InvalidParams`。
+错误：`FrameIndex`、`LayerIndex`、`ExportScale`。缺 `frame` 或 `with` 是 `InvalidParams`。
 
 ### `flipHorizontal`
 
@@ -359,7 +372,7 @@ CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png
 
 *Mirrors indices left to right. Cell `x` receives the index from the mirrored column (`63 - x` on a full frame of width 64). The palette is unchanged, including highlight colors. One undo step. A symmetric rectangle is not recorded. `frame` is not selected. An out-of-bounds rectangle writes nothing.*
 
-错误：`OutOfBounds`、`FrameIndex`。
+错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`。可选 `layer`：只镜像这一层。
 
 ### `resizeCanvas`
 
@@ -371,7 +384,77 @@ CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png
 
 `result`：`{ "width", "height", "offsetX", "offsetY" }`，偏移是实际使用的值。
 
-错误：`InvalidSize`（内核拒绝的边长）。`width` 超出 `1..=256` 是 `InvalidParams`。
+错误：`InvalidSize`（内核拒绝的边长）。`width` 超出 `1..=256` 是 `InvalidParams`。每一层都跟着缩放。
+
+## 图层 Layers
+
+层是文档级的栈，每一帧各有一块同样尺寸的索引缓冲。下标 0 在最下面，最后一层画在最上面。新建工程和旧的单层文件都是一层，名字是 `Layer 1`，`activeLayer` 是 0。这种文件保存时仍不写 `layers` / `activeLayer`，和以前的 version 1 工程相同。多了层、改了名字，或当前层不是 0 时，文件里才出现这些字段。帧上多于一层时，像素写在 `frames[].layers[].pixels`，不再写旧的 `frames[].pixels`。
+
+合成规则：从底往上叠索引。索引 0 是透明，露出下面的层。任何非 0 索引直接盖住下面的层，不按调色板 alpha 做混合。导出再把赢下的那个索引解析成 RGBA，和单层时一样。
+
+`preview`、`diff`、`export png`、`export sheet` 默认看合成结果。`previewFrame` / `diffFrames` 以及 CLI 的 `--layer N` 只看那一层。绘制工具的 `layer` 只决定改哪一层。
+
+### `listLayers`
+
+参数：无。只读。
+
+`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name" }] }`。
+
+### `addLayer`
+
+`params`：可选 `name`。省略时用还没被占用的 `Layer N`，从「当前层数 + 1」起找。名字会去掉首尾空白，长度 1 到 64。新层插在当前层上面，每一帧都是透明索引，并成为当前层。一步撤销。
+
+`result`：`{ "index", "name", "activeLayer" }`。
+
+错误：`LayerName`。
+
+### `deleteLayer`
+
+`params`：可选 `index`，省略时删当前层。至少留一层。删掉当前层时，滑到这个下标上的那一层保持选中；删的是最上面一层时，选中新的最上面一层。
+
+`result`：`{ "index", "activeLayer", "layerCount" }`。`index` 是被删掉的那一层。
+
+错误：`LayerIndex`、`LastLayer`。只剩一层时，任何删除都是 `LastLayer`，包括越界下标。
+
+### `renameLayer`
+
+`params`：`name`，可选 `index`（省略时是当前层）。同一个名字不进撤销栈。
+
+`result`：`{ "index", "name" }`，`name` 是去掉空白之后的名字。
+
+错误：`LayerIndex`、`LayerName`。
+
+### `setActiveLayer`
+
+`params`：`index`。相同下标不进撤销栈。
+
+`result`：`{ "index" }`。
+
+错误：`LayerIndex`。
+
+### `reorderLayer`
+
+`params`：`from`、`to`。`to` 是移动之后的下标。相同下标不进栈。当前层跟着被移动的那一层走，夹在中间的层下标加减一。0 仍然是最下面。
+
+`result`：`{ "from", "to", "activeLayer" }`。
+
+错误：`LayerIndex`。
+
+### `flattenLayers`
+
+参数：无。每一帧按上面的规则压成一层，名字改回 `Layer 1`，`activeLayer` 回到 0。保存出来就是旧的单层工程。已经是这一层时不进栈。一步撤销能回到原来的栈。
+
+`result`：`{ "layerCount": 1, "activeLayer": 0, "name": "Layer 1" }`。
+
+CLI：`layer list`、`layer add --name gear`、`layer remove`（别名 `delete`）、`layer rename`、`layer select`、`layer reorder --from --to`、`layer flatten`。
+
+*Layers are a document-level stack. Every frame has one index buffer per layer, the same size as the canvas. Index 0 is the bottom. A new project and an old single-layer file are one layer named `Layer 1`. That file is still saved without `layers` or `activeLayer`. A stack, a renamed layer, or a non-zero active layer writes those fields. Frames with more than one layer store `frames[].layers[].pixels` and omit the legacy `pixels` array.*
+
+*Composite from bottom to top. Index 0 is transparent and shows the layer under it. Any other index covers that layer. Palette alpha is not blended between layers. Export then resolves the winning index to RGBA, the same as a single layer.*
+
+*`preview`, `diff`, and `export png` / `export sheet` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
+
+*`addLayer` inserts a transparent layer above the active one on every frame and selects it. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the composite back into one layer named `Layer 1`.*
 
 ## 不变量 Invariants
 

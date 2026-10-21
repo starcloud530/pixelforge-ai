@@ -134,16 +134,18 @@ pub struct FrameDiff {
 }
 
 impl Document {
-    /// Packed `r, g, b, a` for one frame, row-major, length `width * height * 4`.
+    /// Packed `r, g, b, a` for one frame's composite, row-major, length `width * height * 4`.
     ///
     /// Same palette resolution as [`Self::export_frame_png`]: index 0 is
     /// transparent, and every other index keeps the alpha stored on the palette.
-    /// Onion skin reads this buffer and composites it in the shell. The bytes
-    /// are not stored on the document, so they cannot land in the project file
-    /// or in an export unless a caller writes them there.
+    /// Layers are stacked first: a non-zero index covers the layer under it,
+    /// and palette alpha is not blended between layers. Onion skin reads this
+    /// buffer and composites it in the shell. The bytes are not stored on the
+    /// document, so they cannot land in the project file or in an export
+    /// unless a caller writes them there.
     pub fn frame_rgba(&self, index: usize) -> Result<Vec<u8>, KernelError> {
-        let pixels = self.frame_pixels(index)?;
-        Ok(expand_indexed(self.palette_colors(), pixels))
+        let pixels = self.composite_pixels(index)?;
+        Ok(expand_indexed(self.palette_colors(), &pixels))
     }
 
     /// RGBA PNG of one frame at scale 1.
@@ -165,10 +167,23 @@ impl Document {
         index: usize,
         scale: u32,
     ) -> Result<Vec<u8>, KernelError> {
-        let pixels = self.frame_pixels(index)?;
+        self.export_view_png(index, scale, None)
+    }
+
+    /// [`Self::export_frame_png_scaled`] of the composite, or of one layer.
+    ///
+    /// `layer == None` stacks every layer. Index 0 does not cover. A set layer
+    /// is that buffer alone, including its transparent cells.
+    pub fn export_view_png(
+        &self,
+        index: usize,
+        scale: u32,
+        layer: Option<usize>,
+    ) -> Result<Vec<u8>, KernelError> {
+        let pixels = self.view_pixels(index, layer)?;
         let (width, height, rgba) = frame_rgba_scaled(
             self.palette_colors(),
-            pixels,
+            &pixels,
             self.width(),
             self.height(),
             scale,
@@ -279,9 +294,9 @@ impl Document {
             let origin_x = mul_scale(origin_x, scale)?;
             let origin_y = mul_scale(origin_y, scale)?;
             let pixels = self
-                .frame_pixels(index)
+                .composite_pixels(index)
                 .expect("frame index comes from the frame list");
-            let scaled = nearest_indices(pixels, self.width(), self.height(), scale)?;
+            let scaled = nearest_indices(&pixels, self.width(), self.height(), scale)?;
             blit_frame(
                 &mut rgba,
                 sheet_stride,
@@ -303,8 +318,19 @@ impl Document {
         with: usize,
         scale: u32,
     ) -> Result<FrameDiff, KernelError> {
-        let left = self.frame_pixels(frame)?;
-        let right = self.frame_pixels(with)?;
+        self.diff_frames_on(frame, with, scale, None)
+    }
+
+    /// [`Self::diff_frames`] of the composite, or of one layer on both frames.
+    pub fn diff_frames_on(
+        &self,
+        frame: usize,
+        with: usize,
+        scale: u32,
+        layer: Option<usize>,
+    ) -> Result<FrameDiff, KernelError> {
+        let left = self.view_pixels(frame, layer)?;
+        let right = self.view_pixels(with, layer)?;
         let scale = require_scale(scale)?;
         let width = self.width();
         let height = self.height();
@@ -313,9 +339,9 @@ impl Document {
             .zip(right.iter())
             .filter(|(a, b)| a != b)
             .count();
-        let diff_rows = diff_rows(left, right, width);
+        let diff_rows = diff_rows(&left, &right, width);
         let (png_width, png_height, rgba) =
-            diff_rgba(self.palette_colors(), left, right, width, height, scale)?;
+            diff_rgba(self.palette_colors(), &left, &right, width, height, scale)?;
         Ok(FrameDiff {
             frame,
             with,
