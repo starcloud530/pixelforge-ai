@@ -1,10 +1,10 @@
 # 外部 AI 编排 AI driver
 
-产品路径是仓库外的 Agent，不是应用里的聊天。Agent 调用本地 `pixelforge` CLI，CLI 把 Tool API JSON 交给 Rust 内核。配方和不变式见 [agent-skill.md](agent-skill.md)，目录见 [tool-api.md](tool-api.md)。
+产品路径是仓库外的 Agent，不是应用里的聊天。Agent 调用本地 `pixelforge` CLI，CLI 把 Tool API JSON 交给 Rust 内核。技能表、配方和不变式见 [agent-skill.md](agent-skill.md)，目录见 [tool-api.md](tool-api.md)。Cursor 按 description 加载 `.cursor/skills/`。
 
 这一页剩下的内容是网页外壳里的**可选一轮演示**。它做一轮：用户写一句提示，编排向外部模型要一次 chat completion，把回复里的 `tool_calls` 按顺序交给 Rust Tool API，然后外壳从同一份 `Document` 刷新画面。多轮记忆、规划和自然语言润色不在这个仓库里做。[#14](https://github.com/starcloud530/pixelforge-ai/issues/14) 那种嵌在应用里的多轮对话不是产品；对话留在外部 Agent。MCP 不在这一阶段，以后若要接，只做 CLI 的薄封装。
 
-*The product path is an agent outside this repository, not an in-app chat. The agent runs the local `pixelforge` CLI, and the CLI hands Tool API JSON to the Rust kernel. Recipes and invariants: [agent-skill.md](agent-skill.md). Catalog: [tool-api.md](tool-api.md).*
+*The product path is an agent outside this repository, not an in-app chat. The agent runs the local `pixelforge` CLI, and the CLI hands Tool API JSON to the Rust kernel. The skill table, recipes, and invariants: [agent-skill.md](agent-skill.md). Catalog: [tool-api.md](tool-api.md). Cursor matches `description` under `.cursor/skills/`.*
 
 *The rest of this page is the **optional one-turn demo** in the web shell. One turn: the user writes a prompt, the driver asks an external model for one chat completion, runs that reply's `tool_calls` in order through the Rust Tool API, and the shell refreshes from the same `Document`. Multi-turn memory, planning, and revision polish are not built in this repository. An embedded multi-turn chat like [#14](https://github.com/starcloud530/pixelforge-ai/issues/14) is not the product; the conversation stays with the external agent. MCP is out of this stage. A later wrapper, if any, would be a thin layer over the CLI.*
 
