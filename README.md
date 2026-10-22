@@ -62,6 +62,20 @@ Google Playground and Unity Spark aim at text → full games. We aim at text or 
 
 Early / work in progress. The M5 Tool API is a stable machine-readable surface in the Rust kernel; the catalog is [docs/tool-api.md](docs/tool-api.md). The product path is an agent outside this repository calling the local `pixelforge` CLI, which forwards Tool API JSON to the kernel. Usage: [docs/agent-skill.md](docs/agent-skill.md). The one-turn AI panel in the web shell is an optional demo; see [docs/ai-driver.md](docs/ai-driver.md). An embedded multi-turn chat ([#14](https://github.com/starcloud530/pixelforge-ai/issues/14)) is not the product.
 
+## Agent Skills
+
+Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。Skill 补观改流程，不代替专业画师的审美。命令速查在 [docs/agent-skill.md](docs/agent-skill.md)。本仓库不把同一份正文复制到 `.agents/skills/` 或 `.claude/skills/`；Codex 与 Claude Code 从 `AGENTS.md` / `CLAUDE.md` 打开这些文件。
+
+*Cursor matches `description` under `.cursor/skills/<name>/SKILL.md`. Creative skills follow the `pixelforge` invariants first. Skills add a look-then-revise loop; they do not replace a pixel artist's judgment. Command reference: [docs/agent-skill.md](docs/agent-skill.md). There is no second copy under `.agents/skills/` or `.claude/skills/`.*
+
+| Skill | 说明 |
+| --- | --- |
+| `pixelforge` | 核心。安装与运行、索引色不变量、退出码、`inspect` / `tools` / `call`。其它创作 skill 先遵守这里。 |
+| `pixelforge-draw` | 从零画角色、立绘、剪影。剪影（单色）→ 色块 → 细节，每阶段 `preview --scale` 与 ASCII。禁止一像素刷屏，读图要查破洞、头身和体积断点。 |
+| `pixelforge-sprite-4dir` | 四向走 + 闲精灵表。行是朝向，列是 idle 加 walk。`export sheet --cols`、跨帧 `copy-rect`、`diff` 查脚滑、`hflip` 后修高光。 |
+| `pixelforge-layers` | 身体、装备、四肢分层。合成预览、绘制 `--layer`、`layer flatten`。 |
+| `pixelforge-critique` | 只读检查：剪影、头身、侧向深度、腿体积、脚接触、色阶。必须列出缺陷，不能只说看起来不错。 |
+
 ## 开发 Development
 
 本地骨架分成三层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮/矩形填充、矩形擦除、矩形复制与移动、帧的增删复制，以及记录这些操作的撤销栈），本地 Agent 入口是 `crates/pixelforge-cli` 的 `pixelforge` 命令，TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。`crates/pixelforge-kernel-wasm` 用 wasm-bindgen 把这份内核编进浏览器。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。CLI 的配方见 [docs/agent-skill.md](docs/agent-skill.md)。

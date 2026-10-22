@@ -1,0 +1,76 @@
+---
+name: pixelforge-layers
+description: >-
+  Split a PixelForge frame into body, gear, and limb layers. Use when the user
+  says 分层, 装备, 身体, body, gear, or limbs, or when adding or selecting
+  layers, drawing with --layer without switching the active layer, previewing
+  the composite versus one layer, reordering the stack, or flattening back to
+  a single layer. Follow the pixelforge skill's index-color invariants first.
+  Shape on a layer still follows pixelforge-draw. A four-direction sheet layout
+  is pixelforge-sprite-4dir. A read-only review is pixelforge-critique.
+---
+
+# 分层
+
+先读 `pixelforge`。层上的造型仍按 `pixelforge-draw`：剪影、色块、细节，每阶段 `preview`。本 skill 只规定块放在哪一层。多一层不会让图画得更好。
+
+*Follow pixelforge invariants. Draw each layer with the pixelforge-draw stages. This skill places parts on the stack.*
+
+## When to use
+
+身体、装备、四肢要分开改：换衣服、换武器、挪手臂时不想重画躯干。所有帧共用同一个层栈。下标 0 在最下面。
+
+## Stack
+
+从下到上常用这三层。四肢不一定要独立成层。
+
+| 层 | 名字 | 放什么 |
+| --- | --- | --- |
+| 0 | `body` | 剪影、皮肤、衣服里属于躯干的部分 |
+| 1 | `limbs` | 只有手臂或腿必须单独挪、且会挡住躯干时才加 |
+| 最上面 | `gear` | 武器、面具、包、手机 |
+
+手臂不挡着躯干、也不单独循环时，留在 `body` 上，用 `move-rect` 挪。不要为了「整齐」多加一层。
+
+同一格不要在两层上各画一个非 0 索引。上层的非 0 盖住下层，层与层之间不按调色板 alpha 混合。上层的索引 0 露出下面的层。
+
+## Draw
+
+新工程和旧的单层文件都是一层，名字 `Layer 1`。先改名再画。`layer add` 插在当前层上面，并选中新层。不写 `--name` 时名字是下一个空闲的 `Layer N`。
+
+```bash
+pixelforge new --width 32 --height 48 --output hero.json
+pixelforge layer rename --project hero.json --name body
+pixelforge fill-rect --project hero.json --x 8 --y 10 --width 16 --height 24 --color-index 3
+pixelforge layer add --project hero.json --name gear
+pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 5
+pixelforge preview --project hero.json --scale 4
+```
+
+`fill-rect --layer 0` 画身体，不切换当前层。`preview` 不带 `--layer` 看合成（ASCII 加 `result.path` 彩色 PNG）。`preview --layer 0` 只看身体，不选中它。`export png` 和 `export sheet` 写合成。
+
+```bash
+pixelforge fill-rect --project hero.json --layer 0 --x 8 --y 10 --width 16 --height 24 --color-index 4
+pixelforge preview --project hero.json --layer 0 --scale 4
+pixelforge preview --project hero.json --scale 4
+pixelforge layer list --project hero.json
+pixelforge layer select --project hero.json --index 0
+```
+
+改装备时当前层留在 `gear`，或显式 `--layer` 指向装备那一层。不要在 `body` 上把装备再画一遍。
+
+`layer remove` 删当前层或 `--index N`。最后一层不能删。`layer reorder --from 1 --to 0` 把上层挪到下面，`to` 是移动之后的下标。
+
+`copy-rect` / `move-rect` 的 `--layer` 只读写那一层，不跨层复制。
+
+## Flatten
+
+需要旧的单层文件时：
+
+```bash
+pixelforge layer flatten --project hero.json
+```
+
+合成写进名为 `Layer 1` 的一层。文件回到单层工程，不再写 `layers` 和 `activeLayer`。压平之前用 `preview` 确认合成就是要留下的图。压平是一步撤销，但下一个进程没有这个栈；要留着分层就先复制文件。
+
+*`--layer` does not select the layer. `preview` without `--layer` is the composite. `layer flatten` writes one layer named `Layer 1`.*

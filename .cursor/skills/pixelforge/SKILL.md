@@ -2,85 +2,91 @@
 name: pixelforge
 description: >-
   Edit PixelForge indexed-pixel projects with the pixelforge CLI and the kernel
-  Tool API. Use when creating or changing a pixelforge-project, choosing a
-  canvas size, painting or erasing cells, filling or erasing a rectangle,
-  copying or moving a rectangle across frames, previewing a frame in color,
-  diffing two frames, flipping a frame horizontally, resizing the canvas,
-  editing the palette,
-  adding or duplicating frames, setting delays, editing layers, undoing, or
-  exporting a PNG sequence or sprite sheet.
+  Tool API. Use when the user says 用 pixelforge, 改工程, or CLI, or when
+  installing or running pixelforge, creating or changing a pixelforge-project,
+  painting or erasing cells, filling or erasing a rectangle, copying or moving
+  a rectangle, editing the palette, adding or duplicating frames, undoing,
+  running inspect, tools, or call, or exporting a PNG sequence or sprite sheet.
+  Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
+  pixelforge-layers, pixelforge-critique) must follow this skill's index-color
+  invariants before their own workflow.
 ---
 
-# PixelForge
+# PixelForge（shared）
 
 用 `pixelforge` CLI 改索引像素。格子里只存调色板索引。不要自己发明 RGB，不要在应用里做多轮聊天，也不要加 MCP 服务器。
 
 Edit indexed pixels only through the `pixelforge` CLI. The Rust kernel owns the pixels. You do not invent RGB, you do not build an in-app multi-turn chat, and you do not add an MCP server.
 
+`pixelforge-draw`、`pixelforge-sprite-4dir`、`pixelforge-layers`、`pixelforge-critique` 都先遵守本 skill 的不变量，再套各自的流程。造型步骤在那些 skill 里。本 skill 不判断好不好看。
+
+*Creative skills follow these invariants first. Staging a figure, a four-direction sheet, layers, and critique live in those skills. This skill does not judge taste.*
+
 ## When to use
 
-Use this skill when you create or change a `pixelforge-project` file, its frames, its palette, or a PNG export.
+创建或修改 `pixelforge-project`、调色板、帧、导出，或任何一次 `pixelforge` 调用。产品路径是：外部 Agent → `pixelforge` CLI → `Document::call_tool`。网页里的一轮面板是可选演示。嵌在应用里的多轮对话（#14）不是产品。MCP 不在范围内；以后的封装只调用这支 CLI。
 
-The product path is: external agent → `pixelforge` CLI → `Document::call_tool`. The one-turn panel in the web app is an optional demo. An embedded multi-turn conversation (#14) is not the product. MCP is out of scope; a later wrapper would only call this CLI.
+画角色、立绘、剪影：同时读 `pixelforge-draw`。四向走加待机的精灵表：同时读 `pixelforge-sprite-4dir`。身体、装备、四肢分层：同时读 `pixelforge-layers`。只读挑错：读 `pixelforge-critique`，不要改像素。
+
+*Use this skill for every project edit. Read the matching creative skill for how to stage the picture.*
 
 ## Install and run
 
-From the repository root:
+在仓库根目录：
 
 ```bash
 cargo install --path crates/pixelforge-cli
 pixelforge --help
 ```
 
-Without installing:
+不安装也可以：
 
 ```bash
 cargo run -p pixelforge-cli -- --help
 ```
 
-A new file needs Rust stable (`cargo` 1.83 or newer). There is no Python service.
+需要 Rust stable（`cargo` 1.83 或更新）。没有 Python 服务。
+
+*From the repository root, `cargo install --path crates/pixelforge-cli`, or `cargo run -p pixelforge-cli -- --help`. Rust stable (`cargo` 1.83 or newer). There is no Python service.*
 
 ## Invariants
 
-- Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index from 1 up, never raw RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy the stored indices, including 0.
-- Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or the layer named by `--layer`, and leaves the other layers alone. `--layer` does not select that layer. `preview`, `diff`, and `export png` / `export sheet` show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `preview --layer N` and `diff --layer N` show that layer only. `layer flatten` writes the composite back into one layer named `Layer 1`, which is the old single-layer file. A file that is still that one default layer omits `layers` and `activeLayer`.
-- A blank project already has the studio palette (indices 1 through 8). Paint those. To introduce a color, `palette add` or `palette set`, then paint the index the tool returns.
-- `palette lock` still allows `paint` and `fillRect` of an existing index. It refuses recolor, append, and import.
-- Do not hand-edit the project JSON to plant a color. A bad index fails to load. Do not write a diffusion image back into the project.
-- One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack. The next process starts empty, same as opening the file in the editor. `pixelforge undo` on a freshly opened file returns `NothingToUndo`.
-- A refused call does not change the document. In a batch, earlier calls are saved and later calls are not run.
-- Export resolves indices through the palette inside the kernel. Do not recolor the PNG yourself. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip` moves indices only; it does not recolor highlights.
-- Stdout is compact JSON, one response per line. Stderr is a short note (`wrote hero.json`), plus the ASCII frame when you pass `--preview` or run `preview`. Parse stdout for `ok` / `error.code`. Read the stderr grid (or `preview`'s `result.rows`) when you need to see the picture.
+- 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的索引（从 1 起），不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
+- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。分层怎么摆见 `pixelforge-layers`。
+- 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
+- `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加或导入。
+- 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
+- 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
+- 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
+- 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` 只搬索引，不改高光颜色。镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
-Exit codes: `0` every tool returned `ok: true`. `1` a tool returned `ok: false` (stdout still has the error object). `2` the command did not run the tool (missing file, bad project, bad request file). `preview` and `diff` also exit `2` when the kernel refuses, and stdout is still that error object. Clap usage errors also exit `2` and print help to stderr, without a JSON line.
+*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. `flip` moves indices and does not recolor.*
 
-## Canvas size
+## Output and exit codes
 
-Pick the size in `pixelforge new` before drawing. A full body crammed into a sprite slot looks like a diagram. If the canvas is too small, `resize` copies every frame into a larger one (centered, or at `--offset-x` / `--offset-y`) instead of redrawing the file. Expanding does not invent detail; it only moves the indices you already stored.
+stdout 是紧凑 JSON，一行一个响应。解析 stdout 的 `ok` 和 `error.code`。stderr 是短句（`wrote hero.json`），加上 `preview`、`diff` 或 `--preview` 时的 ASCII 图。要看图就读 stderr 的格子，或 `preview` 的 `result.rows`。
 
-| Subject | Size (width × height) |
-| --- | --- |
-| Top-down minion, icon, tile | 16–32 |
-| Full-body game sprite | about 32–64 |
-| Standing 立绘 / transformation story | at least 64×96; prefer **64×128** or **96×128** |
-| Bust or face-focused portrait | at least 64×64 |
+退出码：`0` 每个工具都是 `ok: true`。`1` 某个工具 `ok: false`（stdout 仍是那个错误对象）。`2` 工具没跑起来（文件打不开、工程损坏、请求文件不是 JSON）。`preview` 和 `diff` 在内核拒绝时也是退出码 `2`，stdout 仍是那个错误对象。clap 的用法错误也是退出码 `2`，说明在 stderr，没有 JSON 行。
 
-A **48×64 full body looks schematic**: the head is a few pixels, the pose cannot read, and later frames have nowhere to put damage, cloth, or a second silhouette. Do not start a standing figure at 16×16 or 32×32.
+*`0` all ok, `1` tool error with JSON on stdout, `2` the tool did not run or clap rejected the command. `preview` and `diff` use `2` when the kernel refuses.*
 
-## Observe, then revise
+## Pictures, sheets, and canvas commands
 
-Do not paint every frame blind. After each major stage — silhouette, flats, details, pose — look at the picture and fix it before the next stage.
+这些是命令语义。剪影怎么画、四向怎么排、层怎么命名，不在这里。
 
-1. Draw that stage with `fill-rect`, `erase-rect`, `copy-rect`, or `move-rect`, and a short `call` batch.
-2. `pixelforge preview --project … --scale 4` (add `--frame N` to read another frame without selecting it). Open `result.path`. Use `diff --frame A --with B --scale 4` when two poses must line up.
-3. Read the ASCII grid (stderr, or `result.rows`) for holes and the silhouette. Read the scaled PNG for color: orange cloth, gray-green skin, a metal mask, and whether neighboring ramps stay apart.
-4. Fix the shape, then go on. Repeat for the next stage.
+`preview` 子命令只读。它把 ASCII 打到 stderr，并写出最近邻彩色 PNG。`--scale K` 与导出相同（整数 ≥ 1，默认 1）。路径在 `result.path`（默认工程旁边的 `<stem>.preview.png`，或 `--output`）。`--frame N` 画第 N 帧，不改 `activeFrame`，也不改文件。`--layer N` 只画那一层，不选中它。`result.frame` 是这张图，`result.activeFrame` 仍是文档的当前帧。字形：`.` 透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 写出索引）。会改像素的命令上的 `--preview` 只有 ASCII，不写这张彩色 PNG。
 
-`preview` and `--preview` print one glyph per cell: `.` is transparent (index 0), `1`–`9` are those indices, `A`–`Z` are 10–35, `a`–`z` are 36–61, and `*` is index 62 or above (the legend on stderr names those indices). The picture is the composite of every layer unless `--layer N` is set. Stdout stays JSON. `preview --frame N` draws frame N and does not change `activeFrame` or the project file. `preview --layer N` draws that layer and does not select it. `result.frame` is the picture; `result.activeFrame` is still the document's active frame. `preview` also writes a nearest-neighbor color PNG. `--scale K` matches export (`K` ≥ 1, default 1). The path is `result.path` (default `<stem>.preview.png` beside the project, or `--output`). `--preview` on a mutating command stays ASCII on stderr and does not write that PNG.
+`diff` 只读。`--frame A --with B`。stderr：`.` 索引相同，`!` 两边都有墨且不同，其它字形是唯一有墨的那边。彩色 PNG 在 `result.path`（默认 `<stem>.diff.png`），三格：frame、with、洋葱皮。洋葱皮不改像素。`--scale` 同上。`--layer N` 只比较那一层。
 
-`export png --scale K` and `export sheet --scale K` nearest-neighbor upscale inside the kernel (`K` is an integer ≥ 1, default 1). Each palette index becomes a `K` by `K` block, then the kernel resolves RGB. Do not scale the PNG with an external tool when you only need to judge color. `export sheet --cols N` sets the column count; omit it and the grid stays `ceil(sqrt(frame count))`.
+`hflip` 等于 `flip --horizontal`，不需要再写 `--horizontal`。`flip` 必须写 `--horizontal`，否则退出码 `2`。两者都只镜像索引（`x` 收到 `origin + width - 1 - x`），不改颜色。不写矩形就是整帧；写矩形时 `x`、`y`、`width`、`height` 要齐。`--frame N` 不切换当前帧。一步撤销。
 
-Prefer `fillRect` for a solid region, `eraseRect` for cutting a silhouette, and `copyRect` / `moveRect` for a pose shift or a prop that moves. One `pixelforge call` with several `--request` flags beats thousands of lone `paint` or `erase` calls. Wrap several rects in `beginGesture` / `endGesture` when they should undo as one step. A single `fillRect`, `eraseRect`, `copyRect`, or `moveRect` is already one undo step.
+`resize --width W --height H` 把每一帧、每一层的索引导进新画布，格式仍是 version 1。不写偏移就居中；`--offset-x` 和 `--offset-y` 要成对出现。越出新画布的格子被裁掉。放大不会凭空补细节。边长 `1..=256`。画布该选多大见 `pixelforge-draw`。
+
+`export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大，再解析调色板。只为看颜色时，用这个或 `preview --scale`，不要再用外部工具放大。`export sheet` 不传 `--cols` 时列数是 `ceil(sqrt(帧数))`。`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。一行一个朝向时 `N` 是该朝向的帧数，见 `pixelforge-sprite-4dir`。`export` 子命令把文件写到磁盘并返回路径。`call` 里的 `exportPngSequence` / `exportSpriteSheet` 返回 base64，不写文件。
+
+平涂用 `fillRect`，挖块用 `eraseRect`，挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
+
+*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` mirrors indices and does not recolor. `resize` copies stored indices. `export sheet --cols N` sets the column count.*
 
 ## Recipes
 
@@ -90,9 +96,9 @@ Prefer `fillRect` for a solid region, `eraseRect` for cutting a silhouette, and 
 pixelforge new --width 16 --height 16 --output hero.json
 ```
 
-Stdout is the Tool API `inspect` response. The file is version 1 `pixelforge-project` JSON. `new` refuses to replace a file that already exists.
+stdout 是 `inspect` 响应。文件是 version 1 `pixelforge-project`。`new` 不覆盖已有文件。尺寸按 `pixelforge-draw` 的表选，不要默认 16×16 画全身。
 
-### Paint, fill, and erase
+### Paint, fill, erase, blit, flip, resize
 
 ```bash
 pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3 --preview
@@ -101,13 +107,12 @@ pixelforge copy-rect --project hero.json --src-x 8 --src-y 70 --width 6 --height
 pixelforge move-rect --project hero.json --src-x 40 --src-y 78 --width 6 --height 10 --dst-x 44 --dst-y 80
 pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
 pixelforge erase --project hero.json --x 1 --y 2
-pixelforge preview --project hero.json
-pixelforge preview --project hero.json --frame 1
+pixelforge preview --project hero.json --scale 4
+pixelforge preview --project hero.json --frame 1 --scale 4
+pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 ```
 
-`fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x`,`y` is the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.
-
-`erase-rect` clears that same kind of rectangle to index 0 (`eraseRect`). `copy-rect` copies indices as they are, including 0 (`copyRect`: `srcX`, `srcY`, `width`, `height`, `dstX`, `dstY`, optional `fromFrame`, optional `toFrame`). `move-rect` does that copy and clears source cells that are not part of the destination, as one undo step (`moveRect`). Omit the frame flags to stay on the active frame. `--from-frame` reads another frame and `--to-frame` writes another; neither flag changes `activeFrame`. Across frames a move clears the whole source rectangle. If the source or the destination would leave the canvas, nothing is written.
+`fill-rect` 用一个已有索引填轴对齐矩形。`x`、`y` 是左上角。`width` 和 `height` 至少为 1，整块必须在画布内；只要有一格出界，一格都不写。`call` 里的工具名是 `fillRect`。`erase-rect` 清成索引 0（`eraseRect`）。`copy-rect` 原样复制索引，包括 0（`copyRect`：`srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`，可选 `fromFrame`、`toFrame`）。`move-rect` 在同一步撤销里搬走，并把不在目标里的源格子清成 0（`moveRect`）。`--from-frame` / `--to-frame` 不改变 `activeFrame`。跨帧的 `move-rect` 清掉整个源矩形。源或目标出界时，一格都不写。`--layer N` 画那一层，不选中它。
 
 ```bash
 pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 2 \
@@ -118,7 +123,9 @@ pixelforge resize --project hero.json --width 64 --height 64
 pixelforge resize --project hero.json --width 64 --height 96 --offset-x 0 --offset-y 0
 ```
 
-`hflip` and `flip --horizontal` mirror indices (`x` becomes `origin + width - 1 - x`). They do not recolor. Omit the rectangle to flip the whole frame. `resize` keeps the version 1 project file. Omit the offsets to center; pass both to place the old origin. Content that falls outside is clipped. One undo restores the previous canvas.
+### One undo step
+
+手势和撤销放在同一次进程里。进程结束后栈就没了；要回头先 `cp hero.json hero.json.bak`。
 
 ```bash
 pixelforge call --project hero.json \
@@ -129,73 +136,25 @@ pixelforge call --project hero.json \
   --preview
 ```
 
-### Standing 立绘
+要在这次进程里撤回，把 `--request '{"tool":"undo"}'` 加在同一条命令上。
 
-For a human-to-zombie standing portrait, `new --width 64 --height 128` (or 96×128). Block the head, torso, and legs with `fill-rect`, `preview`, then correct the silhouette with `erase-rect` instead of hundreds of `erase` calls. Add cloth and skin as more rects, `preview` again, then `paint` only the details (eyes, teeth, tears in cloth). Shift an arm or a dropped phone with `move-rect` or `copy-rect`, then `preview`. `duplicateFrame` for the zombie pose, then `setActiveFrame` / `frame select` the returned index — duplicate does not switch to the new frame — and repeat the same look-then-fix loop. `preview --frame N` compares another frame without selecting it. `export png --scale 2` (or 4) when a stage should be read as a real image. Do not invent RGB, and do not emit a `paint` or `erase` per pixel for a flat area.
+### Frames and export
 
-### A stroke that undoes as one step
-
-Put the gesture and the undo in the **same** process:
-
-```bash
-pixelforge call --project hero.json \
-  --request '{"tool":"beginGesture"}' \
-  --request '{"tool":"paint","params":{"x":1,"y":2,"colorIndex":3}}' \
-  --request '{"tool":"paint","params":{"x":2,"y":2,"colorIndex":3}}' \
-  --request '{"tool":"endGesture"}'
-```
-
-To revert that stroke before the process exits, add `--request '{"tool":"undo"}'` to the same command. Copy the file first (`cp hero.json hero.json.bak`) if you may need the previous pixels after the process exits.
-
-### Walk frames
+`frame duplicate` / `duplicateFrame` 复制像素和时长，返回新下标。它不选中新帧。当前帧若在插入点或之后，下标加一，像素还是原来的。画拷贝之前要 `frame select` / `setActiveFrame`。网页上的复制按钮会选中；CLI 不会。`frame add` 在末尾追加一帧 100 毫秒空白，不改当前帧。`frame delay` 的范围是 `1..=65535`。`export png` 写出 `pixelforge-000.png` 起的文件。
 
 ```bash
 pixelforge call --project hero.json \
   --request '{"tool":"duplicateFrame","params":{"index":0}}' \
   --request '{"tool":"setActiveFrame","params":{"index":1}}' \
-  --request '{"tool":"setFrameDelay","params":{"index":1,"delayMs":120}}' \
-  --request '{"tool":"paint","params":{"x":0,"y":0,"colorIndex":1}}'
-pixelforge export sheet --project hero.json --output hero-sheet.png
-pixelforge export png --project hero.json --out-dir ./hero-frames
-```
-
-`frame duplicate` copies pixels and delay to the next slot and returns that index. It does **not** select the new frame. `activeFrame` stays on the same pixels: if it sat at or after the insertion point its index increases by one, otherwise it stays put. Paint the copy only after `frame select` / `setActiveFrame` on the returned index. The web editor's duplicate button selects the copy; the CLI and the `duplicateFrame` tool do not. `frame add` appends a blank frame at 100 ms and does not change the active frame. `frame delay` sets one frame. `export png` writes `pixelforge-000.png` onward. `export png --scale K` and `export sheet --scale K` nearest-neighbor upscale in the kernel (`K` ≥ 1, default 1). `export sheet` uses the kernel grid (`columns = ceil(sqrt(frame count))`) unless you pass `--cols N`. Scale does not change the column count. Use `--cols` when one row should stay one facing.
-
-```bash
-pixelforge preview --project hero.json --frame 0 --scale 4
-pixelforge preview --project hero.json --frame 1 --scale 4
-pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
-pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2
-```
-
-`diff` is read-only. Stderr shows an index diff (`.` same, `!` both differ, any other glyph is the only ink). The PNG at `result.path` is three panels: frame, with, onion. The onion does not change pixels. Compare feet and arms there before repainting the walk.
-
-The same edits as subcommands:
-
-```bash
+  --request '{"tool":"setFrameDelay","params":{"index":1,"delayMs":120}}'
 pixelforge frame duplicate --project hero.json --index 0
 pixelforge frame select --project hero.json --index 1
 pixelforge frame delay --project hero.json --index 1 --delay-ms 120
-```
-
-### Layers
-
-Put the body on the bottom layer and the equipment on the layer above it. Repainting the equipment does not redraw the body. `preview` shows both. `export png` writes the composite.
-
-```bash
-pixelforge new --width 32 --height 48 --output hero.json
-pixelforge layer rename --project hero.json --name body
-pixelforge fill-rect --project hero.json --x 8 --y 10 --width 16 --height 24 --color-index 3
-pixelforge layer add --project hero.json --name gear
-pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 5
-pixelforge preview --project hero.json --scale 4
-pixelforge fill-rect --project hero.json --x 10 --y 12 --width 12 --height 10 --color-index 6
-pixelforge preview --project hero.json --layer 0
+pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2
 pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
-pixelforge layer flatten --project hero.json
 ```
 
-`layer add` inserts a transparent layer above the active one on every frame and selects it. Omit `--name` and the name is the next free `Layer N`, starting at one past the current count. `layer list` prints the stack. `layer select --index 0` goes back to the body. `layer remove` deletes the active layer, or `--index N`; the last layer is refused. `layer reorder --from 1 --to 0` moves gear under the body (`to` is the index after the move). `fill-rect --layer 0` paints the body without selecting it. A new project and an old project are one layer named `Layer 1`.
+四向表的行、列和脚滑检查见 `pixelforge-sprite-4dir`。
 
 ### Palette
 
@@ -203,27 +162,30 @@ pixelforge layer flatten --project hero.json
 pixelforge palette add --project hero.json --r 20 --g 30 --b 40
 pixelforge palette set --project hero.json --index 1 --r 10 --g 20 --b 30
 pixelforge palette lock --project hero.json
+pixelforge palette unlock --project hero.json
 pixelforge palette import --project hero.json --mode merge --file colors.gpl
 ```
 
-`palette add` prints the new index. Paint that index. Lock before importing if the palette must stay fixed; import is then refused.
+`palette add` 的结果里有新索引，画的时候用那个索引。`import` 的 `mode` 是 `replace` 或 `merge`。锁定时导入会被拒绝。
 
-### Inspect and the raw tool
+### Inspect and raw calls
 
 ```bash
 pixelforge inspect --project hero.json
 pixelforge tools
 pixelforge call --project hero.json --request '{"tool":"inspect"}'
-```
-
-`call` prints the Tool API response unchanged. `exportPngSequence` and `exportSpriteSheet` on `call` return base64 and do not write files. The `export` subcommand writes files and returns paths instead of base64.
-
-A request file may be one JSON object, a JSON array, or one JSON value per line:
-
-```bash
 pixelforge call --project hero.json --request-file edits.json
 ```
 
+`edits.json` 可以是一个 JSON 对象、一个 JSON 数组，或每行一个 JSON 值。`--request` 原样交给 `Document::call_tool`。不带 `--request` 时也可以从 stdin 送入。
+
 ## Catalog
 
-Tool names, params, and `error.code` values: `docs/tool-api.md`. Longer recipes: `docs/agent-skill.md`.
+工具名、参数、`error.code`：`docs/tool-api.md`。技能表和命令速查：`docs/agent-skill.md`。
+
+| 接着读 | 任务 |
+| --- | --- |
+| `pixelforge-draw` | 从零画角色、立绘、剪影 |
+| `pixelforge-sprite-4dir` | 四向走 + 闲精灵表 |
+| `pixelforge-layers` | body / gear / limbs |
+| `pixelforge-critique` | 只读挑错 |
