@@ -1,5 +1,5 @@
 # PixelForge
 
-Follow `AGENTS.md` and `.cursor/skills/pixelforge/SKILL.md`.
+Follow `AGENTS.md`. Pixel skills live in `.cursor/skills/<name>/SKILL.md`. Read `pixelforge` first, then the task skill: `pixelforge-draw` (角色 / 立绘 / 剪影), `pixelforge-sprite-4dir` (四向走 + 闲), `pixelforge-layers` (body / gear / limbs), `pixelforge-critique` (只读挑错，必须列缺陷). This repository does not mirror them under `.claude/skills/` or `.agents/skills/`. The command reference is `docs/agent-skill.md`.
 
-Edit pixels only through the `pixelforge` CLI and the kernel Tool API. The in-app AI panel is a one-turn demo. Do not build an embedded multi-turn chat (#14), and do not add an MCP server. Cells store palette indices. A frame can hold several layers of those indices. Draw the active layer; `preview` and `export` show the composite. Do not invent RGB past the kernel. Recipes: `docs/agent-skill.md`.
+Edit pixels only through the `pixelforge` CLI and the kernel Tool API. The in-app AI panel is a one-turn demo. Do not build an embedded multi-turn chat (#14), and do not add an MCP server. Cells store palette indices. A frame can hold several layers of those indices. Draw the active layer; `preview` and `export` show the composite. Do not invent RGB past the kernel. Skills add the look-then-revise loop. They do not replace a pixel artist's judgment.

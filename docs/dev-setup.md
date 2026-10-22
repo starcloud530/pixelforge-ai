@@ -31,7 +31,8 @@ crates/pixelforge-cli      本地 pixelforge 命令：打开工程，调用 Tool
 package.json               pnpm 脚本，含 build:wasm
 pnpm-workspace.yaml
 apps/web                   Vite + React 外壳
-.cursor/skills/pixelforge  给外部 Agent 的 skill
+.cursor/skills/            外部 Agent 技能：pixelforge、pixelforge-draw、
+                           pixelforge-sprite-4dir、pixelforge-layers、pixelforge-critique
 docs/tech-stack.md         已锁定的技术栈
 docs/dev-setup.md          本文件
 docs/export.md             PNG 序列、sprite sheet，以及 Godot / Unity 导入约定
