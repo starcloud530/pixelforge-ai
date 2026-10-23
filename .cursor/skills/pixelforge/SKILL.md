@@ -80,13 +80,13 @@ stdout 是紧凑 JSON，一行一个响应。解析 stdout 的 `ok` 和 `error.c
 
 `hflip` 等于 `flip --horizontal`，不需要再写 `--horizontal`。`flip` 必须写 `--horizontal`，否则退出码 `2`。两者都只镜像索引（`x` 收到 `origin + width - 1 - x`），不改颜色。不写矩形就是整帧；写矩形时 `x`、`y`、`width`、`height` 要齐。`--frame N` 不切换当前帧。一步撤销。
 
-`resize --width W --height H` 把每一帧、每一层的索引导进新画布，格式仍是 version 1。不写偏移就居中；`--offset-x` 和 `--offset-y` 要成对出现。越出新画布的格子被裁掉。放大不会凭空补细节。边长 `1..=256`。画布该选多大见 `pixelforge-draw`。
+`resize --width W --height H` 把每一帧、每一层的索引导进新画布，格式仍是 version 1。不写偏移就居中；`--offset-x` 和 `--offset-y` 要成对出现。越出新画布的格子被裁掉。放大不会凭空补细节。边长 `1..=256`。96×96、128×128，以及需要时的 96×128、64×128，都在这条边长里，是 `pixelforge-draw` 的正式档，不是另一条命令。默认 `new` 仍是 16×16。`preview` 的 ASCII 按整帧输出，一格一个字形，不裁行。96 和 128 的整张格子很长，阶段检查看 `preview --scale` 的彩色 PNG，ASCII 抽局部行。画布该选哪一档见 `pixelforge-draw`。
 
 `export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大，再解析调色板。只为看颜色时，用这个或 `preview --scale`，不要再用外部工具放大。`export sheet` 不传 `--cols` 时列数是 `ceil(sqrt(帧数))`。`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。一行一个朝向时 `N` 是该朝向的帧数，见 `pixelforge-sprite-4dir`。`export` 子命令把文件写到磁盘并返回路径。`call` 里的 `exportPngSequence` / `exportSpriteSheet` 返回 base64，不写文件。
 
 平涂用 `fillRect`，挖块用 `eraseRect`，挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
 
-*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` mirrors indices and does not recolor. `resize` copies stored indices. `export sheet --cols N` sets the column count.*
+*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` mirrors indices and does not recolor. `resize` copies stored indices. `export sheet --cols N` sets the column count. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows.*
 
 ## Recipes
 

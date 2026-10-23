@@ -2,10 +2,11 @@
 name: pixelforge-sprite-4dir
 description: >-
   Build a PixelForge four-direction idle and walk sprite sheet (四向走, 待机,
-  idle, walk, sprite sheet). Use when laying out rows as facings and columns
-  as idle plus walk frames, exporting with export sheet --cols, copying a
-  rectangle across frames, checking foot slide (脚滑) with diff, or mirroring
-  a side view with hflip and then repairing highlights. Follow the pixelforge
+  idle, walk, sprite sheet), including 96 and 128 cell sizes. Use when laying
+  out rows as facings and columns as idle plus walk frames, exporting with
+  export sheet --cols, copying a rectangle across frames, checking foot slide
+  (脚滑) with diff, or mirroring a side view with hflip and then repairing
+  highlights. Follow the pixelforge
   skill's index-color invariants first. Draw a new body with pixelforge-draw's
   silhouette, flats, and details. Do not use this for a single standing
   portrait. Separate equipment layers are pixelforge-layers. A read-only
@@ -27,12 +28,17 @@ description: >-
 用 `pixelforge-draw` 的尺寸表，按交付物选行：
 
 - 俯视小体型、小怪：16–32。
-- 四向全身游戏精灵：大约 32–64。
-- 64×128 或 96×128 是站立立绘。不要默认拿来做 16 帧的走表，除非用户要的就是高画布循环。
+- 常见四向全身游戏精灵：大约 32–64。
+- 更高细节的俯视或全身精灵：正式档 **96×96** 或 **128×128**。需要拉高时用 **96×128** 或 **64×128**。边长仍是内核的 `1..=256`。`new` 和 `resize` 接受这些尺寸，不另设上限，也不会把格子裁小。
+- 站立立绘优先 64×128 或 96×128。16 帧走表不要默认用立绘那么高，除非这一朝向确实要那么多行。
+
+更大的边长只是格子更多，不会自动更好看，观改也更贵。96 和 128 的 ASCII 是整帧、一格一字，没有裁行，但整张 stderr 很难一眼读完。阶段检查看 `preview --scale` 的彩色 PNG，ASCII 只抽局部（接触地面的几行、脚、头）。`resize` 只搬已有索引。
 
 俯视小体型的朝向靠外轮廓和一格「鼻子」或眼睛，不靠一张脸。接触地面的那几格在整个循环里留在相同的格子上，动的是上面的身体。小图上滑一格就像在溜冰。
 
-较大的身体（站立比例的走路，而不是立绘画布）让每一朝向的脚落在同一条地面行上。破损、衣服、金属面罩用不同索引，不要和皮肤糊成一个索引。
+较大的身体让每一朝向的脚落在同一条地面行上。破损、衣服、金属面罩用不同索引，不要和皮肤糊成一个索引。
+
+*96×96 and 128×128 are game-sprite sizes inside `1..=256`, not a separate command. A larger canvas is more cells. On those sizes, read the scaled PNG and a local slice of the ASCII grid.*
 
 ## Layout
 
