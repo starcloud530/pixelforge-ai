@@ -1242,3 +1242,397 @@ fn layers_composite_preview_and_export_leave_the_body_alone() {
     assert_eq!(flat_doc.composite_pixels(0).unwrap()[1], 3);
     assert!(!flat_doc.save_project().contains("\"layers\""));
 }
+
+#[test]
+fn game_sprite_canvases_96_and_128_round_trip() {
+    let scratch = Scratch::new();
+
+    let defaulted = scratch.child("default.json");
+    let created = pixelforge(&arg(&["new", "--output", defaulted.to_str().unwrap()]));
+    assert_eq!(status(&created), 0, "{}", stderr(&created));
+    assert_eq!(json_lines(&created)[0]["result"]["width"], 16);
+    assert_eq!(json_lines(&created)[0]["result"]["height"], 16);
+
+    for (name, width, height) in [
+        ("sq96.json", "96", "96"),
+        ("sq128.json", "128", "128"),
+        ("tall.json", "96", "128"),
+        ("slim.json", "64", "128"),
+    ] {
+        let path = scratch.child(name);
+        let made = pixelforge(&arg(&[
+            "new",
+            "--width",
+            width,
+            "--height",
+            height,
+            "--output",
+            path.to_str().unwrap(),
+        ]));
+        assert_eq!(status(&made), 0, "{}", stderr(&made));
+        let body = &json_lines(&made)[0];
+        assert_eq!(body["ok"], true);
+        assert_eq!(body["result"]["width"], width.parse::<u64>().unwrap());
+        assert_eq!(body["result"]["height"], height.parse::<u64>().unwrap());
+        let doc = load(&path);
+        let width = width.parse::<u16>().unwrap();
+        let height = height.parse::<u16>().unwrap();
+        assert_eq!((doc.width(), doc.height()), (width, height));
+        assert_eq!(doc.pixels().len(), usize::from(width) * usize::from(height));
+    }
+
+    let refused = scratch.child("too-big.json");
+    let sized = pixelforge(&arg(&[
+        "new",
+        "--width",
+        "257",
+        "--height",
+        "128",
+        "--output",
+        refused.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&sized), 2, "{}", stderr(&sized));
+    assert_eq!(json_lines(&sized)[0]["error"]["code"], "InvalidSize");
+    assert!(!refused.exists());
+
+    let project = scratch.child("grow.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "64",
+            "--height",
+            "64",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--color-index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "63",
+            "--y",
+            "63",
+            "--color-index",
+            "2",
+        ]))),
+        0
+    );
+
+    let to_96 = pixelforge(&arg(&[
+        "resize",
+        "--project",
+        project_arg,
+        "--width",
+        "96",
+        "--height",
+        "96",
+        "--offset-x",
+        "0",
+        "--offset-y",
+        "0",
+    ]));
+    assert_eq!(status(&to_96), 0, "{}", stderr(&to_96));
+    assert_eq!(json_lines(&to_96)[0]["result"]["width"], 96);
+    assert_eq!(json_lines(&to_96)[0]["result"]["height"], 96);
+    assert_eq!(json_lines(&to_96)[0]["result"]["offsetX"], 0);
+    assert_eq!(json_lines(&to_96)[0]["result"]["offsetY"], 0);
+    let doc = load(&project);
+    assert_eq!((doc.width(), doc.height()), (96, 96));
+    assert_eq!(doc.pixels().len(), 96 * 96);
+    assert_eq!(doc.get(0, 0).unwrap(), 1);
+    assert_eq!(doc.get(63, 63).unwrap(), 2);
+    assert_eq!(doc.get(95, 95).unwrap(), 0);
+
+    let preview_96 = scratch.child("grow-96.preview.png");
+    let looked_96 = pixelforge(&arg(&[
+        "preview",
+        "--project",
+        project_arg,
+        "--scale",
+        "2",
+        "--output",
+        preview_96.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&looked_96), 0, "{}", stderr(&looked_96));
+    let body_96 = &json_lines(&looked_96)[0];
+    assert_eq!(body_96["result"]["width"], 96);
+    assert_eq!(body_96["result"]["height"], 96);
+    assert_eq!(body_96["result"]["scale"], 2);
+    assert_full_grid(body_96, 96, 96);
+    assert_eq!(glyph_at(body_96, 0, 0), '1');
+    assert_eq!(glyph_at(body_96, 63, 63), '2');
+    assert_eq!(glyph_at(body_96, 95, 95), '.');
+    assert_eq!(png_size(&fs::read(&preview_96).unwrap()), (192, 192));
+    assert!(stderr(&looked_96).contains("preview 96x96 frame 0"));
+
+    let png_96 = scratch.child("frames-96");
+    let exported_96 = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        png_96.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&exported_96), 0, "{}", stderr(&exported_96));
+    assert_eq!(json_lines(&exported_96)[0]["result"]["width"], 96);
+    assert_eq!(json_lines(&exported_96)[0]["result"]["height"], 96);
+    assert_eq!(
+        png_size(&fs::read(png_96.join("pixelforge-000.png")).unwrap()),
+        (96, 96)
+    );
+    let sheet_96 = scratch.child("sheet-96.png");
+    let sheeted_96 = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet_96.to_str().unwrap(),
+        "--cols",
+        "1",
+    ]));
+    assert_eq!(status(&sheeted_96), 0, "{}", stderr(&sheeted_96));
+    assert_eq!(png_size(&fs::read(&sheet_96).unwrap()), (96, 96));
+
+    let to_128 = pixelforge(&arg(&[
+        "resize",
+        "--project",
+        project_arg,
+        "--width",
+        "128",
+        "--height",
+        "128",
+        "--offset-x",
+        "0",
+        "--offset-y",
+        "0",
+    ]));
+    assert_eq!(status(&to_128), 0, "{}", stderr(&to_128));
+    assert_eq!(json_lines(&to_128)[0]["result"]["width"], 128);
+    assert_eq!(json_lines(&to_128)[0]["result"]["height"], 128);
+    let doc = load(&project);
+    assert_eq!((doc.width(), doc.height()), (128, 128));
+    assert_eq!(doc.pixels().len(), 128 * 128);
+    assert_eq!(doc.get(0, 0).unwrap(), 1);
+    assert_eq!(doc.get(63, 63).unwrap(), 2);
+    assert_eq!(doc.get(127, 127).unwrap(), 0);
+
+    let filled = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "100",
+        "--y",
+        "100",
+        "--width",
+        "8",
+        "--height",
+        "8",
+        "--color-index",
+        "4",
+    ]));
+    assert_eq!(status(&filled), 0, "{}", stderr(&filled));
+    assert_eq!(load(&project).get(100, 100).unwrap(), 4);
+    assert_eq!(load(&project).get(107, 107).unwrap(), 4);
+    assert_eq!(load(&project).get(108, 100).unwrap(), 0);
+    let before_overflow = fs::read(&project).unwrap();
+    let overflow = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "120",
+        "--y",
+        "120",
+        "--width",
+        "20",
+        "--height",
+        "20",
+        "--color-index",
+        "4",
+    ]));
+    assert_eq!(status(&overflow), 1, "{}", stderr(&overflow));
+    assert_eq!(json_lines(&overflow)[0]["error"]["code"], "OutOfBounds");
+    assert_eq!(fs::read(&project).unwrap(), before_overflow);
+
+    let preview_128 = scratch.child("grow-128.preview.png");
+    let looked_128 = pixelforge(&arg(&[
+        "preview",
+        "--project",
+        project_arg,
+        "--scale",
+        "1",
+        "--output",
+        preview_128.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&looked_128), 0, "{}", stderr(&looked_128));
+    let body_128 = &json_lines(&looked_128)[0];
+    assert_full_grid(body_128, 128, 128);
+    assert_eq!(glyph_at(body_128, 0, 0), '1');
+    assert_eq!(glyph_at(body_128, 63, 63), '2');
+    assert_eq!(glyph_at(body_128, 100, 100), '4');
+    assert_eq!(glyph_at(body_128, 127, 127), '.');
+    assert_eq!(png_size(&fs::read(&preview_128).unwrap()), (128, 128));
+    assert!(stderr(&looked_128).contains("preview 128x128 frame 0"));
+
+    let png_128 = scratch.child("frames-128");
+    let exported_128 = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        png_128.to_str().unwrap(),
+        "--scale",
+        "2",
+    ]));
+    assert_eq!(status(&exported_128), 0, "{}", stderr(&exported_128));
+    assert_eq!(json_lines(&exported_128)[0]["result"]["width"], 256);
+    assert_eq!(json_lines(&exported_128)[0]["result"]["height"], 256);
+    assert_eq!(
+        png_size(&fs::read(png_128.join("pixelforge-000.png")).unwrap()),
+        (256, 256)
+    );
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "duplicate",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+    let sheet_128 = scratch.child("sheet-128.png");
+    let sheeted_128 = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet_128.to_str().unwrap(),
+        "--cols",
+        "2",
+    ]));
+    assert_eq!(status(&sheeted_128), 0, "{}", stderr(&sheeted_128));
+    assert_eq!(json_lines(&sheeted_128)[0]["result"]["columns"], 2);
+    assert_eq!(json_lines(&sheeted_128)[0]["result"]["rows"], 1);
+    assert_eq!(png_size(&fs::read(&sheet_128).unwrap()), (256, 128));
+
+    let gear = pixelforge(&arg(&[
+        "layer",
+        "add",
+        "--project",
+        project_arg,
+        "--name",
+        "gear",
+    ]));
+    assert_eq!(status(&gear), 0, "{}", stderr(&gear));
+    assert_eq!(json_lines(&gear)[0]["result"]["index"], 1);
+    let armor = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--layer",
+        "1",
+        "--x",
+        "4",
+        "--y",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+        "--color-index",
+        "5",
+    ]));
+    assert_eq!(status(&armor), 0, "{}", stderr(&armor));
+    let layered = pixelforge(&arg(&["preview", "--project", project_arg, "--scale", "1"]));
+    assert_eq!(status(&layered), 0, "{}", stderr(&layered));
+    let layered_body = &json_lines(&layered)[0];
+    assert_eq!(layered_body["result"]["composite"], true);
+    assert_full_grid(layered_body, 128, 128);
+    assert_eq!(glyph_at(layered_body, 0, 0), '1');
+    assert_eq!(glyph_at(layered_body, 4, 0), '5');
+    let body_only = pixelforge(&arg(&["preview", "--project", project_arg, "--layer", "0"]));
+    assert_eq!(status(&body_only), 0, "{}", stderr(&body_only));
+    assert_eq!(glyph_at(&json_lines(&body_only)[0], 4, 0), '.');
+    assert_eq!(glyph_at(&json_lines(&body_only)[0], 0, 0), '1');
+    let png_layers = scratch.child("frames-layers");
+    let exported_layers = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        png_layers.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&exported_layers), 0, "{}", stderr(&exported_layers));
+    assert_eq!(
+        png_size(&fs::read(png_layers.join("pixelforge-000.png")).unwrap()),
+        (128, 128)
+    );
+    let doc = load(&project);
+    assert_eq!(doc.layer_pixels(0, 0).unwrap()[4], 0);
+    assert_eq!(doc.composite_pixels(0).unwrap()[4], 5);
+    assert_eq!((doc.width(), doc.height()), (128, 128));
+
+    let too_wide = pixelforge(&arg(&[
+        "resize",
+        "--project",
+        project_arg,
+        "--width",
+        "257",
+        "--height",
+        "128",
+    ]));
+    assert_eq!(status(&too_wide), 1, "{}", stderr(&too_wide));
+    // The tool schema is 1..=256, so this is InvalidParams. `new` hits
+    // Document::new and reports InvalidSize. Either way the file stays put.
+    assert_eq!(json_lines(&too_wide)[0]["error"]["code"], "InvalidParams");
+    let doc = load(&project);
+    assert_eq!((doc.width(), doc.height()), (128, 128));
+    assert_eq!(doc.layer_pixels(0, 0).unwrap()[0], 1);
+    assert_eq!(doc.composite_pixels(0).unwrap()[0], 1);
+}
+
+fn assert_full_grid(body: &Value, width: usize, height: usize) {
+    let rows = body["result"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), height);
+    for row in rows {
+        assert_eq!(row.as_str().unwrap().chars().count(), width);
+    }
+}
+
+fn glyph_at(body: &Value, x: usize, y: usize) -> char {
+    body["result"]["rows"][y]
+        .as_str()
+        .unwrap()
+        .chars()
+        .nth(x)
+        .unwrap()
+}

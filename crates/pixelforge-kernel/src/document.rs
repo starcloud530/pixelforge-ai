@@ -1896,6 +1896,87 @@ mod tests {
     }
 
     #[test]
+    fn game_sprite_edges_96_and_128_resize_fill_export_and_layers() {
+        for (width, height) in [(96_u16, 96), (128, 128), (96, 128), (64, 128)] {
+            let document = Document::new(width, height).unwrap();
+            assert_eq!((document.width(), document.height()), (width, height));
+            assert_eq!(
+                document.pixels().len(),
+                usize::from(width) * usize::from(height)
+            );
+        }
+        assert!(matches!(
+            Document::new(257, 128),
+            Err(KernelError::InvalidSize {
+                width: 257,
+                height: 128
+            })
+        ));
+
+        let mut document = Document::new(64, 64).unwrap();
+        assert!(matches!(
+            document.resize_canvas(257, 96, 0, 0),
+            Err(KernelError::InvalidSize {
+                width: 257,
+                height: 96
+            })
+        ));
+        assert_eq!((document.width(), document.height()), (64, 64));
+        document.paint(0, 0, 1).unwrap();
+        document.paint(63, 63, 2).unwrap();
+        document.resize_canvas(96, 96, 0, 0).unwrap();
+        assert_eq!((document.width(), document.height()), (96, 96));
+        assert_eq!(document.pixels().len(), 96 * 96);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+        assert_eq!(document.get(63, 63).unwrap(), 2);
+        assert_eq!(document.get(95, 95).unwrap(), TRANSPARENT_INDEX);
+
+        document.resize_canvas(128, 128, 0, 0).unwrap();
+        assert_eq!((document.width(), document.height()), (128, 128));
+        assert_eq!(document.pixels().len(), 128 * 128);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+        assert_eq!(document.get(63, 63).unwrap(), 2);
+        assert_eq!(document.get(127, 127).unwrap(), TRANSPARENT_INDEX);
+
+        document.fill_rect(100, 100, 20, 20, 4).unwrap();
+        assert_eq!(document.get(100, 100).unwrap(), 4);
+        assert_eq!(document.get(119, 119).unwrap(), 4);
+        assert_eq!(document.get(120, 100).unwrap(), TRANSPARENT_INDEX);
+        assert!(matches!(
+            document.fill_rect(120, 120, 20, 20, 4),
+            Err(KernelError::OutOfBounds { .. })
+        ));
+        assert_eq!(document.get(120, 120).unwrap(), TRANSPARENT_INDEX);
+        assert_eq!(document.get(0, 0).unwrap(), 1);
+
+        assert_eq!(png_edge(&document.export_frame_png(0).unwrap()), (128, 128));
+        assert_eq!(png_edge(&document.export_sprite_sheet()), (128, 128));
+        assert_eq!(
+            png_edge(&document.export_frame_png_scaled(0, 2).unwrap()),
+            (256, 256)
+        );
+
+        let gear = document.add_layer(Some("gear")).unwrap();
+        assert_eq!(gear, 1);
+        document.fill_rect_on(1, 10, 10, 8, 8, 5).unwrap();
+        assert_eq!(document.layer_pixels(0, 0).unwrap()[10 * 128 + 10], 0);
+        assert_eq!(document.composite_pixels(0).unwrap()[10 * 128 + 10], 5);
+        assert_eq!(png_edge(&document.export_frame_png(0).unwrap()), (128, 128));
+        assert_eq!((document.width(), document.height()), (128, 128));
+    }
+
+    fn png_edge(bytes: &[u8]) -> (u32, u32) {
+        assert!(
+            bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+            "png magic, got {:02x?}",
+            &bytes[..bytes.len().min(8)]
+        );
+        let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
+        let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+        (width, height)
+    }
+
+    #[test]
     fn paint_and_erase_one_cell() {
         let mut document = doc();
         document.paint(2, 3, 4).unwrap();

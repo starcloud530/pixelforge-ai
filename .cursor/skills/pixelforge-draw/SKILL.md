@@ -3,7 +3,8 @@ name: pixelforge-draw
 description: >-
   Draw a PixelForge character, standing portrait (立绘), bust, or silhouette
   from scratch. Use when the user says 从零画, 画角色, 立绘, 剪影, 全身, or
-  胸像, or when choosing a canvas size, blocking a single-color silhouette,
+  胸像, or when choosing a canvas size (including 96 and 128 game-sprite
+  canvases), blocking a single-color silhouette,
   laying color flats, or painting eyes, teeth, and cloth damage. Follow the
   staged loop silhouette then flats then details, and run preview --scale plus
   the ASCII grid after every stage. Prefer fillRect and eraseRect; do not stamp
@@ -32,13 +33,18 @@ description: >-
 | 题材 | 尺寸（宽 × 高） |
 | --- | --- |
 | 俯视小怪、图标、地块 | 16–32 |
-| 全身游戏精灵 | 大约 32–64 |
+| 常见全身游戏精灵 | 大约 32–64 |
+| 更高细节的俯视或全身游戏精灵 | **96×96** 或 **128×128**；需要拉高时用 **96×128** 或 **64×128** |
 | 站立立绘 / 变身故事 | 至少 64×96，优先 **64×128** 或 **96×128** |
 | 胸像、脸部特写 | 至少 64×64 |
 
-**站立立绘做成 48×64 会显得示意图化**：头只有几格，姿势读不出来，下一帧也放不下破损、衣服或第二套剪影。站立立绘不要从 16×16 或 32×32 起。俯视小体型用 16–32，那一行不是立绘。四向游戏精灵用「大约 32–64」，不要把 64×128 的立绘尺寸套到一张多帧走表上，除非用户要的就是高画布循环。
+这些尺寸都在内核边长 `1..=256` 里。`new` 和 `resize` 接受 96 与 128，不另设上限，也不会把画布悄悄裁小。默认 `new` 仍是 16×16。
 
-*Pick the row that matches the deliverable. A standing portrait at 48×64 looks schematic. A four-direction game sprite stays near 32–64. `resize` does not invent detail.*
+**更大只是格子更多，不会自动更好看**，观改也更贵。96 和 128 的 ASCII 是整帧、一格一字，没有裁行，但整张 stderr 很难一眼读完。阶段检查以 `preview --scale` 的彩色 PNG 为准，ASCII 只抽局部（头、脚、接触地面的几行，或 `result.rows` 里对应的下标）。
+
+**站立立绘做成 48×64 会显得示意图化**：头只有几格，姿势读不出来，下一帧也放不下破损、衣服或第二套剪影。站立立绘不要从 16×16 或 32×32 起。俯视小体型用 16–32，那一行不是立绘。常见四向精灵仍用大约 32–64。更高细节的俯视或全身（例如俯视经营）用 96×96 或 128×128，需要拉高时再用 96×128 或 64×128。16 帧走表不要默认套用立绘的高度，除非这一朝向确实要那么多行。
+
+*Pick the row that matches the deliverable. 96 and 128 are inside `1..=256` and are game-sprite sizes as well as portrait sizes. A larger canvas is more cells, not a better picture. A standing portrait at 48×64 looks schematic. Common four-direction sprites stay near 32–64. On 96 and 128, read `preview --scale` and a local slice of the ASCII grid. `resize` does not invent detail.*
 
 ## Three stages
 
@@ -104,4 +110,4 @@ pixelforge preview --project hero.json --scale 4
 
 上面只是单色大块的形状，不是一张能用的人。接着 `erase-rect` 收剪影，再 `preview`。衣服和皮肤仍是矩形。然后才是 `paint`。
 
-*A standing portrait starts at 64×128 or 96×128. `duplicateFrame` does not select the copy.*
+*A standing portrait starts at 64×128 or 96×128. A high-detail top-down or full-body sprite may start at 96×96 or 128×128. `duplicateFrame` does not select the copy.*
