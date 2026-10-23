@@ -216,7 +216,7 @@ pixelforge call --project hero.json --request-file edits.json
 
 剪影只用一个索引，用 `fill-rect` / `erase-rect` 切外形。然后才是皮肤、衣服、金属的色块。眼睛、牙、裂口才用 `paint`。每一阶段跑 `pixelforge preview --project … --scale 4`，读 ASCII，并打开 `result.path`。读图时查破洞、头身各占几行、腿和手臂有没有断掉。完成度只写阶段名（剪影、色块、细节），不要写成高完成度。
 
-站立立绘优先 64×128 或 96×128。站立立绘做成 48×64 是示意图。俯视小体型是 16–32。四向游戏精灵大约 32–64，不要默认用立绘的高度。`resize` 只搬已有索引。变身用 `duplicateFrame` 之后必须 `frame select` 返回的下标。
+站立立绘优先 64×128 或 96×128。站立立绘做成 48×64 是示意图。俯视小体型是 16–32。常见四向游戏精灵大约 32–64。更高细节的俯视或全身精灵用 96×96 或 128×128，需要拉高时用 96×128 或 64×128。这些尺寸都在边长 `1..=256` 里，默认 `new` 仍是 16×16。更大只是格子更多，不会自动更好看。96 和 128 的 ASCII 是整帧，阶段检查看 `preview --scale` 的彩色 PNG，ASCII 只抽局部。16 帧走表不要默认用立绘的高度。`resize` 只搬已有索引。变身用 `duplicateFrame` 之后必须 `frame select` 返回的下标。
 
 ### 四向走 + 闲 pixelforge-sprite-4dir
 
