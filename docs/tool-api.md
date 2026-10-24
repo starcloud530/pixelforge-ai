@@ -99,11 +99,15 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、改层名、选层，以及不改变文档的导入和压平，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、改层名、选层，以及不改变文档的导入和压平，也不进栈。
+
+`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `saveProject`, both exports, `previewFrame`, and `diffFrames`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
+
+*`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
 *The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, or `resizeCanvas` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
@@ -119,6 +123,7 @@
 | --- | --- |
 | `width`, `height` | 画布边长，像素 |
 | `palette` | `{ "r", "g", "b", "a" }` 数组。索引 0 是透明 |
+| `paletteHash` | 调色板的 FNV-1a 64 位哈希，16 位小写十六进制。算法见 `scene` |
 | `paletteLocked` | 锁定后不能改色、追加、导入 |
 | `frameCount` | 帧数，至少 1 |
 | `activeFrame` | 当前帧，从 0 计 |
@@ -131,6 +136,57 @@
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
+
+`inspect` 带上当前层的 `pixels` 和合成 `composite`。只要画布、层、调色板和帧时长时，用 `scene`。
+
+### `scene`
+
+参数：无。只读。不进撤销栈。不返回像素缓冲。
+
+*Params: none. Read-only. Does not push undo. Does not return a pixel buffer.*
+
+`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `width`, `height` | 画布边长，格子 |
+| `activeFrame`, `activeLayer` | 当前帧、当前层，从 0 计 |
+| `layerCount` | 层数，至少 1 |
+| `layers` | `{ "index", "name", "visible", "opacity" }`，从底到顶 |
+| `paletteLocked` | 调色板是否锁定 |
+| `paletteCount` | 调色板项数，含索引 0 |
+| `paletteHash` | 见下 |
+| `palette` | 与 `inspect` 相同的 `{ "r", "g", "b", "a" }` 数组 |
+| `frameCount` | 帧数 |
+| `delayMs` | 当前帧时长，毫秒 |
+| `frames` | `{ "index", "delayMs" }`，时间轴顺序 |
+
+`visible` 恒为 `true`。`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层，不按 alpha 混合。
+
+`paletteHash` 是 FNV-1a 64 位。初值 `14695981039346656037`，乘数 `1099511628211`。按索引顺序把每一项的 `r`、`g`、`b`、`a` 各作为一个字节送进去。结果是 16 位小写十六进制。颜色和顺序不变，哈希就不变。它用来认出调色板，不是口令。
+
+CLI：`pixelforge scene --project hero.json`。
+
+*Every layer is `visible: true`. `opacity` is `null`. The kernel does not store a hide flag or a per-layer opacity. A non-zero index covers the layer under it and does not blend. `paletteHash` is FNV-1a 64-bit: offset basis `14695981039346656037`, prime `1099511628211`, each entry's `r`, `g`, `b`, `a` in index order, written as 16 lowercase hex digits. The same colors in the same order hash the same. It identifies the palette. It is not a secret.*
+
+### 脏区 Dirty region
+
+`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
+
+`true` 时，在这个工具原有的 `result` 字段上再加：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `changed` | 索引变了的格子数。一格都没变是 `0` |
+| `dirty` | 这些格子的外接矩形 `{ "x", "y", "width", "height" }`。`changed` 为 0 时是 `null` |
+| `regions` | 每个改过的帧和层一条：`frame`、`layer`、`changed`、`x`、`y`、`width`、`height`。没改的层不出现 |
+| `clipped` | 只有 `resizeCanvas` 写这个字段。新画布上已经没有的坐标里，原来非 0 的格子数 |
+
+矩形包住的是索引真的变了的格子，不是请求里的整块矩形。同一坐标上，新索引和旧索引不同才算 `changed`。画布变大时，新坐标上的 0 不算变化。跨帧时 `dirty` 是各 `regions` 的并集，帧别看 `regions`。`resizeCanvas` 里，坐标还在、只是索引换了，算 `changed`，不算 `clipped`。
+
+CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就没有这些字段。
+
+*The box covers cells whose stored index changed, not the whole rectangle the tool was asked to touch. A new cell that stays 0 is not a change. Across frames, `dirty` is the union of `regions`. On `resizeCanvas`, a cell that still has a coordinate and holds a different index counts as `changed`, not `clipped`. The CLI flag `--dirty` sends `reportDirty: true`. Without it, these fields are absent.*
 
 ### `paint`
 
@@ -326,12 +382,18 @@
 | `composite` | 没指定 `layer` 时为 `true` |
 | `width`, `height` | 画布格子数 |
 | `scale` | 使用的倍数 |
+| `ink` | 非 0 格子数 |
+| `bounds` | 这些格子的外接矩形 `{ "x", "y", "width", "height" }`。没有墨时是 `null` |
+| `indices` | `{ "index", "count" }`，按索引升序，只用到的索引，含 0 |
+| `pixels` | 这一张视图的调色板索引，行优先。合成或单层，由 `layer` 决定 |
 | `pngWidth`, `pngHeight` | 放大后的像素尺寸 |
 | `png` | 这一帧的 Base64 RGBA PNG。内核先按 `scale` 最近邻重复索引，再解析调色板 |
 
-CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PNG 写到 `result.path`（默认是工程旁边的 `<stem>.preview.png`），stdout 里不带 base64。
+`pixels` 是索引，不是 RGB。字形 `*` 会把 62 及以上的索引折成同一个字符，读索引用 `pixels` 或 `indices`。
 
-*Read-only. Does not change `activeFrame` and does not push undo. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64.*
+CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PNG 写到 `result.path`（默认是工程旁边的 `<stem>.preview.png`），stdout 里不带 base64。`ink`、`bounds`、`indices`、`pixels` 仍在这条 JSON 里。
+
+*Read-only. Does not change `activeFrame` and does not push undo. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. `pixels` are palette indices, row-major. The glyph `*` collapses every index from 62 up, so read `pixels` or `indices` for the real index. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64. `ink`, `bounds`, `indices`, and `pixels` stay on that JSON line.*
 
 错误：`FrameIndex`、`LayerIndex`、`ExportScale`。`scale` 为 0 是 `InvalidParams`。
 
@@ -351,6 +413,9 @@ CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PN
 | `width`, `height` | 画布格子数 |
 | `scale` | 使用的倍数 |
 | `changed` | 索引不同的格子数 |
+| `bounds` | 这些格子的外接矩形。`changed` 为 0 时是 `null` |
+| `kinds` | `{ "same", "differ", "onlyFrame", "onlyWith" }`。`differ` 是两边都非 0 且不同；`onlyFrame` 只有 `frame` 有墨；`onlyWith` 只有 `with` 有墨 |
+| `changes` | `{ "x", "y", "left", "right" }`，行优先。`left` 是 `frame` 的索引，`right` 是 `with` 的索引。只列不同的格子 |
 | `diffRows` | 一行一个字符串。`.` 表示索引相同；`!` 表示两边都非 0 且不同；否则是那个非 0 索引的字形（和 `preview` 相同：`1`–`9`、`A`–`Z`、`a`–`z`、`*`） |
 | `panels` | `["frame", "with", "onion"]` |
 | `pngWidth`, `pngHeight` | PNG 像素尺寸。宽是三格并排 |
@@ -360,7 +425,11 @@ CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PN
 
 *Read-only. Compares indices and does not write onion skin back into pixels. `diffRows`: `.` same index, `!` both non-zero and different, otherwise the glyph of the only non-zero index. The PNG is three panels: `frame`, `with`, then the onion. The onion uses the shared palette color when indices match, the only ink when one side is transparent, and the average of the two palette colors when both differ. That average is a view. It is not stored and it is not a new palette entry.*
 
-CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png`），并在 stdout 里附上两帧的 ASCII `rows` / `withRows`。
+`!` 不带两边的索引。要索引就读 `changes`。
+
+CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png`），并在 stdout 里附上两帧的 ASCII `rows` / `withRows`。`bounds`、`kinds`、`changes` 仍在这条 JSON 里。
+
+*The `!` glyph does not carry either index. Read `changes` for `left` and `right`. The CLI keeps `bounds`, `kinds`, and `changes` on the JSON line.*
 
 错误：`FrameIndex`、`LayerIndex`、`ExportScale`。缺 `frame` 或 `with` 是 `InvalidParams`。
 

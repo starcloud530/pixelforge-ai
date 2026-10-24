@@ -36,6 +36,18 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 
 打不开彩色 PNG 时，色阶那一条写「未核」，不要写成通过。
 
+## 如何读状态
+
+先 `pixelforge scene --project hero.json`。它不改文件。用 `result.width` / `height`、`activeFrame`、`activeLayer`、`layers`、`paletteHash`、`frameCount`、`frames[].delayMs` 确认你在看哪一帧、哪一层、哪套颜色。`visible` 恒为 true，`opacity` 恒为 null：内核没有逐层隐藏，也没有逐层透明度。`scene` 不带像素；格子在 `preview` 和 `diff` 里。
+
+`preview` 的 `result.bounds` 是有墨格子的外接矩形，`result.ink` 是非 0 格数，`result.indices` 是每个索引用了几次，`result.pixels` 是这一张视图的索引。头身和脚的行号可以从 `bounds` 和 `pixels` 数，不必只靠 ASCII。字形 `*` 把 62 及以上折成同一个字符。
+
+`diff` 的 `result.changed` 是索引不同的格数，`result.bounds` 是这些格子的外接矩形，`result.kinds.differ` 是两边都有墨且不同，`result.changes` 里的 `left` / `right` 才是索引。ASCII 的 `!` 不包含索引。脚滑要看地面那一行的 `changes`，不要只看有没有 `!`。
+
+本 skill 不调用 `--dirty`。那个旗标写在 `paint` 一类命令上，会改文件。色阶仍要打开彩色 PNG；哈希相同只说明调色板没变。
+
+*Read `scene` first. It does not change the file. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes` with the real indices. Do not pass `--dirty` from this skill. A matching `paletteHash` only says the palette did not change.*
+
 ## Checklist
 
 每一条都要写进输出。通过的条也写证据（数过的行、帧号、你看到的字形）。不要合并成一句总评。

@@ -50,6 +50,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Inspect { doc, preview } => {
             apply_with(&doc, vec![request("inspect", json!({}))], preview)
         }
+        Command::Scene { doc } => apply(&doc, vec![request("scene", json!({}))]),
         Command::Preview {
             doc,
             frame,
@@ -77,7 +78,10 @@ fn execute(cli: Cli) -> i32 {
             &args.doc,
             vec![request(
                 "erase",
-                with_layer(json!({"x": args.x, "y": args.y}), args.layer),
+                with_dirty(
+                    with_layer(json!({"x": args.x, "y": args.y}), args.layer),
+                    args.dirty,
+                ),
             )],
         ),
         Command::EraseRect(args) => cmd_erase_rect(args),
@@ -123,13 +127,16 @@ fn cmd_paint(args: PaintArgs) -> i32 {
         &args.doc,
         vec![request(
             "paint",
-            with_layer(
-                json!({
-                    "x": args.x,
-                    "y": args.y,
-                    "colorIndex": args.color_index,
-                }),
-                args.layer,
+            with_dirty(
+                with_layer(
+                    json!({
+                        "x": args.x,
+                        "y": args.y,
+                        "colorIndex": args.color_index,
+                    }),
+                    args.layer,
+                ),
+                args.dirty,
             ),
         )],
         args.preview,
@@ -141,15 +148,18 @@ fn cmd_fill_rect(args: FillRectArgs) -> i32 {
         &args.doc,
         vec![request(
             "fillRect",
-            with_layer(
-                json!({
-                    "x": args.x,
-                    "y": args.y,
-                    "width": args.width,
-                    "height": args.height,
-                    "colorIndex": args.color_index,
-                }),
-                args.layer,
+            with_dirty(
+                with_layer(
+                    json!({
+                        "x": args.x,
+                        "y": args.y,
+                        "width": args.width,
+                        "height": args.height,
+                        "colorIndex": args.color_index,
+                    }),
+                    args.layer,
+                ),
+                args.dirty,
             ),
         )],
         args.preview,
@@ -161,14 +171,17 @@ fn cmd_erase_rect(args: EraseRectArgs) -> i32 {
         &args.doc,
         vec![request(
             "eraseRect",
-            with_layer(
-                json!({
-                    "x": args.x,
-                    "y": args.y,
-                    "width": args.width,
-                    "height": args.height,
-                }),
-                args.layer,
+            with_dirty(
+                with_layer(
+                    json!({
+                        "x": args.x,
+                        "y": args.y,
+                        "width": args.width,
+                        "height": args.height,
+                    }),
+                    args.layer,
+                ),
+                args.dirty,
             ),
         )],
         args.preview,
@@ -192,7 +205,10 @@ fn cmd_blit(tool: &str, args: BlitRectArgs) -> i32 {
     }
     apply_with(
         &args.doc,
-        vec![request(tool, with_layer(params, args.layer))],
+        vec![request(
+            tool,
+            with_dirty(with_layer(params, args.layer), args.dirty),
+        )],
         args.preview,
     )
 }
@@ -224,7 +240,7 @@ fn cmd_flip(args: FlipArgs, alias: bool) -> i32 {
         params["width"] = json!(width);
         params["height"] = json!(height);
     }
-    params = with_layer(params, args.layer);
+    params = with_dirty(with_layer(params, args.layer), args.dirty);
     apply_with(
         &args.doc,
         vec![request("flipHorizontal", params)],
@@ -250,6 +266,7 @@ fn cmd_resize(args: ResizeArgs) -> i32 {
         params["offsetX"] = json!(x);
         params["offsetY"] = json!(y);
     }
+    params = with_dirty(params, args.dirty);
     apply_with(
         &args.doc,
         vec![request("resizeCanvas", params)],
@@ -314,6 +331,9 @@ fn cmd_preview(
         );
         object.insert("path".to_string(), json!(path_text));
         object.insert("bytes".to_string(), json!(bytes));
+        for key in ["ink", "bounds", "indices", "pixels"] {
+            object.insert(key.to_string(), value["result"][key].clone());
+        }
     }
     let body = json!({
         "ok": true,
@@ -392,6 +412,9 @@ fn cmd_diff(
             "height": result["height"].clone(),
             "scale": result["scale"].clone(),
             "changed": result["changed"].clone(),
+            "bounds": result["bounds"].clone(),
+            "kinds": result["kinds"].clone(),
+            "changes": result["changes"].clone(),
             "panels": result["panels"].clone(),
             "rows": left.rows,
             "withRows": right.rows,
@@ -679,6 +702,13 @@ fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) ->
 fn with_layer(mut params: Value, layer: Option<u32>) -> Value {
     if let Some(layer) = layer {
         params["layer"] = json!(layer);
+    }
+    params
+}
+
+fn with_dirty(mut params: Value, dirty: bool) -> Value {
+    if dirty {
+        params["reportDirty"] = json!(true);
     }
     params
 }

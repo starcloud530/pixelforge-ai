@@ -12,6 +12,7 @@ export const TOOL_API_VERSION = 1;
 /** Stable tool names. Keep this list aligned with the kernel `TOOL_NAMES`. */
 export const TOOL_NAMES = [
   "inspect",
+  "scene",
   "paint",
   "fillRect",
   "erase",

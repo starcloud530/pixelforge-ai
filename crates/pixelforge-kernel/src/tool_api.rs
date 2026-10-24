@@ -18,6 +18,7 @@ use serde_json::{Map, Number, Value};
 use crate::document::Document;
 use crate::error::KernelError;
 use crate::palette_file::PaletteImportMode;
+use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
 use crate::MAX_CANVAS_EDGE;
 
 /// Version written on every response. An omitted request version means this one.
@@ -28,6 +29,7 @@ pub const TOOL_API_VERSION: u32 = 1;
 /// `docs/tool-api.md` and `apps/web/src/kernel/toolApi.ts` list the same names.
 pub const TOOL_NAMES: &[&str] = &[
     "inspect",
+    "scene",
     "paint",
     "fillRect",
     "erase",
@@ -285,51 +287,65 @@ fn optional_id(map: &Map<String, Value>) -> Result<Option<RequestId>, ToolFailur
 
 fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> {
     let tool = call.tool.as_str();
-    let params = call.params.clone();
+    let mut params = call.params.clone();
     match tool {
         "inspect" => {
             parse_empty(tool, params)?;
             Ok(inspect_value(document))
         }
+        "scene" => {
+            parse_empty(tool, params)?;
+            Ok(scene_value(document))
+        }
         "paint" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let (x, y, color_index, layer) = parse_paint(params)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
             match layer {
                 Some(layer) => document.paint_on(layer, x, y, color_index),
                 None => document.paint(x, y, color_index),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "fillRect" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let (x, y, width, height, color_index, layer) = parse_fill_rect(params)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
             match layer {
                 Some(layer) => document.fill_rect_on(layer, x, y, width, height, color_index),
                 None => document.fill_rect(x, y, width, height, color_index),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "erase" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let (x, y, layer) = parse_cell(tool, params)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
             match layer {
                 Some(layer) => document.erase_on(layer, x, y),
                 None => document.erase(x, y),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "eraseRect" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let (x, y, width, height, layer) = parse_rect(tool, params)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
             match layer {
                 Some(layer) => document.erase_rect_on(layer, x, y, width, height),
                 None => document.erase_rect(x, y, width, height),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "copyRect" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let blit = parse_blit(tool, params)?;
             let (src_frame, dst_frame) = blit_frames(document, &blit);
+            let before = snaps_if(document, report, &[src_frame, dst_frame], blit.layer)?;
             match blit.layer {
                 Some(layer) => document.copy_rect_from_on(
                     layer,
@@ -354,11 +370,13 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 ),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "moveRect" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let blit = parse_blit(tool, params)?;
             let (src_frame, dst_frame) = blit_frames(document, &blit);
+            let before = snaps_if(document, report, &[src_frame, dst_frame], blit.layer)?;
             match blit.layer {
                 Some(layer) => document.move_rect_from_on(
                     layer,
@@ -383,7 +401,7 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 ),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "setPaletteColor" => {
             let (index, r, g, b) = parse_set_palette_color(params)?;
@@ -516,6 +534,10 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             let (png_width, png_height) = document
                 .scaled_frame_size(scale)
                 .map_err(ToolFailure::Kernel)?;
+            let pixels = document
+                .view_pixels(frame, layer)
+                .map_err(ToolFailure::Kernel)?;
+            let summary = scene::summarize_view(&pixels, document.width());
             let png = document
                 .export_view_png(frame, scale, layer)
                 .map_err(ToolFailure::Kernel)?;
@@ -528,6 +550,10 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "width": document.width(),
                 "height": document.height(),
                 "scale": scale,
+                "ink": summary.ink,
+                "bounds": bounds_json(summary.bounds),
+                "indices": indices_json(&summary),
+                "pixels": pixels,
                 "pngWidth": png_width,
                 "pngHeight": png_height,
                 "png": encode_base64(&png),
@@ -535,6 +561,13 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
         }
         "diffFrames" => {
             let (frame, with, scale, layer) = parse_diff(params)?;
+            let left = document
+                .view_pixels(frame, layer)
+                .map_err(ToolFailure::Kernel)?;
+            let right = document
+                .view_pixels(with, layer)
+                .map_err(ToolFailure::Kernel)?;
+            let summary = scene::summarize_diff(&left, &right, document.width());
             let diff = document
                 .diff_frames_on(frame, with, scale, layer)
                 .map_err(ToolFailure::Kernel)?;
@@ -549,6 +582,9 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "height": diff.height,
                 "scale": diff.scale,
                 "changed": diff.changed,
+                "bounds": bounds_json(summary.bounds),
+                "kinds": kinds_json(&summary),
+                "changes": changes_json(&summary.changes),
                 "panels": ["frame", "with", "onion"],
                 "diffRows": diff.diff_rows,
                 "pngWidth": diff.png_width,
@@ -557,8 +593,10 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             }))
         }
         "flipHorizontal" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let spec = parse_flip(params)?;
             let frame = spec.frame.unwrap_or(document.active_frame());
+            let before = snaps_if(document, report, &[frame], spec.layer)?;
             let (x, y, width, height) =
                 spec.rect
                     .unwrap_or((0, 0, document.width(), document.height()));
@@ -567,23 +605,34 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 None => document.flip_horizontal(frame, x, y, width, height),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(empty())
+            Ok(with_dirty(empty(), document, before, false))
         }
         "resizeCanvas" => {
+            let report = take_report_dirty(tool, &mut params)?;
             let (width, height, offset) = parse_resize(params)?;
             let (offset_x, offset_y) = offset.unwrap_or((
                 center_offset(document.width(), width),
                 center_offset(document.height(), height),
             ));
+            let before = if report {
+                Some(snap_document(document))
+            } else {
+                None
+            };
             document
                 .resize_canvas(width, height, offset_x, offset_y)
                 .map_err(ToolFailure::Kernel)?;
-            Ok(serde_json::json!({
-                "width": document.width(),
-                "height": document.height(),
-                "offsetX": offset_x,
-                "offsetY": offset_y,
-            }))
+            Ok(with_dirty(
+                serde_json::json!({
+                    "width": document.width(),
+                    "height": document.height(),
+                    "offsetX": offset_x,
+                    "offsetY": offset_y,
+                }),
+                document,
+                before,
+                true,
+            ))
         }
         "listLayers" => {
             parse_empty(tool, params)?;
@@ -657,22 +706,11 @@ fn inspect_value(document: &Document) -> Value {
     let delay_ms = document
         .frame_delay(active)
         .expect("active frame is in range");
-    let palette = document
-        .palette_colors()
-        .iter()
-        .map(|color| {
-            serde_json::json!({
-                "r": color.r,
-                "g": color.g,
-                "b": color.b,
-                "a": color.a,
-            })
-        })
-        .collect::<Vec<_>>();
     serde_json::json!({
         "width": document.width(),
         "height": document.height(),
-        "palette": palette,
+        "palette": palette_entries(document),
+        "paletteHash": scene::palette_hash(document.palette_colors()),
         "paletteLocked": document.palette_locked(),
         "frameCount": document.frame_count(),
         "activeFrame": active,
@@ -687,6 +725,70 @@ fn inspect_value(document: &Document) -> Value {
         "canRedo": document.can_redo(),
         "gestureOpen": document.gesture_open(),
     })
+}
+
+fn scene_value(document: &Document) -> Value {
+    let active = document.active_frame();
+    let delay_ms = document
+        .frame_delay(active)
+        .expect("active frame is in range");
+    let frames = document
+        .frame_delays()
+        .into_iter()
+        .enumerate()
+        .map(|(index, delay_ms)| {
+            serde_json::json!({
+                "index": index,
+                "delayMs": delay_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "width": document.width(),
+        "height": document.height(),
+        "activeFrame": active,
+        "activeLayer": document.active_layer(),
+        "layerCount": document.layer_count(),
+        "layers": scene_layers(document),
+        "paletteLocked": document.palette_locked(),
+        "paletteCount": document.palette_colors().len(),
+        "paletteHash": scene::palette_hash(document.palette_colors()),
+        "palette": palette_entries(document),
+        "frameCount": document.frame_count(),
+        "delayMs": delay_ms,
+        "frames": frames,
+    })
+}
+
+fn palette_entries(document: &Document) -> Vec<Value> {
+    document
+        .palette_colors()
+        .iter()
+        .map(|color| {
+            serde_json::json!({
+                "r": color.r,
+                "g": color.g,
+                "b": color.b,
+                "a": color.a,
+            })
+        })
+        .collect()
+}
+
+fn scene_layers(document: &Document) -> Vec<Value> {
+    document
+        .layer_names()
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            serde_json::json!({
+                "index": index,
+                "name": name,
+                "visible": true,
+                "opacity": Value::Null,
+            })
+        })
+        .collect()
 }
 
 fn layers_value(document: &Document) -> Value {
@@ -724,6 +826,197 @@ fn index_value(index: u32) -> Value {
 
 fn empty() -> Value {
     Value::Object(Map::new())
+}
+
+struct LayerSnap {
+    frame: usize,
+    layer: usize,
+    width: u16,
+    height: u16,
+    pixels: Vec<u8>,
+}
+
+fn take_report_dirty(tool: &str, params: &mut Value) -> Result<bool, ToolFailure> {
+    let Some(map) = params.as_object_mut() else {
+        return Ok(false);
+    };
+    match map.remove("reportDirty") {
+        None => Ok(false),
+        Some(Value::Bool(value)) => Ok(value),
+        Some(_) => Err(invalid_params(tool, "reportDirty must be a boolean")),
+    }
+}
+
+/// `None` when the caller did not ask, or when the frame or layer is missing.
+///
+/// A missing frame or layer is left for the mutation to refuse, so a bad color
+/// index is still reported before a bad layer.
+fn snaps_if(
+    document: &Document,
+    report: bool,
+    frames: &[usize],
+    layer: Option<usize>,
+) -> Result<Option<Vec<LayerSnap>>, ToolFailure> {
+    if !report {
+        return Ok(None);
+    }
+    let layer = layer.unwrap_or(document.active_layer());
+    if document.layer_name(layer).is_err() {
+        return Ok(None);
+    }
+    let mut snaps = Vec::new();
+    let mut seen = Vec::new();
+    for frame in frames {
+        if seen.contains(frame) {
+            continue;
+        }
+        seen.push(*frame);
+        if document.frame_delay(*frame).is_err() {
+            return Ok(None);
+        }
+        snaps.push(LayerSnap {
+            frame: *frame,
+            layer,
+            width: document.width(),
+            height: document.height(),
+            pixels: document
+                .layer_pixels(*frame, layer)
+                .expect("frame and layer were checked")
+                .to_vec(),
+        });
+    }
+    Ok(Some(snaps))
+}
+
+fn snap_document(document: &Document) -> Vec<LayerSnap> {
+    let mut snaps = Vec::new();
+    for frame in 0..document.frame_count() {
+        for layer in 0..document.layer_count() {
+            snaps.push(LayerSnap {
+                frame,
+                layer,
+                width: document.width(),
+                height: document.height(),
+                pixels: document
+                    .layer_pixels(frame, layer)
+                    .expect("frame and layer come from the document")
+                    .to_vec(),
+            });
+        }
+    }
+    snaps
+}
+
+fn with_dirty(
+    mut result: Value,
+    document: &Document,
+    before: Option<Vec<LayerSnap>>,
+    include_clipped: bool,
+) -> Value {
+    let Some(before) = before else {
+        return result;
+    };
+    let Some(dest) = result.as_object_mut() else {
+        return result;
+    };
+    let regions = before
+        .iter()
+        .map(|snap| {
+            let after = document
+                .layer_pixels(snap.frame, snap.layer)
+                .expect("a dirty report follows a successful edit");
+            scene::dirty_region(
+                snap.frame,
+                snap.layer,
+                &snap.pixels,
+                snap.width,
+                snap.height,
+                after,
+                document.width(),
+                document.height(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let changed: usize = regions.iter().map(|region| region.changed).sum();
+    let clipped: usize = regions.iter().map(|region| region.clipped).sum();
+    let dirty = scene::union_bounds(regions.iter().filter_map(|region| region.bounds));
+    dest.insert("changed".to_string(), serde_json::json!(changed));
+    dest.insert("dirty".to_string(), bounds_json(dirty));
+    dest.insert(
+        "regions".to_string(),
+        serde_json::json!(region_entries(&regions)),
+    );
+    if include_clipped {
+        dest.insert("clipped".to_string(), serde_json::json!(clipped));
+    }
+    result
+}
+
+fn region_entries(regions: &[DirtyRegion]) -> Vec<Value> {
+    regions
+        .iter()
+        .filter(|region| region.changed > 0)
+        .map(|region| {
+            let bounds = region.bounds.expect("changed cells have a bbox");
+            serde_json::json!({
+                "frame": as_u32(region.frame),
+                "layer": as_u32(region.layer),
+                "changed": region.changed,
+                "x": bounds.x,
+                "y": bounds.y,
+                "width": bounds.width,
+                "height": bounds.height,
+            })
+        })
+        .collect()
+}
+
+fn bounds_json(bounds: Option<CellBounds>) -> Value {
+    match bounds {
+        None => Value::Null,
+        Some(bounds) => serde_json::json!({
+            "x": bounds.x,
+            "y": bounds.y,
+            "width": bounds.width,
+            "height": bounds.height,
+        }),
+    }
+}
+
+fn indices_json(summary: &ViewSummary) -> Vec<Value> {
+    summary
+        .indices
+        .iter()
+        .map(|(index, count)| {
+            serde_json::json!({
+                "index": index,
+                "count": count,
+            })
+        })
+        .collect()
+}
+
+fn kinds_json(summary: &DiffSummary) -> Value {
+    serde_json::json!({
+        "same": summary.same,
+        "differ": summary.differ,
+        "onlyFrame": summary.only_frame,
+        "onlyWith": summary.only_with,
+    })
+}
+
+fn changes_json(changes: &[CellChange]) -> Vec<Value> {
+    changes
+        .iter()
+        .map(|change| {
+            serde_json::json!({
+                "x": change.x,
+                "y": change.y,
+                "left": change.left,
+                "right": change.right,
+            })
+        })
+        .collect()
 }
 
 fn as_u32(index: usize) -> u32 {
