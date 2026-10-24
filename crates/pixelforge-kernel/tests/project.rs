@@ -1,6 +1,6 @@
 use pixelforge_kernel::{
-    Document, KernelError, Palette, ProjectFileError, Rgba, DEFAULT_FRAME_DELAY_MS, PROJECT_FORMAT,
-    PROJECT_VERSION, TRANSPARENT_INDEX,
+    Document, IndexPolicy, KernelError, Palette, ProjectFileError, Rgba, DEFAULT_FRAME_DELAY_MS,
+    PROJECT_FORMAT, PROJECT_VERSION, TRANSPARENT_INDEX,
 };
 
 fn tiny() -> Document {
@@ -401,6 +401,38 @@ fn palette_lock_round_trips_and_a_missing_field_stays_unlocked() {
             r#""format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0}],"paletteLocked":"yes","frames":[{"pixels":[0]}]"#
         )),
         ProjectFileError::Malformed
+    );
+}
+
+#[test]
+fn index_policy_defaults_to_reject_and_clamp_round_trips() {
+    let mut document = tiny();
+    let saved = document.save_project();
+    assert!(!saved.contains("indexPolicy"));
+    assert_eq!(
+        Document::load_project(&saved).unwrap().index_policy(),
+        IndexPolicy::Reject
+    );
+
+    document.set_index_policy(IndexPolicy::Clamp);
+    let saved = document.save_project();
+    assert!(saved.contains("\"indexPolicy\": \"clamp\""));
+    let loaded = Document::load_project(&saved).unwrap();
+    assert_eq!(loaded.index_policy(), IndexPolicy::Clamp);
+    assert!(!loaded.can_undo());
+
+    let explicit_reject = saved.replace("\"clamp\"", "\"reject\"");
+    assert_eq!(
+        Document::load_project(&explicit_reject)
+            .unwrap()
+            .index_policy(),
+        IndexPolicy::Reject
+    );
+    assert_eq!(
+        rejected(&project(
+            r#""format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":[{"r":0,"g":0,"b":0,"a":0}],"indexPolicy":"wrap","frames":[{"pixels":[0]}]"#
+        )),
+        ProjectFileError::IndexPolicy
     );
 }
 

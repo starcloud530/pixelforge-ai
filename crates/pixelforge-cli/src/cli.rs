@@ -67,7 +67,10 @@ composite. `layer flatten` collapses that composite into one layer.
 copies every layer of every frame into a new canvas; omit offsets to center.
 A standing figure still wants a tall canvas (64x128 or 96x128). `frame
 duplicate` does not select the new frame. `layer add` inserts above the
-active layer and selects the new one.";
+active layer and selects the new one. `palette enforce` sets indexPolicy
+(`reject` by default, or `clamp`). `palette remap` quantizes with
+`--max-colors` or retargets a `.gpl` / hex file. `palette apply-png` crushes
+one canvas-sized PNG onto the current palette. There is no Lospec browser.";
 
 #[derive(Parser)]
 #[command(
@@ -512,6 +515,50 @@ pub enum PaletteCmd {
         #[arg(long, value_name = "FILE")]
         file: PathBuf,
     },
+    /// Choose how paint treats an index past the palette. Default is reject.
+    ///
+    /// `clamp` writes the last opaque index. Index 0 is still refused.
+    /// The same value is not recorded. `reject` is omitted from the project file.
+    Enforce {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// `reject` or `clamp`.
+        #[arg(long, value_enum)]
+        mode: IndexMode,
+    },
+    /// Quantize to `--max-colors`, or nearest-map onto a palette file.
+    ///
+    /// Pass exactly one of `--max-colors` and `--file`. One undo step.
+    /// Refused while the palette is locked. The result lists `misses`,
+    /// `merges`, `dropped`, and `pixelsChanged`.
+    Remap {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Keep at most this many opaque colors. Index 0 is extra.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=255))]
+        max_colors: Option<u8>,
+        /// Target palette: GIMP `.gpl` or a hex list.
+        #[arg(long, value_name = "FILE")]
+        file: Option<PathBuf>,
+    },
+    /// Crush one PNG onto the current palette. Does not add colors.
+    ///
+    /// Width and height must match the canvas. Alpha below 128 becomes
+    /// index 0. A locked palette still allows this. Not a Lospec browser
+    /// and not a sprite-sheet importer.
+    ApplyPng {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// PNG file. Indexed, RGB, and RGBA are expanded in the kernel.
+        #[arg(long, value_name = "FILE")]
+        file: PathBuf,
+        /// Frame to write. Defaults to the active frame. Does not select it.
+        #[arg(long)]
+        frame: Option<u32>,
+        /// Layer to write. Defaults to the active layer. Does not select it.
+        #[arg(long)]
+        layer: Option<u32>,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -525,6 +572,21 @@ impl ImportMode {
         match self {
             Self::Replace => "replace",
             Self::Merge => "merge",
+        }
+    }
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum IndexMode {
+    Reject,
+    Clamp,
+}
+
+impl IndexMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+            Self::Clamp => "clamp",
         }
     }
 }

@@ -164,11 +164,41 @@ const BY_NAME = {
   ),
   setPaletteLocked: tool(
     "setPaletteLocked",
-    "Lock or unlock palette edits. Paint still uses existing indices. The flag is stored in the project file.",
+    "Lock or unlock palette edits. Paint still uses existing indices. The flag is stored in the project file. Lock also refuses remapPalette. It does not refuse applyPng or setIndexPolicy.",
     {
-      locked: { type: "boolean", description: "True locks recolor, append, and import." },
+      locked: { type: "boolean", description: "True locks recolor, append, import, and remap." },
     },
     ["locked"],
+  ),
+  setIndexPolicy: tool(
+    "setIndexPolicy",
+    "Choose how paint and fillRect treat an index past the palette. reject (default) returns PaletteIndex. clamp writes the last opaque index. Index 0 stays refused. Only clamp is stored in the project file.",
+    {
+      mode: {
+        type: "string",
+        description: "reject or clamp.",
+        enum: ["reject", "clamp"],
+      },
+    },
+    ["mode"],
+  ),
+  remapPalette: tool(
+    "remapPalette",
+    "Quantize or retarget the palette. Pass maxColors (1–255 opaque colors) or text (a .gpl or hex list), not both. Nearest squared-RGB match, lower index wins a tie, survivor RGB is not averaged. Result lists misses, merges, dropped, pixelsChanged, and paletteLength. One undo step. Refused while locked. No Lospec browser.",
+    {
+      text: { type: "string", description: "Target .gpl or hex list. Omit when passing maxColors." },
+      maxColors: int("Maximum opaque colors to keep. Omit when passing text.", 1, 255),
+    },
+  ),
+  applyPng: tool(
+    "applyPng",
+    "Crush one base64 PNG onto the current palette of one frame and layer. The PNG must match the canvas; there is no scale and no sheet slice. Alpha below 128 becomes index 0. Does not add colors. A locked palette still allows this. misses and merges list colors that were not an exact RGB hit. No Lospec browser.",
+    {
+      png: { type: "string", description: "Standard base64 PNG. Whitespace is ignored." },
+      frame: int("Frame to write. Omit for the active frame. Does not select it.", 0, 4294967295),
+      layer: int("Layer to write. Omit for the active layer. Does not select it.", 0, 4294967295),
+    },
+    ["png"],
   ),
   setActiveFrame: tool(
     "setActiveFrame",

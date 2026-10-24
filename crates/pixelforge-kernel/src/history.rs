@@ -12,6 +12,7 @@
 
 use crate::error::KernelError;
 use crate::frame::Frame;
+use crate::palette::IndexPolicy;
 use crate::Rgba;
 use crate::MAX_UNDO;
 
@@ -98,6 +99,11 @@ pub(crate) enum Change {
     PaletteLocked {
         before: bool,
         after: bool,
+    },
+    /// How out-of-range paint indices are treated. Not a palette color edit.
+    IndexPolicy {
+        before: IndexPolicy,
+        after: IndexPolicy,
     },
     /// The canvas size changed. Each frame keeps its delay; only indices move.
     ///
