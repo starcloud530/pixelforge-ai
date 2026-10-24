@@ -23,6 +23,9 @@ Examples:
   pixelforge move-rect --project hero.json --src-x 20 --src-y 8 --width 8 --height 12 --dst-x 24 --dst-y 10
   pixelforge flip --horizontal --project hero.json
   pixelforge hflip --project hero.json --x 0 --y 0 --width 16 --height 32
+  pixelforge vflip --project hero.json
+  pixelforge rotate --project hero.json --degrees 90
+  pixelforge import-aseprite --file hero.aseprite --output hero.json
   pixelforge scene --project hero.json
   pixelforge preview --project hero.json --scale 4
   pixelforge preview --project hero.json --frame 1 --scale 4 --output hero-f1.png
@@ -46,7 +49,7 @@ Examples:
 names, palette hash, frame delays) and does not dump pixels. `visible` is
 always true and `opacity` is null: the kernel has no hide flag and no
 per-layer opacity. `--dirty` on paint, erase, fill-rect, erase-rect,
-copy-rect, move-rect, flip, hflip, and resize adds `changed`, `dirty`, and
+copy-rect, move-rect, flip, hflip, vflip, rotate, and resize adds `changed`, `dirty`, and
 `regions`. Omit it and those fields stay absent. `preview` JSON also has
 `ink`, `bounds`, `indices`, and `pixels`. `diff` JSON also has `bounds`,
 `kinds`, and `changes`.
@@ -60,8 +63,15 @@ change activeFrame or the project file. `--scale K` matches export (integer
 >= 1, default 1). Stdout JSON keeps `result.rows` and adds `result.path`.
 `diff` is read-only: ASCII index diff plus a PNG with frame, with, and an
 onion blend, all from the composite unless `--layer` is set. `flip
---horizontal` / `hflip` mirrors indices on the active layer, or `--layer`,
-and does not recolor. `copy-rect` and `move-rect` take optional
+--horizontal` / `hflip` mirrors indices left to right. `flip --vertical` /
+`vflip` mirrors them top to bottom. `rotate --degrees 90|180|270` turns
+indices clockwise. 90 and 270 need a square rectangle; the canvas size
+stays. All three write the active layer, or `--layer`, and do not recolor.
+A stored selection writes a cell only when that cell and the cell it reads
+are both inside. `import-aseprite --file sprite.aseprite --output hero.json`
+reads an indexed `.aseprite` into a new project. `--project` replaces an
+existing one. Indexed 8-bit only. It does not write `.aseprite`.
+`copy-rect` and `move-rect` take optional
 `--from-frame` and `--to-frame` and stay on one layer. `export` writes the
 composite. `layer flatten` collapses that composite into one layer.
 `export sheet --cols N` keeps one row when N is the frame count. `--atlas FILE`
@@ -72,7 +82,7 @@ stores a name, an inclusive frame range, and a loop (`forward`, `reverse`,
 copies every layer of every frame into a new canvas; omit offsets to center.
 A standing figure still wants a tall canvas (64x128 or 96x128). `selection set`
 stores one rectangle in the project file. Later paint, erase, fill-rect,
-erase-rect, copy-rect, flip, hflip, and replace-index leave cells outside
+erase-rect, copy-rect, flip, hflip, vflip, rotate, and replace-index leave cells outside
 that rectangle unchanged. `move-rect` fails with SelectionProtected unless
 both rectangles lie inside it. `selection clear` removes the field. There
 is no lasso. The rectangle is not per layer: pass `--layer` to edit a helmet
@@ -111,6 +121,21 @@ pub enum Command {
         /// Where to write the project file.
         #[arg(short, long, value_name = "FILE")]
         output: PathBuf,
+    },
+    /// Import an indexed `.aseprite` file. Does not write `.aseprite`.
+    ///
+    /// Pass `--output` to create a project, or `--project` to replace one.
+    /// Indexed 8-bit only. The new document has an empty undo stack.
+    ImportAseprite {
+        /// Source `.aseprite` or `.ase` file.
+        #[arg(long, value_name = "FILE")]
+        file: PathBuf,
+        /// New project path. Refuses when the file already exists.
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+        /// Existing project to replace after a successful import.
+        #[arg(short, long, value_name = "FILE")]
+        project: Option<PathBuf>,
     },
     /// Print the Tool API inspect result. Does not write the file.
     Inspect {
@@ -221,13 +246,21 @@ pub enum Command {
     /// another frame and clear the source there. Omit both to stay on the
     /// active frame.
     MoveRect(BlitRectArgs),
-    /// Mirror palette indices left to right. Does not recolor.
+    /// Mirror palette indices left to right or top to bottom. Does not recolor.
     ///
-    /// Pass `--horizontal`. Omit the rectangle to flip the whole frame. One
-    /// undo step. `--frame` chooses the frame and does not select it.
+    /// Pass `--horizontal` or `--vertical`. Omit the rectangle to flip the
+    /// whole frame. One undo step. `--frame` chooses the frame and does not
+    /// select it.
     Flip(FlipArgs),
     /// Mirror palette indices left to right. Same as `flip --horizontal`.
     Hflip(FlipArgs),
+    /// Mirror palette indices top to bottom. Same as `flip --vertical`.
+    Vflip(FlipArgs),
+    /// Turn palette indices clockwise by 90, 180, or 270 degrees.
+    ///
+    /// 90 and 270 need a square rectangle. Omit the rectangle to turn the
+    /// whole frame, which then has to be square. The canvas size stays.
+    Rotate(RotateArgs),
     /// Copy every frame into a new canvas size. The project format stays version 1.
     ///
     /// Omit `--offset-x` and `--offset-y` to center the old pixels. One undo
@@ -424,6 +457,9 @@ pub struct FlipArgs {
     /// Mirror left to right. Indices move; palette colors stay.
     #[arg(long)]
     pub horizontal: bool,
+    /// Mirror top to bottom. Indices move; palette colors stay.
+    #[arg(long)]
+    pub vertical: bool,
     /// Frame to mirror. Defaults to the active frame. Does not select it.
     #[arg(long)]
     pub frame: Option<u32>,
@@ -440,6 +476,39 @@ pub struct FlipArgs {
     #[arg(long)]
     pub height: Option<u16>,
     /// Layer to mirror. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct RotateArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Clockwise degrees: 90, 180, or 270.
+    #[arg(long)]
+    pub degrees: u16,
+    /// Frame to turn. Defaults to the active frame. Does not select it.
+    #[arg(long)]
+    pub frame: Option<u32>,
+    /// Left column of the rectangle. Omit with the other edges to turn the whole frame.
+    #[arg(long)]
+    pub x: Option<u16>,
+    /// Top row of the rectangle.
+    #[arg(long)]
+    pub y: Option<u16>,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: Option<u16>,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: Option<u16>,
+    /// Layer to turn. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
     /// Add changed count and dirty bbox to the JSON result.

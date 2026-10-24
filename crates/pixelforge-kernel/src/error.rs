@@ -81,6 +81,24 @@ pub enum KernelError {
     ExportScale { scale: u32 },
     /// Sprite-sheet column count is 0, or that many columns do not fit a PNG.
     SheetColumns { columns: u32 },
+    /// Bytes are not a readable indexed `.aseprite` file in the supported subset.
+    AsepriteFile { reason: &'static str },
+    /// The file's canvas is outside `1..=MAX_CANVAS_EDGE`.
+    AsepriteSize { width: u16, height: u16 },
+    /// Color depth is not indexed 8-bit.
+    AsepriteColorMode { depth: u16 },
+    /// The indexed palette is missing, external, or does not cover the transparent index.
+    AsepritePalette,
+    /// A tilemap layer or tilemap cel is present. Those pixels are not imported.
+    AsepriteTilemap,
+    /// A cel index does not fit the palette.
+    AsepritePixel { index: u8, palette_len: usize },
+    /// Groups and reference layers were skipped and no image layer remained.
+    AsepriteLayers,
+    /// 90° or 270° rotation was asked of a rectangle that is not square.
+    ///
+    /// The canvas size stays. The call writes nothing.
+    RotateSquare { width: u16, height: u16 },
     /// Bytes are not a supported `pixelforge-project` file.
     ProjectFile(ProjectFileError),
 }
@@ -185,6 +203,14 @@ impl KernelError {
             Self::SelectionProtected => "SelectionProtected",
             Self::ExportScale { .. } => "ExportScale",
             Self::SheetColumns { .. } => "SheetColumns",
+            Self::AsepriteFile { .. } => "AsepriteFile",
+            Self::AsepriteSize { .. } => "AsepriteSize",
+            Self::AsepriteColorMode { .. } => "AsepriteColorMode",
+            Self::AsepritePalette => "AsepritePalette",
+            Self::AsepriteTilemap => "AsepriteTilemap",
+            Self::AsepritePixel { .. } => "AsepritePixel",
+            Self::AsepriteLayers => "AsepriteLayers",
+            Self::RotateSquare { .. } => "RotateSquare",
             Self::ProjectFile(_) => "ProjectFile",
         }
     }
@@ -273,6 +299,27 @@ impl fmt::Display for KernelError {
             Self::SheetColumns { columns } => write!(
                 f,
                 "sprite sheet columns {columns} must be at least 1 and fit the canvas"
+            ),
+            Self::AsepriteFile { reason } => write!(f, "aseprite: {reason}"),
+            Self::AsepriteSize { width, height } => write!(
+                f,
+                "aseprite canvas {width}x{height} is outside 1..={MAX_CANVAS_EDGE}"
+            ),
+            Self::AsepriteColorMode { depth } => {
+                write!(f, "aseprite color depth {depth} is not indexed 8-bit")
+            }
+            Self::AsepritePalette => {
+                write!(f, "aseprite file has no usable indexed palette")
+            }
+            Self::AsepriteTilemap => write!(f, "aseprite tilemaps are not imported"),
+            Self::AsepritePixel { index, palette_len } => write!(
+                f,
+                "aseprite pixel index {index} is outside palette length {palette_len}"
+            ),
+            Self::AsepriteLayers => write!(f, "aseprite file has no image layer to import"),
+            Self::RotateSquare { width, height } => write!(
+                f,
+                "90 and 270 degree rotation needs a square rectangle, got {width}x{height}"
             ),
             Self::ProjectFile(error) => write!(f, "{error}"),
         }

@@ -41,6 +41,17 @@ impl Session {
         })
     }
 
+    /// A 1×1 document that matches its baseline, so a failed import does not create `path`.
+    pub fn placeholder(path: &Path) -> Result<Self, CliFailure> {
+        let document = Document::new(1, 1).map_err(CliFailure::kernel)?;
+        let baseline = document.save_project();
+        Ok(Self {
+            path: path.to_path_buf(),
+            document,
+            baseline,
+        })
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }

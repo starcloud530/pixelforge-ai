@@ -947,9 +947,94 @@ impl Document {
         width: u16,
         height: u16,
     ) -> Result<(), KernelError> {
+        self.transform_on(layer, frame, x, y, width, height, Turn::Horizontal)
+    }
+
+    /// Mirrors palette indices top to bottom inside a rectangle.
+    ///
+    /// Cell `y` receives the index that was at `origin_y + height - 1 - (y - origin_y)`.
+    /// Palette colors are not changed. The rectangle must lie on the canvas.
+    /// The mirror is one undo step. A symmetric rectangle is not recorded.
+    /// `frame` is not selected. A cell is written only when it and the cell it
+    /// reads are both inside the selection.
+    pub fn flip_vertical(
+        &mut self,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        self.flip_vertical_on(self.active_layer, frame, x, y, width, height)
+    }
+
+    /// [`Self::flip_vertical`] on one layer. Does not change the active layer.
+    pub fn flip_vertical_on(
+        &mut self,
+        layer: usize,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        self.transform_on(layer, frame, x, y, width, height, Turn::Vertical)
+    }
+
+    /// Turns palette indices clockwise inside a rectangle.
+    ///
+    /// 180° accepts any rectangle. 90° and 270° need a square; the canvas size
+    /// stays, and a non-square rectangle is [`KernelError::RotateSquare`] with
+    /// nothing written. Palette colors are not changed. One undo step. `frame`
+    /// is not selected. A cell is written only when it and the cell it reads
+    /// are both inside the selection.
+    pub fn rotate(
+        &mut self,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        turn: QuarterTurn,
+    ) -> Result<(), KernelError> {
+        self.rotate_on(self.active_layer, frame, x, y, width, height, turn)
+    }
+
+    /// [`Self::rotate`] on one layer. Does not change the active layer.
+    pub fn rotate_on(
+        &mut self,
+        layer: usize,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        turn: QuarterTurn,
+    ) -> Result<(), KernelError> {
+        let turn = match turn {
+            QuarterTurn::Cw90 => Turn::Cw90,
+            QuarterTurn::Cw180 => Turn::Cw180,
+            QuarterTurn::Cw270 => Turn::Cw270,
+        };
+        self.transform_on(layer, frame, x, y, width, height, turn)
+    }
+
+    fn transform_on(
+        &mut self,
+        layer: usize,
+        frame: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        turn: Turn,
+    ) -> Result<(), KernelError> {
         let layer = self.layer_or_err(layer)?;
         let frame = self.frame_or_err(frame)?;
         let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
+        if matches!(turn, Turn::Cw90 | Turn::Cw270) && width != height {
+            return Err(KernelError::RotateSquare { width, height });
+        }
         let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
         {
             let pixels = self.frames[frame].layer_pixels(layer);
@@ -963,16 +1048,17 @@ impl Document {
         let mut changes = Vec::new();
         let span = usize::from(width);
         for row in y..=y1 {
-            let local_y = usize::from(row - y);
+            let local_y = row - y;
             let row_offset = pixel_len(self.width, row);
             for col in x..=x1 {
-                let local_x = usize::from(col - x);
-                let mirrored = span - 1 - local_x;
-                let mirror_col = x + u16::try_from(mirrored).expect("mirror x fits in u16");
-                if !self.accepts_write(col, row) || !self.accepts_write(mirror_col, row) {
+                let local_x = col - x;
+                let (src_x, src_y) = source_local(turn, width, height, local_x, local_y);
+                let read_col = x + src_x;
+                let read_row = y + src_y;
+                if !self.accepts_write(col, row) || !self.accepts_write(read_col, read_row) {
                     continue;
                 }
-                let after = sample[local_y * span + mirrored];
+                let after = sample[usize::from(src_y) * span + usize::from(src_x)];
                 let offset = row_offset + usize::from(col);
                 let before = self.frames[frame].layer_pixels(layer)[offset];
                 if before == after {
@@ -2362,6 +2448,37 @@ impl Document {
     }
 }
 
+/// Clockwise quarter turns. 90° and 270° stay inside a square rectangle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuarterTurn {
+    /// 90 degrees clockwise.
+    Cw90,
+    /// 180 degrees.
+    Cw180,
+    /// 270 degrees clockwise.
+    Cw270,
+}
+
+#[derive(Clone, Copy)]
+enum Turn {
+    Horizontal,
+    Vertical,
+    Cw90,
+    Cw180,
+    Cw270,
+}
+
+/// Local source cell whose index lands on local `(x, y)`.
+fn source_local(turn: Turn, width: u16, height: u16, x: u16, y: u16) -> (u16, u16) {
+    match turn {
+        Turn::Horizontal => (width - 1 - x, y),
+        Turn::Vertical => (x, height - 1 - y),
+        Turn::Cw180 => (width - 1 - x, height - 1 - y),
+        Turn::Cw90 => (y, height - 1 - x),
+        Turn::Cw270 => (width - 1 - y, x),
+    }
+}
+
 fn check_size(width: u16, height: u16) -> Result<(), KernelError> {
     if width == 0 || height == 0 || width > MAX_CANVAS_EDGE || height > MAX_CANVAS_EDGE {
         Err(KernelError::InvalidSize { width, height })
@@ -2907,6 +3024,49 @@ mod tests {
             document.flip_horizontal(3, 0, 0, 1, 1),
             Err(KernelError::FrameIndex { index: 3, .. })
         ));
+    }
+
+    #[test]
+    fn flip_vertical_and_rotate_move_indices_without_recoloring() {
+        let mut document = Document::new(4, 2).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        document.paint(0, 1, 3).unwrap();
+        document.set_palette_color(1, 9, 8, 7).unwrap();
+        let color = document.palette_colors()[1];
+        document.clear_history();
+
+        document.flip_vertical(0, 0, 0, 4, 2).unwrap();
+        assert_eq!(document.pixels(), &[3, 0, 0, 0, 1, 2, 0, 0]);
+        assert_eq!(document.palette_colors()[1], color);
+        document.undo().unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 0, 0, 3, 0, 0, 0]);
+
+        document.rotate(0, 0, 0, 2, 2, QuarterTurn::Cw180).unwrap();
+        assert_eq!(document.pixels(), &[0, 3, 0, 0, 2, 1, 0, 0]);
+        document.undo().unwrap();
+
+        let err = document
+            .rotate(0, 0, 0, 4, 2, QuarterTurn::Cw90)
+            .unwrap_err();
+        assert!(matches!(
+            err,
+            KernelError::RotateSquare {
+                width: 4,
+                height: 2
+            }
+        ));
+        assert_eq!(document.pixels(), &[1, 2, 0, 0, 3, 0, 0, 0]);
+        assert!(!document.can_undo());
+
+        document.rotate(0, 0, 0, 2, 2, QuarterTurn::Cw90).unwrap();
+        // 1 2
+        // 3 0
+        // clockwise -> 3 1 / 0 2, leaving the right column alone.
+        assert_eq!(document.pixels(), &[3, 1, 0, 0, 0, 2, 0, 0]);
+        document.rotate(0, 0, 0, 2, 2, QuarterTurn::Cw270).unwrap();
+        assert_eq!(document.pixels(), &[1, 2, 0, 0, 3, 0, 0, 0]);
+        assert_eq!(document.palette_colors()[1], color);
     }
 
     #[test]
