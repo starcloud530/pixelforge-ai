@@ -142,6 +142,7 @@ export type KernelErrorCode =
   | "NothingToUndo"
   | "NothingToRedo"
   | "OpenGesture"
+  | "SelectionProtected"
   | "ExportScale"
   | "ProjectFile";
 
@@ -161,6 +162,7 @@ const KERNEL_ERROR_CODES: readonly KernelErrorCode[] = [
   "NothingToUndo",
   "NothingToRedo",
   "OpenGesture",
+  "SelectionProtected",
   "ExportScale",
   "ProjectFile",
 ];

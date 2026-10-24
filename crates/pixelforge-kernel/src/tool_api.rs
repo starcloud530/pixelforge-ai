@@ -38,6 +38,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "eraseRect",
     "copyRect",
     "moveRect",
+    "setSelection",
+    "clearSelection",
+    "replaceIndex",
     "setPaletteColor",
     "addPaletteColor",
     "importPalette",
@@ -424,6 +427,34 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             .map_err(ToolFailure::Kernel)?;
             Ok(with_dirty(empty(), document, before, false))
         }
+        "setSelection" => {
+            let (x, y, width, height) = parse_selection(params)?;
+            document
+                .set_selection(x, y, width, height)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(selection_value(document))
+        }
+        "clearSelection" => {
+            parse_empty(tool, params)?;
+            document.clear_selection();
+            Ok(selection_value(document))
+        }
+        "replaceIndex" => {
+            let (from_index, to_index, layer) = parse_replace(params)?;
+            let written = if to_index == crate::TRANSPARENT_INDEX {
+                crate::TRANSPARENT_INDEX
+            } else {
+                document
+                    .resolve_paint_index(to_index)
+                    .map_err(ToolFailure::Kernel)?
+            };
+            let changed = match layer {
+                Some(layer) => document.replace_index_on(layer, from_index, to_index),
+                None => document.replace_index(from_index, to_index),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(replace_result(from_index, to_index, written, changed))
+        }
         "setPaletteColor" => {
             let (index, r, g, b) = parse_set_palette_color(params)?;
             document
@@ -774,6 +805,7 @@ fn inspect_value(document: &Document) -> Value {
         "composite": document.composite_pixels(active).expect("active frame is in range"),
         "layerCount": document.layer_count(),
         "activeLayer": document.active_layer(),
+        "selection": selection_json(document),
         "layers": layer_entries(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
@@ -802,6 +834,7 @@ fn scene_value(document: &Document) -> Value {
         "height": document.height(),
         "activeFrame": active,
         "activeLayer": document.active_layer(),
+        "selection": selection_json(document),
         "layerCount": document.layer_count(),
         "layers": scene_layers(document),
         "paletteLocked": document.palette_locked(),
@@ -866,6 +899,36 @@ fn layer_entries(document: &Document) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn selection_json(document: &Document) -> Value {
+    match document.selection() {
+        None => Value::Null,
+        Some(selection) => serde_json::json!({
+            "x": selection.x,
+            "y": selection.y,
+            "width": selection.width,
+            "height": selection.height,
+        }),
+    }
+}
+
+fn selection_value(document: &Document) -> Value {
+    serde_json::json!({ "selection": selection_json(document) })
+}
+
+/// `toIndex` is the index stored. Clamp adds `indexPolicy` and `requestedIndex`.
+fn replace_result(from_index: u8, requested: u8, written: u8, changed: u32) -> Value {
+    let mut result = serde_json::json!({
+        "fromIndex": from_index,
+        "toIndex": written,
+        "changed": changed,
+    });
+    if requested != written {
+        result["indexPolicy"] = serde_json::json!(IndexPolicy::Clamp.as_str());
+        result["requestedIndex"] = serde_json::json!(requested);
+    }
+    result
 }
 
 fn history_value(document: &Document) -> Value {
@@ -1178,6 +1241,21 @@ fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8, Option<usiz
     let color_index = require_u8("fillRect", &map, "colorIndex")?;
     let layer = optional_frame("fillRect", &map, "layer")?;
     Ok((x, y, width, height, color_index, layer))
+}
+
+fn parse_selection(params: Value) -> Result<(u16, u16, u16, u16), ToolFailure> {
+    let map = expect_object("setSelection", params)?;
+    reject_params("setSelection", &map, &["x", "y", "width", "height"])?;
+    rect_from("setSelection", &map)
+}
+
+fn parse_replace(params: Value) -> Result<(u8, u8, Option<usize>), ToolFailure> {
+    let map = expect_object("replaceIndex", params)?;
+    reject_params("replaceIndex", &map, &["fromIndex", "toIndex", "layer"])?;
+    let from_index = require_u8("replaceIndex", &map, "fromIndex")?;
+    let to_index = require_u8("replaceIndex", &map, "toIndex")?;
+    let layer = optional_frame("replaceIndex", &map, "layer")?;
+    Ok((from_index, to_index, layer))
 }
 
 fn parse_rect(

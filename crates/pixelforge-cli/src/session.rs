@@ -1,8 +1,9 @@
 //! One process, one [`pixelforge_kernel::Document`].
 //!
-//! The project file stores pixels, the palette, frames, and delays. It does
-//! not store the undo stack. Loading a file therefore starts from the same
-//! empty stack as [`pixelforge_kernel::Document::load_project`].
+//! The project file stores pixels, the palette, frames, delays, and, when set,
+//! one rectangular selection. It does not store the undo stack. Loading a file
+//! therefore starts from the same empty stack as
+//! [`pixelforge_kernel::Document::load_project`].
 
 use std::fs;
 use std::path::{Path, PathBuf};
