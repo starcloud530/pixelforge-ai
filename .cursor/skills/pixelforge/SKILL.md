@@ -5,7 +5,8 @@ description: >-
   Tool API. Use when the user says 用 pixelforge, 改工程, or CLI, or when
   installing or running pixelforge, creating or changing a pixelforge-project,
   painting or erasing cells, filling or erasing a rectangle, copying or moving
-  a rectangle, editing the palette, adding or duplicating frames, undoing,
+  a rectangle, editing the palette, locking, quantizing, or remapping it,
+  crushing a PNG onto the palette, adding or duplicating frames, undoing,
   running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
   pixelforge-layers, pixelforge-critique) must follow this skill's index-color
@@ -54,13 +55,14 @@ cargo run -p pixelforge-cli -- --help
 - 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的索引（从 1 起），不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
 - 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。分层怎么摆见 `pixelforge-layers`。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
-- `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加或导入。
+- `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
+- 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` 只搬索引，不改高光颜色。镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
-*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. `flip` moves indices and does not recolor.*
+*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. `flip` moves indices and does not recolor.*
 
 ## Output and exit codes
 
@@ -82,7 +84,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1
 ```
 
-`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。
 
 `visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
 
@@ -190,9 +192,28 @@ pixelforge palette set --project hero.json --index 1 --r 10 --g 20 --b 30
 pixelforge palette lock --project hero.json
 pixelforge palette unlock --project hero.json
 pixelforge palette import --project hero.json --mode merge --file colors.gpl
+pixelforge palette enforce --project hero.json --mode clamp
+pixelforge palette remap --project hero.json --max-colors 8
+pixelforge palette remap --project hero.json --file colors.hex
+pixelforge palette apply-png --project hero.json --file sprite.png --frame 0
 ```
 
-`palette add` 的结果里有新索引，画的时候用那个索引。`import` 的 `mode` 是 `replace` 或 `merge`。锁定时导入会被拒绝。
+`palette add` 的结果里有新索引，画的时候用那个索引。`import` 的 `mode` 是 `replace` 或 `merge`。锁定时导入和 `remap` 会被拒绝。
+
+`enforce` 的 `mode` 是 `reject`（默认）或 `clamp`。`clamp` 才写入工程文件。范围内的 `paint` 结果仍是 `{}`（外加可选的脏区字段）。
+
+`remap` 只能给 `--max-colors` 或 `--file` 里的一个。`--file` 是 `.gpl` 或十六进制列表，和 `import` 同一种文本。距离是平方 RGB，平局取较小索引，不平均出新颜色。`apply-png` 把一张和画布同尺寸的 PNG 压进当前调色板，不追加颜色，alpha 小于 128 写成索引 0。两者的 `result` 都有 `pixelsChanged`、`misses`（没精确命中的颜色）、`merges`（并进了哪项近似色，`exact: true` 表示只是索引被压紧）、`dropped`（量化时丢掉的未使用色）。没有 Lospec 在线浏览器。
+
+Tool API：
+
+```json
+{ "tool": "setIndexPolicy", "params": { "mode": "clamp" } }
+{ "tool": "remapPalette", "params": { "maxColors": 8 } }
+{ "tool": "remapPalette", "params": { "text": "ff0000\n00ff00\n" } }
+{ "tool": "applyPng", "params": { "png": "<base64>", "frame": 0, "layer": 0 } }
+```
+
+*Pass `--max-colors` or `--file` to `remap`, not both. `apply-png` requires the PNG to match the canvas. Read `misses`, `merges`, and `pixelsChanged`. There is no Lospec browser.*
 
 ### Inspect and raw calls
 

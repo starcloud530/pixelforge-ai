@@ -9,7 +9,8 @@
 //! document undoes back to the opened pixels and is not playing. A frame
 //! written before delays existed omits `delayMs` and loads as
 //! [`crate::DEFAULT_FRAME_DELAY_MS`]. A file written before the palette lock
-//! existed omits `paletteLocked` and loads unlocked. A file written before
+//! existed omits `paletteLocked` and loads unlocked. A missing `indexPolicy`
+//! loads as `reject`; only `clamp` is written back. A file written before
 //! layers existed omits `layers` and `activeLayer` and loads as one layer
 //! named [`crate::DEFAULT_LAYER_NAME`]. A single default layer is still saved
 //! in that older shape.
@@ -19,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
-use crate::palette::Palette;
+use crate::palette::{IndexPolicy, Palette};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -59,6 +60,9 @@ struct ProjectFile {
     /// Missing in files saved before the palette could be locked.
     #[serde(default)]
     palette_locked: bool,
+    /// Missing, or `reject`, unless paint should clamp out-of-range indices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    index_policy: Option<String>,
     frames: Vec<FrameFile>,
 }
 
@@ -122,6 +126,10 @@ impl Document {
                 .map(ColorFile::from)
                 .collect(),
             palette_locked: self.palette_locked(),
+            index_policy: match self.index_policy() {
+                IndexPolicy::Reject => None,
+                IndexPolicy::Clamp => Some("clamp".to_string()),
+            },
             frames: (0..self.frame_count())
                 .map(|index| self.stored_frame(index))
                 .collect(),
@@ -209,16 +217,26 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         }));
     }
     let active_layer = usize::try_from(file.active_layer).expect("active layer was checked");
+    let index_policy = index_policy_from_file(file.index_policy)?;
     Ok(Document::from_stored(
         width,
         height,
         palette,
         file.palette_locked,
+        index_policy,
         frames,
         active,
         names,
         active_layer,
     ))
+}
+
+fn index_policy_from_file(value: Option<String>) -> Result<IndexPolicy, KernelError> {
+    match value.as_deref() {
+        None | Some("reject") => Ok(IndexPolicy::Reject),
+        Some("clamp") => Ok(IndexPolicy::Clamp),
+        Some(_) => Err(invalid(ProjectFileError::IndexPolicy)),
+    }
 }
 
 impl Document {

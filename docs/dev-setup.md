@@ -185,9 +185,11 @@ JavaScript 内核桩已经去掉。16×16 示例图仍然由外壳调用 `paint`
 }
 ```
 
-`pixels` 是行优先的调色板索引，长度等于 `width * height`。索引 0 表示空格子。`activeFrame` 是当前帧，从 0 计。`delayMs` 是这一帧在循环播放里停留的毫秒数，范围 `1..=65535`；缺这个字段时按 100 读。调色板第 0 项必须是透明色。`paletteLocked` 为真时，这份文档拒绝改色、追加和导入色板，画笔仍可使用已有索引；缺这个字段时按未锁定读。撤销、重做和播放时钟不在文件里；打开之后，撤销停在文件里的像素上，播放是停着的。
+`pixels` 是行优先的调色板索引，长度等于 `width * height`。索引 0 表示空格子。`activeFrame` 是当前帧，从 0 计。`delayMs` 是这一帧在循环播放里停留的毫秒数，范围 `1..=65535`；缺这个字段时按 100 读。调色板第 0 项必须是透明色。`paletteLocked` 为真时，这份文档拒绝改色、追加、导入和重映射，画笔仍可使用已有索引；缺这个字段时按未锁定读。`indexPolicy` 可以省略，省略或 `reject` 都表示越界画笔索引被拒绝；只有 `clamp` 会写进文件，这时越界索引写成最后一项不透明色。撤销、重做和播放时钟不在文件里；打开之后，撤销停在文件里的像素上，播放是停着的。
 
-*`pixels` are row-major palette indices and the length is `width * height`. Index 0 is an empty cell. `activeFrame` is the current frame, starting at 0. `delayMs` is how many milliseconds that frame stays up during loop playback, in `1..=65535`; a missing field loads as 100. Palette entry 0 must be transparent. `paletteLocked` refuses recolor, append, and palette import while still allowing paint of an existing index; a missing field loads unlocked. Undo, redo, and the playback clock are not stored; after open, undo stops at the pixels in the file and playback is stopped.*
+`Document::remap_palette_text` / `quantize_palette` 和 Tool API 的 `remapPalette` 把索引重映射到目标盘，并返回未命中色、合并项和改动的格子数。`Document::apply_png` 把一张与画布同尺寸的 PNG 压进当前调色板，不追加颜色，也不做 Lospec 在线浏览。
+
+*`pixels` are row-major palette indices and the length is `width * height`. Index 0 is an empty cell. `activeFrame` is the current frame, starting at 0. `delayMs` is how many milliseconds that frame stays up during loop playback, in `1..=65535`; a missing field loads as 100. Palette entry 0 must be transparent. `paletteLocked` refuses recolor, append, import, and remap while still allowing paint of an existing index; a missing field loads unlocked. A missing `indexPolicy` loads as `reject`. Only `clamp` is stored, and then an out-of-range paint index is written as the last opaque entry. `remapPalette` nearest-maps indices onto a target palette and reports misses, merges, and how many pixels changed. `applyPng` crushes one canvas-sized PNG onto the current palette. It does not add colors and it does not browse Lospec. Undo, redo, and the playback clock are not stored; after open, undo stops at the pixels in the file and playback is stopped.*
 
 ## 调色板文件 Palette files
 

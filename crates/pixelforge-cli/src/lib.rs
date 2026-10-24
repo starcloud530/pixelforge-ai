@@ -21,6 +21,9 @@ use clap::Parser;
 use pixelforge_kernel::{TOOL_API_VERSION, TOOL_NAMES};
 use serde_json::{json, Value};
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+
 use crate::cli::{
     BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
     ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ResizeArgs,
@@ -487,7 +490,61 @@ fn cmd_palette(command: PaletteCmd) -> i32 {
             vec![request("setPaletteLocked", json!({"locked": false}))],
         ),
         PaletteCmd::Import { doc, mode, file } => cmd_import(&doc, mode, &file),
+        PaletteCmd::Enforce { doc, mode } => apply(
+            &doc,
+            vec![request("setIndexPolicy", json!({"mode": mode.as_str()}))],
+        ),
+        PaletteCmd::Remap {
+            doc,
+            max_colors,
+            file,
+        } => cmd_remap(&doc, max_colors, file.as_deref()),
+        PaletteCmd::ApplyPng {
+            doc,
+            file,
+            frame,
+            layer,
+        } => cmd_apply_png(&doc, &file, frame, layer),
     }
+}
+
+fn cmd_remap(doc: &ProjectArgs, max_colors: Option<u8>, file: Option<&Path>) -> i32 {
+    match (max_colors, file) {
+        (Some(_), Some(_)) => emit(CliFailure::new(
+            "Cli",
+            "palette remap takes --file or --max-colors, not both",
+        )),
+        (None, None) => emit(CliFailure::new(
+            "Cli",
+            "palette remap needs --file or --max-colors",
+        )),
+        (Some(max_colors), None) => apply(
+            doc,
+            vec![request("remapPalette", json!({"maxColors": max_colors}))],
+        ),
+        (None, Some(file)) => {
+            let text = match fs::read_to_string(file) {
+                Ok(text) => text,
+                Err(err) => return emit(CliFailure::io(file, err)),
+            };
+            apply(doc, vec![request("remapPalette", json!({"text": text}))])
+        }
+    }
+}
+
+fn cmd_apply_png(doc: &ProjectArgs, file: &Path, frame: Option<u32>, layer: Option<u32>) -> i32 {
+    let bytes = match fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(err) => return emit(CliFailure::io(file, err)),
+    };
+    let mut params = json!({ "png": STANDARD.encode(bytes) });
+    if let Some(frame) = frame {
+        params["frame"] = json!(frame);
+    }
+    if let Some(layer) = layer {
+        params["layer"] = json!(layer);
+    }
+    apply(doc, vec![request("applyPng", params)])
 }
 
 fn cmd_import(doc: &ProjectArgs, mode: ImportMode, file: &Path) -> i32 {

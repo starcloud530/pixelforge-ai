@@ -73,6 +73,8 @@ export const AGENT_SYSTEM_PROMPT = [
   "The tools are Tool API version 1. Arguments are one JSON object of that tool's params.",
   "Integers are numbers, not strings. Unknown fields are rejected.",
   "Index 0 is transparent. It cannot be painted or recolored.",
+  "The default indexPolicy is reject. clamp writes an out-of-range paint index as the last opaque color.",
+  "remapPalette and applyPng report misses, merges, and pixelsChanged. There is no Lospec browser.",
   "The user message includes the current document from inspect.",
   "You may return several tool calls. They run in order on that same document.",
   "If one call fails, later calls in this reply are not run.",
