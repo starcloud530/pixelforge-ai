@@ -7,6 +7,9 @@ use crate::palette::{IndexPolicy, Palette};
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
 use crate::selection::Selection;
+use crate::tag::{
+    normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
+};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -17,7 +20,7 @@ use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, frames, layers, delays, and the undo stack.
+/// Indexed pixel document: size, palette, frames, layers, delays, tags, and the undo stack.
 ///
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
@@ -49,6 +52,9 @@ pub struct Document {
     /// One canvas rectangle shared by every frame and layer, or none.
     /// Paint tools skip cells outside it. The project file stores it.
     selection: Option<Selection>,
+    /// Named inclusive frame ranges. Empty when the file omits `tags`.
+    /// Not a linked cel: each frame still owns its pixels.
+    tags: Vec<Tag>,
     history: History,
     playback: Playback,
 }
@@ -90,6 +96,7 @@ impl Document {
             layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
             active_layer: 0,
             selection: None,
+            tags: Vec::new(),
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -1321,10 +1328,15 @@ impl Document {
     }
 
     /// Appends a blank frame and returns its index. The active frame stays put.
+    ///
+    /// A tag that already ends before the new frame stays put, so appending
+    /// does not grow a tag.
     pub fn add_frame(&mut self) -> usize {
         let index = self.frames.len();
+        let before_tags = self.tags.clone();
         self.frames.push(self.blank_frame());
-        self.history.record(Change::AddFrame { index });
+        self.tags = tags_after_insert(&before_tags, index);
+        self.record_frame_change(before_tags, Change::AddFrame { index });
         index
     }
 
@@ -1334,6 +1346,11 @@ impl Document {
     /// pixels: an active index at or after the insertion point increases by
     /// one, and an earlier active index stays put. Call
     /// [`Self::set_active_frame`] with the returned index to edit the copy.
+    ///
+    /// The copy is a new pixel buffer, not a linked cel. A tag that starts
+    /// before the insertion point and already covers it grows by one. A tag
+    /// that ends on the source frame does not take the copy, because the copy
+    /// is inserted after that end.
     pub fn duplicate_frame(&mut self, index: usize) -> Result<usize, KernelError> {
         let frame = self
             .frames
@@ -1345,16 +1362,21 @@ impl Document {
             })?;
         let inserted = index + 1;
         let active_before = self.active;
+        let before_tags = self.tags.clone();
         self.frames.insert(inserted, frame.clone());
         if self.active >= inserted {
             self.active += 1;
         }
-        self.history.record(Change::InsertFrame {
-            index: inserted,
-            frame,
-            active_before,
-            active_after: self.active,
-        });
+        self.tags = tags_after_insert(&before_tags, inserted);
+        self.record_frame_change(
+            before_tags,
+            Change::InsertFrame {
+                index: inserted,
+                frame,
+                active_before,
+                active_after: self.active,
+            },
+        );
         Ok(inserted)
     }
 
@@ -1370,19 +1392,24 @@ impl Document {
             });
         }
         let active_before = self.active;
+        let before_tags = self.tags.clone();
         let frame = self.frames.remove(index);
+        self.tags = tags_after_remove(&before_tags, index);
         self.active = match active_before.cmp(&index) {
             Ordering::Greater => active_before - 1,
             Ordering::Equal => index.min(self.frames.len() - 1),
             Ordering::Less => active_before,
         };
         self.clamp_elapsed();
-        self.history.record(Change::RemoveFrame {
-            index,
-            frame,
-            active_before,
-            active_after: self.active,
-        });
+        self.record_frame_change(
+            before_tags,
+            Change::RemoveFrame {
+                index,
+                frame,
+                active_before,
+                active_after: self.active,
+            },
+        );
         Ok(())
     }
 
@@ -1610,6 +1637,83 @@ impl Document {
         Ok(())
     }
 
+    /// Named frame ranges, in insertion order. Empty when the file has none.
+    pub fn tags(&self) -> &[Tag] {
+        &self.tags
+    }
+
+    /// Appends a tag. `name` is trimmed. The range is inclusive.
+    ///
+    /// Overlapping ranges are allowed. A second tag with the same name is
+    /// [`KernelError::TagExists`]. One undo step. This does not link cels.
+    pub fn add_tag(
+        &mut self,
+        name: &str,
+        from: usize,
+        to: usize,
+        loop_mode: LoopMode,
+    ) -> Result<usize, KernelError> {
+        let name = normalize_tag_name(name).map_err(|()| KernelError::TagName)?;
+        if self.tags.iter().any(|tag| tag.name == name) {
+            return Err(KernelError::TagExists);
+        }
+        self.check_tag_range(from, to)?;
+        let index = self.tags.len();
+        let before = self.tags.clone();
+        self.tags.push(Tag {
+            name,
+            from,
+            to,
+            loop_mode,
+        });
+        self.record_tags(before);
+        Ok(index)
+    }
+
+    /// Changes one tag's range, loop mode, or name. Unset fields stay.
+    ///
+    /// The same resulting tag is not recorded. `rename` is trimmed. One undo
+    /// step when the tag changes. Returns the tag's index.
+    pub fn set_tag(&mut self, name: &str, update: TagUpdate) -> Result<usize, KernelError> {
+        let name = normalize_tag_name(name).map_err(|()| KernelError::TagName)?;
+        let index = self.tag_position(&name)?;
+        let mut next = self.tags[index].clone();
+        if let Some(from) = update.from {
+            next.from = from;
+        }
+        if let Some(to) = update.to {
+            next.to = to;
+        }
+        if let Some(loop_mode) = update.loop_mode {
+            next.loop_mode = loop_mode;
+        }
+        if let Some(rename) = update.rename {
+            let rename = normalize_tag_name(&rename).map_err(|()| KernelError::TagName)?;
+            if rename != next.name && self.tags.iter().any(|tag| tag.name == rename) {
+                return Err(KernelError::TagExists);
+            }
+            next.name = rename;
+        }
+        self.check_tag_range(next.from, next.to)?;
+        if next == self.tags[index] {
+            return Ok(index);
+        }
+        let before = self.tags.clone();
+        self.tags[index] = next;
+        self.record_tags(before);
+        Ok(index)
+    }
+
+    /// Removes the tag with this name. Frames stay. Returns the removed index.
+    pub fn remove_tag(&mut self, name: &str) -> Result<usize, KernelError> {
+        let name = normalize_tag_name(name).map_err(|()| KernelError::TagName)?;
+        let index = self.tag_position(&name)?;
+        let before = self.tags.clone();
+        self.tags.remove(index);
+        self.record_tags(before);
+        Ok(index)
+    }
+
     /// True while [`Self::tick`] advances frames.
     pub fn playing(&self) -> bool {
         self.playback.playing
@@ -1770,6 +1874,7 @@ impl Document {
         layer_names: Vec<String>,
         active_layer: usize,
         selection: Option<Selection>,
+        tags: Vec<Tag>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -1781,6 +1886,11 @@ impl Document {
         debug_assert!(
             selection.is_none_or(|sel| sel.fits(width, height)),
             "selection was checked"
+        );
+        debug_assert!(
+            tags.iter()
+                .all(|tag| tag.from <= tag.to && tag.to < frames.len()),
+            "tags were checked"
         );
         let len = pixel_len(width, height);
         debug_assert!(
@@ -1801,6 +1911,7 @@ impl Document {
             layer_names,
             active_layer,
             selection,
+            tags,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -1823,6 +1934,45 @@ impl Document {
             before,
             after: value,
         });
+    }
+
+    fn record_frame_change(&mut self, before_tags: Vec<Tag>, change: Change) {
+        let mut changes = vec![change];
+        if before_tags != self.tags {
+            changes.push(Change::Tags {
+                before: before_tags,
+                after: self.tags.clone(),
+            });
+        }
+        self.history.record_group(changes);
+    }
+
+    fn record_tags(&mut self, before: Vec<Tag>) {
+        if before != self.tags {
+            self.history.record(Change::Tags {
+                before,
+                after: self.tags.clone(),
+            });
+        }
+    }
+
+    fn tag_position(&self, name: &str) -> Result<usize, KernelError> {
+        self.tags
+            .iter()
+            .position(|tag| tag.name == name)
+            .ok_or(KernelError::TagMissing)
+    }
+
+    fn check_tag_range(&self, from: usize, to: usize) -> Result<(), KernelError> {
+        if from > to || to >= self.frames.len() {
+            Err(KernelError::TagRange {
+                from,
+                to,
+                len: self.frames.len(),
+            })
+        } else {
+            Ok(())
+        }
     }
 
     fn blank_frame(&self) -> Frame {
@@ -2055,6 +2205,13 @@ impl Document {
             }
             Change::Selection { before, after } => {
                 self.selection = if forward { *after } else { *before };
+            }
+            Change::Tags { before, after } => {
+                self.tags = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
             }
             Change::ReorderLayer {
                 from,

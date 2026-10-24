@@ -2037,6 +2037,180 @@ fn selection_limits_a_helmet_recolor_to_the_gear_layer() {
     assert_eq!(load(&project).layer_pixels(0, 1).unwrap()[7 * 8], 7);
 }
 
+#[test]
+fn tags_round_trip_and_sheet_atlas_is_opt_in() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "2",
+            "--height",
+            "2",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    for index in ["0", "0", "0"] {
+        assert_eq!(
+            status(&pixelforge(&arg(&[
+                "frame",
+                "duplicate",
+                "--project",
+                project_arg,
+                "--index",
+                index,
+            ]))),
+            0
+        );
+    }
+    assert_eq!(load(&project).frame_count(), 4);
+
+    let added = pixelforge(&arg(&[
+        "tag",
+        "add",
+        "--project",
+        project_arg,
+        "--name",
+        "walk_down",
+        "--from",
+        "1",
+        "--to",
+        "3",
+        "--loop",
+        "forward",
+    ]));
+    assert_eq!(status(&added), 0, "{}", stderr(&added));
+    assert_eq!(json_lines(&added)[0]["result"]["name"], "walk_down");
+    assert_eq!(json_lines(&added)[0]["result"]["loop"], "forward");
+
+    let idle = pixelforge(&arg(&[
+        "tag",
+        "add",
+        "--project",
+        project_arg,
+        "--name",
+        "idle_down",
+        "--from",
+        "0",
+        "--to",
+        "0",
+    ]));
+    assert_eq!(status(&idle), 0, "{}", stderr(&idle));
+    assert_eq!(json_lines(&idle)[0]["result"]["loop"], "forward");
+
+    let renamed = pixelforge(&arg(&[
+        "tag",
+        "set",
+        "--project",
+        project_arg,
+        "--name",
+        "walk_down",
+        "--loop",
+        "pingpong",
+        "--rename",
+        "walk_south",
+    ]));
+    assert_eq!(status(&renamed), 0, "{}", stderr(&renamed));
+    assert_eq!(json_lines(&renamed)[0]["result"]["name"], "walk_south");
+    assert_eq!(json_lines(&renamed)[0]["result"]["loop"], "pingpong");
+    assert_eq!(json_lines(&renamed)[0]["result"]["from"], 1);
+    assert_eq!(json_lines(&renamed)[0]["result"]["to"], 3);
+
+    let saved = fs::read_to_string(&project).unwrap();
+    assert!(saved.contains("walk_south"));
+    assert!(saved.contains("idle_down"));
+    let doc = load(&project);
+    assert_eq!(doc.tags().len(), 2);
+    assert_eq!(doc.tags()[0].name, "walk_south");
+
+    let sheet_path = scratch.child("hero-sheet.png");
+    let bare = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet_path.to_str().unwrap(),
+        "--cols",
+        "4",
+    ]));
+    assert_eq!(status(&bare), 0, "{}", stderr(&bare));
+    assert!(json_lines(&bare)[0]["result"].get("atlas").is_none());
+    assert_eq!(json_lines(&bare)[0]["result"]["columns"], 4);
+    assert_eq!(png_size(&fs::read(&sheet_path).unwrap()), (8, 2));
+
+    let atlas_path = scratch.child("hero-sheet.json");
+    let sheet = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet_path.to_str().unwrap(),
+        "--cols",
+        "4",
+        "--scale",
+        "2",
+        "--atlas",
+        atlas_path.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&sheet), 0, "{}", stderr(&sheet));
+    assert_eq!(
+        json_lines(&sheet)[0]["result"]["atlas"],
+        atlas_path.to_str().unwrap()
+    );
+    assert_eq!(json_lines(&sheet)[0]["result"]["columns"], 4);
+    assert_eq!(json_lines(&sheet)[0]["result"]["rows"], 1);
+    assert_eq!(png_size(&fs::read(&sheet_path).unwrap()), (16, 4));
+    let atlas: Value = serde_json::from_str(&fs::read_to_string(&atlas_path).unwrap()).unwrap();
+    assert_eq!(atlas["format"], "pixelforge-atlas");
+    assert_eq!(atlas["version"], 1);
+    assert_eq!(atlas["image"], "hero-sheet.png");
+    assert_eq!(atlas["columns"], 4);
+    assert_eq!(atlas["scale"], 2);
+    assert_eq!(atlas["frames"].as_array().unwrap().len(), 4);
+    assert_eq!(atlas["frames"][1]["x"], 4);
+    assert_eq!(atlas["frames"][1]["delayMs"], 100);
+    assert_eq!(atlas["frames"][1]["width"], 4);
+    assert_eq!(atlas["tags"][0]["name"], "walk_south");
+    assert_eq!(atlas["tags"][0]["from"], 1);
+    assert_eq!(atlas["tags"][0]["to"], 3);
+    assert_eq!(atlas["tags"][0]["loop"], "pingpong");
+    assert_eq!(atlas["tags"][1]["name"], "idle_down");
+    assert!(stderr(&sheet).contains("hero-sheet.json"));
+
+    let removed = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--request",
+        r#"{"tool":"removeTag","params":{"name":"idle_down"}}"#,
+        "--request",
+        r#"{"tool":"undo"}"#,
+    ]));
+    assert_eq!(status(&removed), 0, "{}", stderr(&removed));
+    assert_eq!(load(&project).tags().len(), 2);
+
+    let duplicate = pixelforge(&arg(&[
+        "tag",
+        "add",
+        "--project",
+        project_arg,
+        "--name",
+        "idle_down",
+        "--from",
+        "0",
+        "--to",
+        "0",
+    ]));
+    assert_eq!(status(&duplicate), 1, "{}", stderr(&duplicate));
+    assert_eq!(json_lines(&duplicate)[0]["error"]["code"], "TagExists");
+}
+
 fn assert_full_grid(body: &Value, width: usize, height: usize) {
     let rows = body["result"]["rows"].as_array().unwrap();
     assert_eq!(rows.len(), height);

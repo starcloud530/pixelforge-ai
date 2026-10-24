@@ -8,7 +8,7 @@ Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Rea
 | --- | --- |
 | `pixelforge` | 用 pixelforge, 改工程, CLI, palette, export. Index-color invariants, exit codes, `inspect` / `tools` / `call`. |
 | `pixelforge-draw` | 从零画角色, 立绘, 剪影. Silhouette, then flats, then details. `preview --scale` after each stage. |
-| `pixelforge-sprite-4dir` | 四向走 + 闲. Rows are facings, columns are idle plus walk. `export sheet --cols`, `diff` for foot slide, fix highlights after `hflip`. |
+| `pixelforge-sprite-4dir` | 四向走 + 闲. Rows are facings, columns are idle plus walk. `export sheet --cols`, tags named `idle_down` / `walk_down`, `--atlas` JSON, `diff` for foot slide, fix highlights after `hflip`. |
 | `pixelforge-layers` | body / gear / limbs. Composite preview, draw with `--layer`, `layer flatten`. |
 | `pixelforge-critique` | Read-only review. List defects. Do not answer with praise alone. |
 

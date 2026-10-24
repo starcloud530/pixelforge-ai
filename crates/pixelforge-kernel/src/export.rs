@@ -12,6 +12,7 @@
 //! as onion skin. It is not stored and is not encoded into the file.
 
 use png::{BitDepth, ColorType, Encoder};
+use serde::Serialize;
 
 use crate::document::Document;
 use crate::error::KernelError;
@@ -61,6 +62,56 @@ impl SpriteSheetLayout {
             row * u32::from(self.frame_height),
         ))
     }
+}
+
+/// `format` field of a sprite-sheet atlas.
+pub(crate) const ATLAS_FORMAT: &str = "pixelforge-atlas";
+
+/// Version of [`SpriteAtlas`].
+pub(crate) const ATLAS_VERSION: u32 = 1;
+
+/// JSON beside a sprite sheet: frame rectangles, delays, columns, and tags.
+///
+/// Rectangles are in sheet pixels after `scale`. Padding cells are not frames.
+/// This is not an Aseprite cel-link file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SpriteAtlas {
+    pub format: &'static str,
+    pub version: u32,
+    pub columns: u32,
+    pub rows: u32,
+    pub scale: u32,
+    pub frame_width: u32,
+    pub frame_height: u32,
+    pub sheet_width: u32,
+    pub sheet_height: u32,
+    pub frames: Vec<AtlasFrame>,
+    pub tags: Vec<AtlasTag>,
+}
+
+/// One real frame inside a [`SpriteAtlas`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AtlasFrame {
+    pub index: u32,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub delay_ms: u32,
+}
+
+/// One tag inside a [`SpriteAtlas`]. `loop` is the loop mode name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AtlasTag {
+    pub index: u32,
+    pub name: String,
+    pub from: u32,
+    pub to: u32,
+    #[serde(rename = "loop")]
+    pub loop_mode: String,
 }
 
 /// Grid used by [`Document::export_sprite_sheet`] for this frame count and cell size.
@@ -309,6 +360,60 @@ impl Document {
             );
         }
         Ok(encode_rgba_png(sheet_width, sheet_height, &rgba))
+    }
+
+    /// Atlas for the same grid as [`Self::export_sprite_sheet_scaled_with`].
+    ///
+    /// Does not encode a PNG and does not change the document. Frame rectangles
+    /// are in sheet pixels. `columns` is the frame grid; `scale` does not
+    /// change it. Tags are the document's tags, in list order.
+    pub(crate) fn sprite_sheet_atlas(
+        &self,
+        scale: u32,
+        columns: Option<u32>,
+    ) -> Result<SpriteAtlas, KernelError> {
+        let scale = require_scale(scale)?;
+        let layout = self.sprite_sheet_layout_with(columns)?;
+        let (sheet_width, sheet_height) = self.scaled_sheet_size_with(scale, columns)?;
+        let frame_width = mul_scale(u32::from(layout.frame_width), scale)?;
+        let frame_height = mul_scale(u32::from(layout.frame_height), scale)?;
+        let mut frames = Vec::with_capacity(self.frame_count());
+        for index in 0..self.frame_count() {
+            let (x, y) = layout.frame_origin(index).expect("every frame has a cell");
+            frames.push(AtlasFrame {
+                index: u32::try_from(index).expect("frame index fits in u32"),
+                x: mul_scale(x, scale)?,
+                y: mul_scale(y, scale)?,
+                width: frame_width,
+                height: frame_height,
+                delay_ms: self.frame_delay(index).expect("index walks the frame list"),
+            });
+        }
+        let tags = self
+            .tags()
+            .iter()
+            .enumerate()
+            .map(|(index, tag)| AtlasTag {
+                index: u32::try_from(index).expect("tag index fits in u32"),
+                name: tag.name.clone(),
+                from: u32::try_from(tag.from).expect("frame index fits in u32"),
+                to: u32::try_from(tag.to).expect("frame index fits in u32"),
+                loop_mode: tag.loop_mode.as_str().to_string(),
+            })
+            .collect();
+        Ok(SpriteAtlas {
+            format: ATLAS_FORMAT,
+            version: ATLAS_VERSION,
+            columns: layout.columns,
+            rows: layout.rows,
+            scale,
+            frame_width,
+            frame_height,
+            sheet_width,
+            sheet_height,
+            frames,
+            tags,
+        })
     }
 
     /// Side-by-side frames plus an index onion. Read-only. See [`FrameDiff`].

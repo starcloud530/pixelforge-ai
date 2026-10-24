@@ -35,6 +35,18 @@
 
 *The downloaded name includes that grid, for example `pixelforge-sheet-2x1.png` for two columns and one row. After a rename, use the formula above.*
 
+## Atlas JSON
+
+`pixelforge export sheet --atlas hero-sheet.json` 在 PNG 旁边再写一份 `pixelforge-atlas` version 1。不传 `--atlas` 时只写 PNG，stdout 也和以前一样。Tool API 里对应的是 `exportSpriteSheet` 的 `atlas: true`，结果里多一个对象，不写文件。
+
+矩形是放大之后的图上像素。`columns` 是帧网格，`scale` 不改变它。`frames` 只列真实帧，每项有 `index`、`x`、`y`、`width`、`height`、`delayMs`。末尾的透明空位不是帧。`tags` 是文档里的命名区间：`name`、`from`、`to`、`loop`。`from` 和 `to` 是帧下标，两端都含。CLI 写出的文件另有 `image`，值是 PNG 文件名。
+
+循环模式是 `forward`、`reverse`、`pingpong`、`once`。这是给读取 atlas 的一方用的。文档自己的循环预览仍按整条时间轴走，不按单个标签播。标签不是 cel 链接：帧与帧不共用像素。
+
+四向表的名字约定见 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)：一行一个朝向时，`idle_down` 是该行第一格，`walk_down` 是该行剩下的走路帧，左、右、上同样用 `idle_left` / `walk_left` 等。
+
+*Passing `--atlas` writes `pixelforge-atlas` version 1 next to the PNG. Omitting it keeps the PNG-only result. Tool API `exportSpriteSheet` with `atlas: true` returns the same object and does not write a file. Rectangles are sheet pixels after scale. `frames` lists real frames and each one carries `delayMs`. Padding cells are absent. `tags` are inclusive frame ranges. The CLI file adds `image`, the PNG file name. Loop modes are metadata for the reader. Document playback still walks the whole timeline. Tags are not linked cels. Four-direction names live in pixelforge-sprite-4dir.*
+
 ## Godot 4
 
 这些是导入约定，不是编辑器技术栈。

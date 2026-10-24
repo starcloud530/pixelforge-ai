@@ -262,6 +262,37 @@ const BY_NAME = {
     },
     ["index", "delayMs"],
   ),
+  addTag: tool(
+    "addTag",
+    "Name an inclusive frame range. loop defaults to forward and is one of forward, reverse, pingpong, or once. Names are unique. This is not a linked cel: each frame keeps its own pixels. One undo step.",
+    {
+      name: { type: "string", description: "Tag name, trimmed, 1 to 64 characters." },
+      from: int("First frame, inclusive.", 0, 4294967295),
+      to: int("Last frame, inclusive.", 0, 4294967295),
+      loop: { type: "string", description: "forward, reverse, pingpong, or once. Default forward." },
+    },
+    ["name", "from", "to"],
+  ),
+  setTag: tool(
+    "setTag",
+    "Change from, to, loop, or the name of an existing tag. Pass at least one of those. The same resulting tag is not recorded. One undo step.",
+    {
+      name: { type: "string", description: "Current tag name." },
+      from: int("New first frame, inclusive. Omit to keep it.", 0, 4294967295),
+      to: int("New last frame, inclusive. Omit to keep it.", 0, 4294967295),
+      loop: { type: "string", description: "forward, reverse, pingpong, or once." },
+      rename: { type: "string", description: "New unique name. Omit to keep the current name." },
+    },
+    ["name"],
+  ),
+  removeTag: tool(
+    "removeTag",
+    "Remove a tag by name. Frames stay. One undo step.",
+    {
+      name: { type: "string", description: "Tag name to remove." },
+    },
+    ["name"],
+  ),
   beginGesture: tool(
     "beginGesture",
     "Start grouping later successful edits into one undo step. Fails if a gesture is already open.",
@@ -299,10 +330,11 @@ const BY_NAME = {
   ),
   exportSpriteSheet: tool(
     "exportSpriteSheet",
-    "Return one grid sprite sheet as a base64 PNG, plus columns, rows, and sheet size. Optional scale (integer >= 1, default 1) nearest-neighbor enlarges each cell. Optional columns sets the frame grid; omit it for ceil(sqrt(frame count)). Does not change the document or the undo stack.",
+    "Return one grid sprite sheet as a base64 PNG, plus columns, rows, and sheet size. Optional scale (integer >= 1, default 1) nearest-neighbor enlarges each cell. Optional columns sets the frame grid; omit it for ceil(sqrt(frame count)). Optional atlas true adds a pixelforge-atlas object with frame rects, delayMs, columns, and tags. Omit atlas and the result stays the PNG fields. Does not change the document or the undo stack.",
     {
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
       columns: int("Frame columns. Omit for a nearly square grid.", 1, 4294967295),
+      atlas: { type: "boolean", description: "When true, add frame rects, delays, columns, and tags. Omit to keep the PNG fields only." },
     },
   ),
   previewFrame: tool(
