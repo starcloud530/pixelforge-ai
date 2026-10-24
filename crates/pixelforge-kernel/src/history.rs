@@ -14,6 +14,7 @@ use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::IndexPolicy;
 use crate::selection::Selection;
+use crate::tag::Tag;
 use crate::Rgba;
 use crate::MAX_UNDO;
 
@@ -95,6 +96,14 @@ pub(crate) enum Change {
     PaletteReplace {
         before: Vec<Rgba>,
         after: Vec<Rgba>,
+    },
+    /// The named frame-range list was replaced.
+    ///
+    /// Stored as a snapshot so one undo restores tags together with the frame
+    /// insert or delete that moved them. This is not a linked cel.
+    Tags {
+        before: Vec<Tag>,
+        after: Vec<Tag>,
     },
     /// Whether palette edits and imports are refused.
     PaletteLocked {
@@ -319,6 +328,7 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
             after,
         } => coalesce_delay(changes, index, before, after),
         Change::ActiveFrame { before, after } => coalesce_active(changes, before, after),
+        Change::Tags { before, after } => coalesce_tags(changes, before, after),
         other => changes.push(other),
     }
 }
@@ -469,6 +479,23 @@ fn coalesce_selection(
     }
 
     changes.push(Change::Selection { before, after });
+}
+
+fn coalesce_tags(changes: &mut Vec<Change>, before: Vec<Tag>, after: Vec<Tag>) {
+    if let Some(Change::Tags {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(slot, &before, "tag history skipped a write");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::Tags { before, after });
 }
 
 fn coalesce_active_layer(changes: &mut Vec<Change>, before: usize, after: usize) {

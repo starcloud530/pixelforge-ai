@@ -18,7 +18,7 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 | --- | --- | --- | --- |
 | `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、导出 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
-| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
+| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢 | body / gear / limbs。合成预览、`--layer`、`layer flatten`。 |
 | `pixelforge-critique` | [.cursor/skills/pixelforge-critique/SKILL.md](../.cursor/skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。输出必须列缺陷，不能只说看起来不错。 |
 
@@ -182,13 +182,20 @@ pixelforge call --project hero.json \
   --request '{"tool":"duplicateFrame","params":{"index":0}}' \
   --request '{"tool":"setActiveFrame","params":{"index":1}}' \
   --request '{"tool":"setFrameDelay","params":{"index":1,"delayMs":120}}'
-pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2
+pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
+pixelforge tag set --project hero.json --name walk_down --loop pingpong --rename walk_south
+pixelforge tag remove --project hero.json --name walk_south
+pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2 --atlas hero-sheet.json
 pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 ```
 
 `duplicateFrame` 把像素和时长复制到下一格，返回的 `index` 是新帧。**它不会把当前帧改成这份拷贝。** 当前帧仍显示原来的像素：若它的下标在插入点或之后，下标会加一；否则下标不变。要画拷贝，先 `frame select` / `setActiveFrame` 到返回的下标。网页「复制」按钮会代为选中；CLI 和 `duplicateFrame` 不会。`frame add` 在末尾追加一帧 100 毫秒的空白帧，不改变当前帧。`export png` 写出 `pixelforge-000.png` 起的文件。时长范围是 `1..=65535`。
 
-*duplicateFrame does not select the copy. `frame add` appends a blank 100 ms frame. `export png` writes `pixelforge-000.png` onward. `export sheet --cols N` keeps one facing on one row when N is the frame count of that facing.*
+*duplicateFrame does not select the copy. `frame add` appends a blank 100 ms frame. `export png` writes `pixelforge-000.png` onward. `export sheet --cols N` keeps one facing on one row when N is the frame count of that facing. `--atlas FILE` writes `pixelforge-atlas` JSON beside the sheet. Omit it and the export result stays the PNG fields. Tag names for a four-direction sheet live in pixelforge-sprite-4dir.*
+
+`tag add` / `addTag` 给一段闭区间起名，并写上 `loop`（`forward`、`reverse`、`pingpong`、`once`，缺省 `forward`）。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。`inspect` 和 `scene` 始终带 `tags`，空的时候是 `[]`。标签不是 cel 链接：复制帧仍然复制像素。整条时间轴的循环预览不改成按标签播放。插帧、删帧会在同一步撤销里挪已经存在的标签；复制某个标签的最后一帧时，新帧不自动进这个标签。四向名字在帧排好之后再打，见 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。
+
+*`tag add` names an inclusive range. `loop` is `forward`, `reverse`, `pingpong`, or `once`, and defaults to `forward`. `tag set` changes the range, the loop, or the name. `tag remove` drops the tag and leaves the frames. A project with no tags omits `tags`. `inspect` and `scene` always include `tags`, and an empty list is `[]`. Tags are not cel links. Playback of the whole timeline is unchanged. Adding or deleting a frame moves existing tags in that same undo step. Duplicating the last frame of a tag does not pull the copy into the tag. Name a four-direction sheet after the frames exist.*
 
 同一批修改也可以拆成子命令。子命令各自是一次进程，撤销栈不跨进程：
 
@@ -240,9 +247,9 @@ pixelforge tools
 pixelforge call --project hero.json --request-file edits.json
 ```
 
-`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（没有选区时是 `null`）、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数和 `delayMs`。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
+`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（没有选区时是 `null`）、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数、`delayMs` 和 `tags`（没有标签时是 `[]`）。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
 
-*`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, and delay. It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
+*`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, delay, and `tags` (an empty array when there are none). It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
 
 `edits.json` 可以是一个 JSON 对象、一个 JSON 数组，或每行一个 JSON 值。也可以把 JSON 从 stdin 送进 `pixelforge call --project hero.json`。每个 `--request` 是一个请求对象，原样交给 `Document::call_tool`。
 

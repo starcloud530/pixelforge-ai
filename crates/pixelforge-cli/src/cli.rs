@@ -39,7 +39,8 @@ Examples:
       --request '{\"tool\":\"fillRect\",\"params\":{\"x\":1,\"y\":2,\"width\":4,\"height\":6,\"colorIndex\":3}}' \\
       --request '{\"tool\":\"endGesture\"}'
   pixelforge export png --project hero.json --out-dir ./frames --scale 2
-  pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4
+  pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
+  pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4 --atlas hero-sheet.json
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, palette hash, frame delays) and does not dump pixels. `visible` is
@@ -63,7 +64,11 @@ onion blend, all from the composite unless `--layer` is set. `flip
 and does not recolor. `copy-rect` and `move-rect` take optional
 `--from-frame` and `--to-frame` and stay on one layer. `export` writes the
 composite. `layer flatten` collapses that composite into one layer.
-`export sheet --cols N` keeps one row when N is the frame count. `resize`
+`export sheet --cols N` keeps one row when N is the frame count. `--atlas FILE`
+writes pixelforge-atlas JSON (frame rects, delayMs, columns, tags) and adds
+`atlas` to the result. Omit it and the result stays the PNG fields. `tag add`
+stores a name, an inclusive frame range, and a loop (`forward`, `reverse`,
+`pingpong`, or `once`). Tags are not linked cels. `resize`
 copies every layer of every frame into a new canvas; omit offsets to center.
 A standing figure still wants a tall canvas (64x128 or 96x128). `selection set`
 stores one rectangle in the project file. Later paint, erase, fill-rect,
@@ -251,6 +256,11 @@ pub enum Command {
     Frame {
         #[command(subcommand)]
         command: FrameCmd,
+    },
+    /// Named animation tags. A tag is a frame range, not a linked cel.
+    Tag {
+        #[command(subcommand)]
+        command: TagCmd,
     },
     /// Layer stack shared by every frame. Index 0 is the bottom.
     Layer {
@@ -794,5 +804,75 @@ pub enum ExportCmd {
         /// Columns in the frame grid. Omit to keep ceil(sqrt(frame count)).
         #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
         cols: Option<u32>,
+        /// Write pixelforge-atlas JSON for this sheet. Omit to keep the PNG-only result.
+        #[arg(long, value_name = "FILE")]
+        atlas: Option<PathBuf>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum LoopArg {
+    Forward,
+    Reverse,
+    Pingpong,
+    Once,
+}
+
+impl LoopArg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Forward => "forward",
+            Self::Reverse => "reverse",
+            Self::Pingpong => "pingpong",
+            Self::Once => "once",
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum TagCmd {
+    /// Add a tag over an inclusive frame range. `loop` defaults to forward.
+    Add {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Unique name. Trimmed. 1 to 64 characters.
+        #[arg(long)]
+        name: String,
+        /// First frame, inclusive.
+        #[arg(long)]
+        from: u32,
+        /// Last frame, inclusive.
+        #[arg(long)]
+        to: u32,
+        /// forward, reverse, pingpong, or once.
+        #[arg(long = "loop", value_enum, default_value = "forward")]
+        loop_mode: LoopArg,
+    },
+    /// Change a tag's range, loop, or name. Pass at least one change.
+    Set {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Current name.
+        #[arg(long)]
+        name: String,
+        /// New first frame, inclusive. Omit to keep it.
+        #[arg(long)]
+        from: Option<u32>,
+        /// New last frame, inclusive. Omit to keep it.
+        #[arg(long)]
+        to: Option<u32>,
+        /// forward, reverse, pingpong, or once.
+        #[arg(long = "loop", value_enum)]
+        loop_mode: Option<LoopArg>,
+        /// New unique name. Omit to keep the current name.
+        #[arg(long)]
+        rename: Option<String>,
+    },
+    /// Remove a tag by name. Frames stay.
+    Remove {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        #[arg(long)]
+        name: String,
     },
 }

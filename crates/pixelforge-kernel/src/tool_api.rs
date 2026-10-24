@@ -21,6 +21,7 @@ use crate::palette::IndexPolicy;
 use crate::palette_file::PaletteImportMode;
 use crate::palette_map::{ColorMerge, DroppedColor, MapReport};
 use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
+use crate::tag::{LoopMode, TagUpdate};
 use crate::MAX_CANVAS_EDGE;
 
 /// Version written on every response. An omitted request version means this one.
@@ -53,6 +54,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "deleteFrame",
     "duplicateFrame",
     "setFrameDelay",
+    "addTag",
+    "setTag",
+    "removeTag",
     "beginGesture",
     "endGesture",
     "undo",
@@ -543,6 +547,28 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 .map_err(ToolFailure::Kernel)?;
             Ok(empty())
         }
+        "addTag" => {
+            let (name, from, to, loop_mode) = parse_add_tag(params)?;
+            let index = document
+                .add_tag(&name, from, to, loop_mode)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(tag_value(document, index))
+        }
+        "setTag" => {
+            let (name, update) = parse_set_tag(params)?;
+            let index = document
+                .set_tag(&name, update)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(tag_value(document, index))
+        }
+        "removeTag" => {
+            let name = parse_remove_tag(params)?;
+            let index = document.remove_tag(&name).map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "name": name.trim(),
+            }))
+        }
         "beginGesture" => {
             parse_empty(tool, params)?;
             document.begin_gesture().map_err(ToolFailure::Kernel)?;
@@ -592,7 +618,7 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             }))
         }
         "exportSpriteSheet" => {
-            let (scale, columns) = parse_sheet(params)?;
+            let (scale, columns, atlas) = parse_sheet(params)?;
             let layout = document
                 .sprite_sheet_layout_with(columns)
                 .map_err(ToolFailure::Kernel)?;
@@ -604,14 +630,22 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                     .export_sprite_sheet_scaled_with(scale, columns)
                     .map_err(ToolFailure::Kernel)?,
             );
-            Ok(serde_json::json!({
+            let mut result = serde_json::json!({
                 "png": png,
                 "columns": layout.columns,
                 "rows": layout.rows,
                 "sheetWidth": sheet_width,
                 "sheetHeight": sheet_height,
                 "scale": scale,
-            }))
+            });
+            if atlas {
+                let atlas = document
+                    .sprite_sheet_atlas(scale, columns)
+                    .map_err(ToolFailure::Kernel)?;
+                result["atlas"] = serde_json::to_value(atlas)
+                    .expect("sprite atlas fields are JSON numbers and strings");
+            }
+            Ok(result)
         }
         "previewFrame" => {
             let (frame, scale, layer) = parse_preview(params, document.active_frame())?;
@@ -806,6 +840,7 @@ fn inspect_value(document: &Document) -> Value {
         "layerCount": document.layer_count(),
         "activeLayer": document.active_layer(),
         "selection": selection_json(document),
+        "tags": tags_json(document),
         "layers": layer_entries(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
@@ -845,6 +880,7 @@ fn scene_value(document: &Document) -> Value {
         "frameCount": document.frame_count(),
         "delayMs": delay_ms,
         "frames": frames,
+        "tags": tags_json(document),
     })
 }
 
@@ -899,6 +935,30 @@ fn layer_entries(document: &Document) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn tags_json(document: &Document) -> Vec<Value> {
+    document
+        .tags()
+        .iter()
+        .enumerate()
+        .map(|(index, tag)| tag_fields(index, &tag.name, tag.from, tag.to, tag.loop_mode))
+        .collect()
+}
+
+fn tag_value(document: &Document, index: usize) -> Value {
+    let tag = &document.tags()[index];
+    tag_fields(index, &tag.name, tag.from, tag.to, tag.loop_mode)
+}
+
+fn tag_fields(index: usize, name: &str, from: usize, to: usize, loop_mode: LoopMode) -> Value {
+    serde_json::json!({
+        "index": as_u32(index),
+        "name": name,
+        "from": as_u32(from),
+        "to": as_u32(to),
+        "loop": loop_mode.as_str(),
+    })
 }
 
 fn selection_json(document: &Document) -> Value {
@@ -1336,9 +1396,9 @@ fn blit_frames(document: &Document, blit: &Blit) -> (usize, usize) {
     )
 }
 
-fn parse_sheet(params: Value) -> Result<(u32, Option<u32>), ToolFailure> {
+fn parse_sheet(params: Value) -> Result<(u32, Option<u32>, bool), ToolFailure> {
     let map = expect_object("exportSpriteSheet", params)?;
-    reject_params("exportSpriteSheet", &map, &["scale", "columns"])?;
+    reject_params("exportSpriteSheet", &map, &["scale", "columns", "atlas"])?;
     let scale = match map.get("scale") {
         None => 1,
         Some(_) => require_u32_at_least("exportSpriteSheet", &map, "scale", 1)?,
@@ -1352,7 +1412,66 @@ fn parse_sheet(params: Value) -> Result<(u32, Option<u32>), ToolFailure> {
             1,
         )?),
     };
-    Ok((scale, columns))
+    let atlas = match map.get("atlas") {
+        None => false,
+        Some(_) => require_bool("exportSpriteSheet", &map, "atlas")?,
+    };
+    Ok((scale, columns, atlas))
+}
+
+fn parse_add_tag(params: Value) -> Result<(String, usize, usize, LoopMode), ToolFailure> {
+    let map = expect_object("addTag", params)?;
+    reject_params("addTag", &map, &["name", "from", "to", "loop"])?;
+    let name = require_string("addTag", &map, "name")?;
+    let from = require_frame("addTag", &map, "from")?;
+    let to = require_frame("addTag", &map, "to")?;
+    let loop_mode = match map.get("loop") {
+        None => LoopMode::Forward,
+        Some(value) => parse_loop_mode("addTag", value)?,
+    };
+    Ok((name, from, to, loop_mode))
+}
+
+fn parse_set_tag(params: Value) -> Result<(String, TagUpdate), ToolFailure> {
+    let map = expect_object("setTag", params)?;
+    reject_params("setTag", &map, &["name", "from", "to", "loop", "rename"])?;
+    let name = require_string("setTag", &map, "name")?;
+    let from = optional_frame("setTag", &map, "from")?;
+    let to = optional_frame("setTag", &map, "to")?;
+    let loop_mode = match map.get("loop") {
+        None => None,
+        Some(value) => Some(parse_loop_mode("setTag", value)?),
+    };
+    let rename = match map.get("rename") {
+        None => None,
+        Some(_) => Some(require_string("setTag", &map, "rename")?),
+    };
+    if from.is_none() && to.is_none() && loop_mode.is_none() && rename.is_none() {
+        return Err(invalid_params("setTag", "pass from, to, loop, or rename"));
+    }
+    Ok((
+        name,
+        TagUpdate {
+            from,
+            to,
+            loop_mode,
+            rename,
+        },
+    ))
+}
+
+fn parse_remove_tag(params: Value) -> Result<String, ToolFailure> {
+    let map = expect_object("removeTag", params)?;
+    reject_params("removeTag", &map, &["name"])?;
+    require_string("removeTag", &map, "name")
+}
+
+fn parse_loop_mode(tool: &str, value: &Value) -> Result<LoopMode, ToolFailure> {
+    let Some(text) = value.as_str() else {
+        return Err(invalid_params(tool, "loop must be a string"));
+    };
+    LoopMode::parse(text)
+        .ok_or_else(|| invalid_params(tool, "loop must be forward, reverse, pingpong, or once"))
 }
 
 fn parse_preview(params: Value, active: usize) -> Result<(usize, u32, Option<usize>), ToolFailure> {

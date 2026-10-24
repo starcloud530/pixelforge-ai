@@ -93,10 +93,14 @@ pub fn export_sprite_sheet(
     output: &Path,
     scale: u32,
     columns: Option<u32>,
+    atlas: Option<&Path>,
 ) -> i32 {
     let mut params = serde_json::json!({ "scale": scale });
     if let Some(columns) = columns {
         params["columns"] = serde_json::json!(columns);
+    }
+    if atlas.is_some() {
+        params["atlas"] = serde_json::json!(true);
     }
     let request = serde_json::json!({
         "apiVersion": TOOL_API_VERSION,
@@ -147,21 +151,56 @@ pub fn export_sprite_sheet(
             format!("path is not UTF-8: {}", output.display()),
         ));
     };
+    let mut summary_result = json!({
+        "path": path_text,
+        "bytes": bytes.len(),
+        "columns": result["columns"].clone(),
+        "rows": result["rows"].clone(),
+        "sheetWidth": result["sheetWidth"].clone(),
+        "sheetHeight": result["sheetHeight"].clone(),
+        "scale": result["scale"].clone(),
+    });
+    if let Some(atlas_path) = atlas {
+        let Some(atlas_value) = result.get("atlas").filter(|value| value.is_object()) else {
+            return crate::output::emit(CliFailure::new(
+                "Cli",
+                "exportSpriteSheet result is missing atlas",
+            ));
+        };
+        let mut atlas_value = atlas_value.clone();
+        if let Some(name) = output.file_name().and_then(|name| name.to_str()) {
+            atlas_value["image"] = json!(name);
+        }
+        if let Err(failure) = write_atlas(atlas_path, &atlas_value) {
+            return crate::output::emit(failure);
+        }
+        eprintln!("pixelforge: wrote {}", atlas_path.display());
+        let Some(atlas_text) = atlas_path.to_str() else {
+            return crate::output::emit(CliFailure::new(
+                "Cli",
+                format!("path is not UTF-8: {}", atlas_path.display()),
+            ));
+        };
+        summary_result["atlas"] = json!(atlas_text);
+    }
     let summary = json!({
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
         "tool": "exportSpriteSheet",
-        "result": {
-            "path": path_text,
-            "bytes": bytes.len(),
-            "columns": result["columns"].clone(),
-            "rows": result["rows"].clone(),
-            "sheetWidth": result["sheetWidth"].clone(),
-            "sheetHeight": result["sheetHeight"].clone(),
-            "scale": result["scale"].clone(),
-        },
+        "result": summary_result,
     });
     finish_summary(&summary)
+}
+
+fn write_atlas(path: &Path, atlas: &Value) -> Result<(), CliFailure> {
+    let mut text = serde_json::to_string_pretty(atlas).expect("atlas is JSON");
+    text.push('\n');
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|err| CliFailure::io(parent, err))?;
+        }
+    }
+    fs::write(path, text).map_err(|err| CliFailure::io(path, err))
 }
 
 /// Writes a standard-base64 PNG. Returns the byte length.

@@ -1,7 +1,7 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! layers, and per-frame delay. Paint, erase, rectangle fill, rectangle erase,
+//! layers, per-frame delay, and named animation tags. Paint, erase, rectangle fill, rectangle erase,
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
 //! indices on the active layer, never raw RGB. Preview, diff, and PNG export
 //! composite the stack: index 0 is transparent and any other index covers the
@@ -38,6 +38,7 @@ mod palette_map;
 mod project;
 mod scene;
 mod selection;
+mod tag;
 mod tool_api;
 
 pub use color::Rgba;
@@ -49,6 +50,7 @@ pub use palette::{IndexPolicy, Palette};
 pub use palette_file::PaletteImportMode;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
 pub use selection::Selection;
+pub use tag::{LoopMode, Tag, TagUpdate};
 pub use tool_api::{TOOL_API_VERSION, TOOL_NAMES};
 
 /// Oldest undo entries past this depth are dropped.
@@ -68,6 +70,9 @@ pub const DEFAULT_LAYER_NAME: &str = "Layer 1";
 
 /// Longest layer name, in Unicode scalar values, after trimming.
 pub const MAX_LAYER_NAME_CHARS: usize = 64;
+
+/// Longest animation tag name, in Unicode scalar values, after trimming.
+pub const MAX_TAG_NAME_CHARS: usize = 64;
 
 /// Shortest delay [`Document::set_frame_delay`] accepts.
 pub const MIN_FRAME_DELAY_MS: u32 = 1;
