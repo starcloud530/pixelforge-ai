@@ -26,6 +26,7 @@
 //! See `docs/tech-stack.md`, `docs/dev-setup.md`, `docs/export.md`,
 //! `docs/tool-api.md`, and `docs/agent-skill.md`.
 
+mod aseprite;
 mod color;
 mod document;
 mod error;
@@ -41,8 +42,9 @@ mod selection;
 mod tag;
 mod tool_api;
 
+pub use aseprite::AsepriteReport;
 pub use color::Rgba;
-pub use document::Document;
+pub use document::{Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};
 pub use export::{sprite_sheet_layout, SpriteSheetLayout};
 pub use frame::Frame;

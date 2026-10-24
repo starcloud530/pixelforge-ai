@@ -27,7 +27,7 @@ use base64::Engine;
 use crate::cli::{
     BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
     ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs,
-    SelectionCmd, TagCmd,
+    RotateArgs, SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -51,6 +51,11 @@ fn execute(cli: Cli) -> i32 {
             height,
             output,
         } => cmd_new(width, height, &output),
+        Command::ImportAseprite {
+            file,
+            output,
+            project,
+        } => cmd_import_aseprite(&file, output.as_deref(), project.as_deref()),
         Command::Inspect { doc, preview } => {
             apply_with(&doc, vec![request("inspect", json!({}))], preview)
         }
@@ -91,8 +96,10 @@ fn execute(cli: Cli) -> i32 {
         Command::EraseRect(args) => cmd_erase_rect(args),
         Command::CopyRect(args) => cmd_blit("copyRect", args),
         Command::MoveRect(args) => cmd_blit("moveRect", args),
-        Command::Flip(args) => cmd_flip(args, false),
-        Command::Hflip(args) => cmd_flip(args, true),
+        Command::Flip(args) => cmd_flip(args, None),
+        Command::Hflip(args) => cmd_flip(args, Some(Axis::Horizontal)),
+        Command::Vflip(args) => cmd_flip(args, Some(Axis::Vertical)),
+        Command::Rotate(args) => cmd_rotate(args),
         Command::Resize(args) => cmd_resize(args),
         Command::Selection { command } => cmd_selection(command),
         Command::ReplaceIndex(args) => cmd_replace_index(args),
@@ -254,25 +261,94 @@ fn cmd_blit(tool: &str, args: BlitRectArgs) -> i32 {
     )
 }
 
-fn cmd_flip(args: FlipArgs, alias: bool) -> i32 {
-    if !args.horizontal && !alias {
-        return emit(CliFailure::new(
-            "Cli",
-            "flip mirrors indices horizontally; pass --horizontal or run hflip",
-        ));
-    }
-    let rect = match (args.x, args.y, args.width, args.height) {
-        (None, None, None, None) => None,
-        (Some(x), Some(y), Some(width), Some(height)) => Some((x, y, width, height)),
-        _ => {
+enum Axis {
+    Horizontal,
+    Vertical,
+}
+
+fn cmd_flip(args: FlipArgs, forced: Option<Axis>) -> i32 {
+    let axis = match (forced, args.horizontal, args.vertical) {
+        (Some(Axis::Horizontal), _, true) => {
             return emit(CliFailure::new(
                 "Cli",
-                "flip needs x, y, width, and height together, or none of them",
+                "hflip mirrors left to right; drop --vertical",
+            ))
+        }
+        (Some(Axis::Vertical), true, _) => {
+            return emit(CliFailure::new(
+                "Cli",
+                "vflip mirrors top to bottom; drop --horizontal",
+            ))
+        }
+        (Some(axis), _, _) => axis,
+        (None, true, false) => Axis::Horizontal,
+        (None, false, true) => Axis::Vertical,
+        (None, true, true) => {
+            return emit(CliFailure::new(
+                "Cli",
+                "flip takes one of --horizontal or --vertical",
+            ))
+        }
+        (None, false, false) => {
+            return emit(CliFailure::new(
+                "Cli",
+                "flip needs --horizontal or --vertical; or run hflip / vflip",
             ))
         }
     };
+    let tool = match axis {
+        Axis::Horizontal => "flipHorizontal",
+        Axis::Vertical => "flipVertical",
+    };
+    let rect = match rect_edges(args.x, args.y, args.width, args.height, "flip") {
+        Ok(rect) => rect,
+        Err(failure) => return emit(failure),
+    };
+    let params = mirror_params(args.frame, args.layer, args.dirty, rect);
+    apply_with(&args.doc, vec![request(tool, params)], args.preview)
+}
+
+fn cmd_rotate(args: RotateArgs) -> i32 {
+    if !matches!(args.degrees, 90 | 180 | 270) {
+        return emit(CliFailure::new(
+            "Cli",
+            "rotate --degrees must be 90, 180, or 270",
+        ));
+    }
+    let rect = match rect_edges(args.x, args.y, args.width, args.height, "rotate") {
+        Ok(rect) => rect,
+        Err(failure) => return emit(failure),
+    };
+    let mut params = mirror_params(args.frame, args.layer, args.dirty, rect);
+    params["degrees"] = json!(args.degrees);
+    apply_with(&args.doc, vec![request("rotate", params)], args.preview)
+}
+
+fn rect_edges(
+    x: Option<u16>,
+    y: Option<u16>,
+    width: Option<u16>,
+    height: Option<u16>,
+    command: &str,
+) -> Result<Option<(u16, u16, u16, u16)>, CliFailure> {
+    match (x, y, width, height) {
+        (None, None, None, None) => Ok(None),
+        (Some(x), Some(y), Some(width), Some(height)) => Ok(Some((x, y, width, height))),
+        _ => Err(CliFailure::new(
+            "Cli",
+            format!("{command} needs x, y, width, and height together, or none of them"),
+        )),
+    }
+}
+
+fn mirror_params(
+    frame: Option<u32>,
+    layer: Option<u32>,
+    dirty: bool,
+    rect: Option<(u16, u16, u16, u16)>,
+) -> Value {
     let mut params = json!({});
-    if let Some(frame) = args.frame {
+    if let Some(frame) = frame {
         params["frame"] = json!(frame);
     }
     if let Some((x, y, width, height)) = rect {
@@ -281,12 +357,45 @@ fn cmd_flip(args: FlipArgs, alias: bool) -> i32 {
         params["width"] = json!(width);
         params["height"] = json!(height);
     }
-    params = with_dirty(with_layer(params, args.layer), args.dirty);
-    apply_with(
-        &args.doc,
-        vec![request("flipHorizontal", params)],
-        args.preview,
-    )
+    with_dirty(with_layer(params, layer), dirty)
+}
+
+fn cmd_import_aseprite(file: &Path, output: Option<&Path>, project: Option<&Path>) -> i32 {
+    let target = match (output, project) {
+        (Some(output), None) => output,
+        (None, Some(project)) => project,
+        _ => {
+            return emit(CliFailure::new(
+                "Cli",
+                "import-aseprite needs --output for a new project, or --project to replace one",
+            ))
+        }
+    };
+    if output.is_some() && target.exists() {
+        return emit(CliFailure::new(
+            "Cli",
+            format!("project file already exists: {}", target.display()),
+        ));
+    }
+    let bytes = match fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(err) => return emit(CliFailure::io(file, err)),
+    };
+    let params = json!({ "bytes": STANDARD.encode(&bytes) });
+    let request = vec![request("importAseprite", params)];
+    if output.is_some() {
+        let mut session = match Session::placeholder(target) {
+            Ok(session) => session,
+            Err(failure) => return emit(failure),
+        };
+        apply_session(&mut session, request, false)
+    } else {
+        let mut session = match Session::open(target) {
+            Ok(session) => session,
+            Err(failure) => return emit(failure),
+        };
+        apply_session(&mut session, request, false)
+    }
 }
 
 fn cmd_resize(args: ResizeArgs) -> i32 {

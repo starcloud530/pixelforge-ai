@@ -63,11 +63,11 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈，下一个进程是空栈，和在编辑器里重新打开这份文件一样。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
-- 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip` 只搬索引，不改高光颜色。
+- 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip`、`vflip`、`rotate` 只搬索引，不改高光颜色。
 
 *Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A stored `selection` makes those paint tools skip cells outside the rectangle; the file omits the field when the selection is clear. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
-*One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip` moves indices only and does not recolor highlights.*
+*One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip`, `vflip`, and `rotate` move indices only and do not recolor highlights.*
 
 ## 命令速查 Command reference
 
@@ -132,13 +132,25 @@ pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 2 \
   --src-x 16 --src-y 20 --width 32 --height 36 --dst-x 16 --dst-y 20
 pixelforge hflip --project hero.json --frame 2
 pixelforge flip --horizontal --project hero.json --x 0 --y 40 --width 64 --height 24
+pixelforge vflip --project hero.json
+pixelforge flip --vertical --project hero.json --x 0 --y 0 --width 16 --height 32
+pixelforge rotate --project hero.json --degrees 180 --x 0 --y 0 --width 8 --height 8
 pixelforge resize --project hero.json --width 64 --height 64
 pixelforge resize --project hero.json --width 64 --height 96 --offset-x 0 --offset-y 0
 ```
 
-`hflip` 就是 `flip --horizontal`，不必再写 `--horizontal`。`flip` 必须写 `--horizontal`，否则退出码 `2`。两者只做索引镜像（`x` 收到 `origin + width - 1 - x`），不改颜色。不写矩形就是整帧；写矩形时四个边要齐。`resize` 仍写出 version 1 工程。不写偏移就居中；两个偏移都写就指定旧原点。越出新画布的格子被裁掉。一步撤销回到原来的画布。
+`hflip` 就是 `flip --horizontal`，不必再写 `--horizontal`。`vflip` 就是 `flip --vertical`。`flip` 必须恰好写 `--horizontal` 或 `--vertical` 里的一个，否则退出码 `2`。两者只搬索引：水平时 `x` 收到 `origin + width - 1 - x`，垂直时 `y` 收到 `origin + height - 1 - y`。不改颜色。不写矩形就是整帧；写矩形时四个边要齐。`rotate --degrees` 只能是 `90`、`180` 或 `270`（顺时针）。180 接受任意矩形。90 和 270 要求正方形，否则 `RotateSquare`，并且不改变画布尺寸。整帧转 90 或 270 要先把画布改成正方形。有选区时，目标格和它读到的源格都在选区内才写入。`resize` 仍写出 version 1 工程。不写偏移就居中；两个偏移都写就指定旧原点。越出新画布的格子被裁掉。一步撤销回到原来的画布。
 
-*`hflip` mirrors indices and does not need `--horizontal`. `flip` requires `--horizontal`. Neither recolors. `resize` keeps the version 1 project. Omit the offsets to center. Content outside the new canvas is clipped.*
+*`hflip` is `flip --horizontal`. `vflip` is `flip --vertical`. `flip` needs exactly one of those flags. Neither recolors. `rotate --degrees` is 90, 180, or 270 clockwise. 90 and 270 need a square rectangle and do not resize the canvas. A selection writes a cell only when it and the source cell are both inside. `resize` keeps the version 1 project. Omit the offsets to center. Content outside the new canvas is clipped.*
+
+```bash
+pixelforge import-aseprite --file hero.aseprite --output hero.json
+pixelforge import-aseprite --file hero.aseprite --project hero.json
+```
+
+`import-aseprite` 只读索引色 8 位 `.aseprite` / `.ase`：画布、调色板、图像层像素、帧时长。层按文件从底到顶放进现有层栈，组文件夹摊平，参考层跳过。`--output` 新建工程，文件已存在则拒绝。`--project` 在成功后替换已有工程。两个目标要且只要一个。Tool API 是 `importAseprite`，`params.bytes` 为 Base64。成功时 `result` 等于 `inspect`，另加 `aseprite` 报告（对调过的透明索引、被忽略的混合和透明度、裁掉的格子）。失败不改当前文档。不写回 `.aseprite`，不加载插件。灰度和 RGBA、tilemap、画布超出 `1..=256` 都会拒绝。完整不兼容表在 [tool-api.md](tool-api.md) 的 `importAseprite`。
+
+*`import-aseprite` reads indexed 8-bit canvas, palette, image-layer pixels, and frame durations. Layers stay a stack. `--output` creates a project and refuses an existing file. `--project` replaces one after success. Pass exactly one of them. The tool is `importAseprite` with Base64 `bytes`. It does not write `.aseprite`. Grayscale, RGBA, and tilemaps are refused. The incompatibility list is on `importAseprite` in [tool-api.md](tool-api.md).*
 
 字形：`.` 是透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 会写出那些索引和 `#rrggbb`）。`preview` 子命令按 `--scale` 写出彩色 PNG，路径在 `result.path`（默认工程旁边的 `<stem>.preview.png`，或 `--output`）。`--scale` 是 ≥ 1 的整数，默认 1。`preview --frame N` 不改 `activeFrame`，也不改工程文件。`result.frame` 是这张图，`result.activeFrame` 仍是文档的当前帧。会改像素的命令上的 `--preview` 只有 ASCII，不写彩色 PNG。
 

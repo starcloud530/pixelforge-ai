@@ -120,7 +120,7 @@ pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 
 ## hflip and highlights
 
-右朝向可以从左朝向镜像，或反过来。`hflip` 不用再写 `--horizontal`。`flip` 必须写 `--horizontal`。
+右朝向可以从左朝向镜像，或反过来。`hflip` 不用再写 `--horizontal`。左右朝向用这一条。上下镜像是 `vflip`，顺时针转 90、180、270 是 `rotate --degrees`。那两条不代替左右朝向。
 
 ```bash
 pixelforge hflip --project hero.json --frame 2
