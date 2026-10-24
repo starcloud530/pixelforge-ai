@@ -27,7 +27,7 @@ use base64::Engine;
 use crate::cli::{
     BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
     ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs,
-    SelectionCmd,
+    SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -98,6 +98,7 @@ fn execute(cli: Cli) -> i32 {
         Command::ReplaceIndex(args) => cmd_replace_index(args),
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
+        Command::Tag { command } => cmd_tag(command),
         Command::Layer { command } => cmd_layer(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
@@ -667,6 +668,55 @@ fn cmd_layer(command: LayerCmd) -> i32 {
     }
 }
 
+fn cmd_tag(command: TagCmd) -> i32 {
+    match command {
+        TagCmd::Add {
+            doc,
+            name,
+            from,
+            to,
+            loop_mode,
+        } => apply(
+            &doc,
+            vec![request(
+                "addTag",
+                json!({
+                    "name": name,
+                    "from": from,
+                    "to": to,
+                    "loop": loop_mode.as_str(),
+                }),
+            )],
+        ),
+        TagCmd::Set {
+            doc,
+            name,
+            from,
+            to,
+            loop_mode,
+            rename,
+        } => {
+            let mut params = json!({ "name": name });
+            if let Some(from) = from {
+                params["from"] = json!(from);
+            }
+            if let Some(to) = to {
+                params["to"] = json!(to);
+            }
+            if let Some(loop_mode) = loop_mode {
+                params["loop"] = json!(loop_mode.as_str());
+            }
+            if let Some(rename) = rename {
+                params["rename"] = json!(rename);
+            }
+            apply(&doc, vec![request("setTag", params)])
+        }
+        TagCmd::Remove { doc, name } => {
+            apply(&doc, vec![request("removeTag", json!({ "name": name }))])
+        }
+    }
+}
+
 fn cmd_export(command: ExportCmd) -> i32 {
     match command {
         ExportCmd::Png {
@@ -685,12 +735,13 @@ fn cmd_export(command: ExportCmd) -> i32 {
             output,
             scale,
             cols,
+            atlas,
         } => {
             let mut session = match Session::open(&doc.project) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
-            export_files::export_sprite_sheet(&mut session, &output, scale, cols)
+            export_files::export_sprite_sheet(&mut session, &output, scale, cols, atlas.as_deref())
         }
     }
 }

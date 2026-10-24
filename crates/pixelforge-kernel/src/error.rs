@@ -54,6 +54,17 @@ pub enum KernelError {
     LayerName,
     /// Delay is outside [`crate::MIN_FRAME_DELAY_MS`]..=[`crate::MAX_FRAME_DELAY_MS`].
     FrameDelay { delay_ms: u32 },
+    /// A tag name is empty, only whitespace, longer than
+    /// [`crate::MAX_TAG_NAME_CHARS`], or contains a control character.
+    TagName,
+    /// A tag already uses this name.
+    TagExists,
+    /// No tag uses this name.
+    TagMissing,
+    /// `from` is past `to`, or the range is outside the frame list.
+    ///
+    /// `from` and `to` are inclusive. `len` is the frame count.
+    TagRange { from: usize, to: usize, len: usize },
     /// A move would write or clear a cell outside the rectangular selection.
     ///
     /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
@@ -132,6 +143,14 @@ pub enum ProjectFileError {
     IndexPolicy,
     /// `selection` is present and is not a rectangle that lies on the canvas.
     Selection,
+    /// A tag name is empty, too long, or contains a control character.
+    TagName { index: usize },
+    /// A tag's inclusive range is outside the frame list, or `from` is past `to`.
+    TagRange { index: usize },
+    /// A tag's `loop` is not `forward`, `reverse`, `pingpong`, or `once`.
+    TagLoop { index: usize },
+    /// Two tags in the file share a name. `index` is the later one.
+    TagDuplicate { index: usize },
 }
 
 impl KernelError {
@@ -156,6 +175,10 @@ impl KernelError {
             Self::LastLayer => "LastLayer",
             Self::LayerName => "LayerName",
             Self::FrameDelay { .. } => "FrameDelay",
+            Self::TagName => "TagName",
+            Self::TagExists => "TagExists",
+            Self::TagMissing => "TagMissing",
+            Self::TagRange { .. } => "TagRange",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -227,6 +250,16 @@ impl fmt::Display for KernelError {
                 crate::MIN_FRAME_DELAY_MS,
                 crate::MAX_FRAME_DELAY_MS
             ),
+            Self::TagName => write!(
+                f,
+                "tag name must be 1 to {} characters",
+                crate::MAX_TAG_NAME_CHARS
+            ),
+            Self::TagExists => write!(f, "tag name is already used"),
+            Self::TagMissing => write!(f, "tag name is not on this document"),
+            Self::TagRange { from, to, len } => {
+                write!(f, "tag frames {from}..={to} must lie inside 0..{len}")
+            }
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
@@ -313,6 +346,19 @@ impl fmt::Display for ProjectFileError {
             ),
             Self::IndexPolicy => write!(f, "indexPolicy must be reject or clamp"),
             Self::Selection => write!(f, "selection is not a rectangle on the canvas"),
+            Self::TagName { index } => write!(
+                f,
+                "tag {index} name must be 1 to {} characters",
+                crate::MAX_TAG_NAME_CHARS
+            ),
+            Self::TagRange { index } => {
+                write!(f, "tag {index} frames must lie inside the frame list")
+            }
+            Self::TagLoop { index } => write!(
+                f,
+                "tag {index} loop must be forward, reverse, pingpong, or once"
+            ),
+            Self::TagDuplicate { index } => write!(f, "tag {index} name is already used"),
         }
     }
 }
@@ -327,6 +373,25 @@ mod tests {
     fn codes_match_variant_names() {
         assert_eq!(KernelError::LastFrame.code(), "LastFrame");
         assert_eq!(KernelError::FrameDelay { delay_ms: 0 }.code(), "FrameDelay");
+        assert_eq!(KernelError::TagName.code(), "TagName");
+        assert_eq!(KernelError::TagExists.code(), "TagExists");
+        assert_eq!(
+            KernelError::TagMissing.to_string(),
+            "tag name is not on this document"
+        );
+        assert_eq!(
+            KernelError::TagRange {
+                from: 2,
+                to: 1,
+                len: 1
+            }
+            .to_string(),
+            "tag frames 2..=1 must lie inside 0..1"
+        );
+        assert_eq!(
+            KernelError::ProjectFile(ProjectFileError::TagLoop { index: 0 }).to_string(),
+            "tag 0 loop must be forward, reverse, pingpong, or once"
+        );
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
         assert_eq!(KernelError::SelectionProtected.code(), "SelectionProtected");

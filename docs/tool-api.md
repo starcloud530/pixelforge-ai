@@ -87,13 +87,17 @@
 | `LastLayer` | 删掉仅剩的一层 |
 | `LayerName` | 层名是空的、只有空白、含控制字符，或超过 64 个字符 |
 | `FrameDelay` | `delayMs` 不在 `1..=65535` |
+| `TagName` | 标签名是空的、只有空白、含控制字符，或超过 64 个字符 |
+| `TagExists` | 已经有同名标签 |
+| `TagMissing` | 没有这个名字的标签 |
+| `TagRange` | `from` 大于 `to`，或闭区间超出帧列表 |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
 | `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
-| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形时也是这个码 |
+| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，或某个 `tags` 项的名字、区间、循环模式、重名不合法时，也是这个码 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
 
@@ -103,13 +107,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, lock, or index policy that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, lock, index policy, or tag edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -139,6 +143,7 @@
 | `layerCount` | 层数，至少 1。每一帧都有同样多的层 |
 | `activeLayer` | 当前层，从 0 计。0 在最下面 |
 | `selection` | 矩形选区 `{ "x", "y", "width", "height" }`，或 `null`。见「选区」 |
+| `tags` | `{ "index", "name", "from", "to", "loop" }` 数组，按添加顺序。没有标签时是 `[]`。见「动画标签」 |
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
@@ -168,6 +173,7 @@
 | `frameCount` | 帧数 |
 | `delayMs` | 当前帧时长，毫秒 |
 | `frames` | `{ "index", "delayMs" }`，时间轴顺序 |
+| `tags` | 与 `inspect` 相同。没有标签时是 `[]` |
 
 `visible` 恒为 `true`。`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层，不按 alpha 混合。
 
@@ -442,6 +448,65 @@ CLI：`pixelforge palette apply-png --file sprite.png`。可选 `--frame` 和 `-
 
 错误：`FrameIndex`、`FrameDelay`。
 
+### 动画标签 Animation tags
+
+标签是名字、闭区间帧范围，和循环模式。它写在工程文件的 `tags` 里；没有标签时省略这个字段。旧文件没有该字段时按空列表读入。撤销栈仍然不进文件。
+
+这不是 Aseprite 的 cel 链接。每一帧仍有自己的像素。`duplicateFrame` 仍然复制索引，不让两帧共用一块缓冲。文档的 `tick` 仍按整条时间轴循环；`loop` 只存下来，并写进 atlas，不另开一个播放时钟。没有重复次数，没有 ping-pong reverse，也没有标签颜色。
+
+`loop`：
+
+| 值 | 含义 |
+| --- | --- |
+| `forward` | 从 `from` 播到 `to`（两端都含），然后重复。缺省是这个 |
+| `reverse` | 从 `to` 播到 `from`，然后重复 |
+| `pingpong` | 从 `from` 播到 `to` 再回到 `from`，然后重复。两端不多停一帧 |
+| `once` | 从 `from` 播到 `to` 一次 |
+
+区间可以重叠。名字唯一，去掉首尾空白后是 1 到 64 个字符，不能含控制字符。
+
+插帧和删帧会在同一步撤销里挪标签。在下标 `i` 插入一帧时：起点 `>= i` 的标签整体右移，新帧不在里面；起点更早、且已经盖住 `i` 的标签，`to` 加一。删掉下标 `i` 时：整段在它后面的标签左移；盖住它的标签缩短；只盖住这一帧的标签被删掉。在末尾 `addFrame` 不拉长已有标签。复制某一帧是在它后面插入，所以复制标签的最后一帧时，拷贝不进这个标签。
+
+*A tag is a name, an inclusive frame range, and a loop mode. The project file stores `tags` and omits the field when the list is empty. A file without the field loads with no tags. The undo stack is still not stored.*
+
+*This is not an Aseprite cel link. Each frame keeps its own pixels. `duplicateFrame` still copies indices. `tick` still loops the whole timeline. `loop` is stored and written into the atlas. It does not start a second clock. There is no repeat count, no ping-pong reverse, and no tag color.*
+
+*`forward` plays `from` through `to` and repeats (the default). `reverse` plays `to` through `from` and repeats. `pingpong` plays to the end and back without holding either end for an extra frame. `once` plays `from` through `to` a single time.*
+
+*Ranges may overlap. Names are unique after trimming, 1 to 64 characters, with no control character.*
+
+*Inserting a frame at `i` shifts a tag that starts at or after `i`, and grows a tag that starts earlier and already covers `i`. Deleting frame `i` shifts later tags left, shrinks tags that covered it, and drops a tag that named only that frame. `addFrame` does not grow existing tags. Duplicating a frame inserts after it, so duplicating the last frame of a tag leaves the copy outside that tag. The frame edit and the tag adjustment are one undo step.*
+
+### `addTag`
+
+`params`：`name`、`from`、`to`，可选 `loop`（缺省 `forward`）。`from` 和 `to` 都是帧下标，两端都包含。
+
+`result`：`{ "index", "name", "from", "to", "loop" }`。`name` 是去掉空白后的名字。`index` 是列表末尾。
+
+CLI：`pixelforge tag add --name walk_down --from 1 --to 3 --loop forward`。
+
+错误：`TagName`、`TagExists`、`TagRange`。`loop` 不是那四个字符串时是 `InvalidParams`。
+
+### `setTag`
+
+`params`：`name`，外加 `from`、`to`、`loop`、`rename` 里的至少一个。没写的字段保持原样。
+
+`result`：改完之后的 `{ "index", "name", "from", "to", "loop" }`。结果和原来一样时不进撤销栈。
+
+CLI：`pixelforge tag set --name walk_down --loop pingpong --rename walk_south`。
+
+错误：`TagName`、`TagExists`、`TagMissing`、`TagRange`。四个可选字段都缺时是 `InvalidParams`。
+
+### `removeTag`
+
+`params`：`name`。帧还在，只删标签。
+
+`result`：`{ "index", "name" }`。`index` 是删掉之前的位置。`name` 是去掉空白后的名字。
+
+CLI：`pixelforge tag remove --name walk_down`。
+
+错误：`TagName`、`TagMissing`。
+
 ### `beginGesture` / `endGesture`
 
 参数：无。把之后的成功修改收成一步撤销，直到 `endGesture`。嵌套的 `beginGesture` 返回 `OpenGesture`，已打开的 gesture 保持打开。没有打开的 `endGesture` 不报错，也不进栈。空的 gesture 不进栈。
@@ -500,6 +565,25 @@ CLI：`pixelforge palette apply-png --file sprite.png`。可选 `--frame` 和 `-
 *Optional `columns` (an integer `1..=4294967295`). Omit it and the grid stays nearly square. Pass the frame count to keep one direction on one row. Columns past the frame count are transparent padding. `0` is `InvalidParams`. A column count that does not fit in a PNG is `SheetColumns`.*
 
 *Each frame cell becomes `frame width × scale` by `frame height × scale`. Columns and rows stay the frame grid. Padding cells scale as transparent blocks.*
+
+可选 `atlas`（布尔）。省略或 `false` 时，`result` 和以前一样，没有 `atlas` 字段。`true` 时在原有字段上多一个 `atlas` 对象，不写文件，也不进撤销栈。形状是 `pixelforge-atlas` version 1：
+
+| 字段 | 含义 |
+| --- | --- |
+| `format`, `version` | `"pixelforge-atlas"` 和 `1` |
+| `columns`, `rows`, `scale` | 与这次导出的帧网格相同。`scale` 不改变列数 |
+| `frameWidth`, `frameHeight` | 一格在图上的像素尺寸，已经乘 `scale` |
+| `sheetWidth`, `sheetHeight` | 整张图的像素尺寸 |
+| `frames` | 真实帧，不含末尾透明空位。每项是 `{ "index", "x", "y", "width", "height", "delayMs" }`。`x`/`y`/`width`/`height` 是图上的像素 |
+| `tags` | `{ "index", "name", "from", "to", "loop" }`，与文档里的标签顺序相同。`from`/`to` 是帧下标，不是像素 |
+
+CLI 的 `pixelforge export sheet --atlas hero-sheet.json` 把这个对象写成带缩进的 JSON，并多一个 `image`（PNG 文件名）。stdout 的 `result.atlas` 是这个 JSON 路径，不是整份对象。不传 `--atlas` 时不写这份文件，stdout 也不多这个字段。
+
+*Optional boolean `atlas`. Omit it, or send `false`, and the result stays the PNG fields with no `atlas` key. `true` adds a `pixelforge-atlas` version 1 object and does not write a file or an undo entry. `frames` are real frames in sheet pixels, including `delayMs`, and do not include padding cells. `tags` are the document tags. `columns` is the frame grid.*
+
+*CLI `export sheet --atlas FILE` writes that object as pretty JSON plus `image` (the PNG file name). Stdout `result.atlas` is the JSON path. Without `--atlas`, the file is not written and the stdout result has no `atlas` field.*
+
+`atlas` 不是布尔时是 `InvalidParams`。
 
 ### `previewFrame`
 

@@ -4,7 +4,8 @@ description: >-
   Build a PixelForge four-direction idle and walk sprite sheet (四向走, 待机,
   idle, walk, sprite sheet), including 96 and 128 cell sizes. Use when laying
   out rows as facings and columns as idle plus walk frames, exporting with
-  export sheet --cols, copying a rectangle across frames, checking foot slide
+  export sheet --cols, tagging ranges as idle_down / walk_down, writing
+  --atlas JSON, copying a rectangle across frames, checking foot slide
   (脚滑) with diff, or mirroring a side view with hflip and then repairing
   highlights. Follow the pixelforge
   skill's index-color invariants first. Draw a new body with pixelforge-draw's
@@ -60,6 +61,39 @@ pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --s
 `--cols` 等于每行帧数，这样一行还是一个朝向。不传 `--cols` 时列数是 `ceil(sqrt(帧数))`，一个朝向会被拆到两行。`scale` 不改变列数。空位是透明，不是帧。约定也写在 `docs/export.md`。
 
 走路帧时长常用 120 毫秒，idle 可以更长。内核只接受 `1..=65535`，没有单独的「走路时长」。用 `frame delay` 或 `setFrameDelay`。
+
+## Tags
+
+帧排好之后再打标签。标签是闭区间：`from` 和 `to` 都算在里面。四格不相邻的 idle 不能收成一个名叫 `idle` 的标签，所以每一朝向各写一个。
+
+常见 1 个 idle 加 3 个 walk、每行 4 帧时：
+
+| 标签 | 帧 | `loop` |
+| --- | --- | --- |
+| `idle_down` | 0–0 | `forward` |
+| `walk_down` | 1–3 | `forward` |
+| `idle_left` | 4–4 | `forward` |
+| `walk_left` | 5–7 | `forward` |
+| `idle_right` | 8–8 | `forward` |
+| `walk_right` | 9–11 | `forward` |
+| `idle_up` | 12–12 | `forward` |
+| `walk_up` | 13–15 | `forward` |
+
+名字是 `{动作}_{朝向}`。动作是 `idle` 或 `walk`。朝向按行序是 `down`、`left`、`right`、`up`。每行帧数不是 4 时，idle 仍是该行第一格，walk 是该行剩下的格子：`from = 行 * 每行帧数`，idle 的 `to` 等于 `from`，walk 的 `from` 是下一格，`to` 是该行最后一格。这一行没有单独的 idle 时，整行只打 `walk_{朝向}`，不要再造一个空的 idle。
+
+`loop` 用 `forward` 表示走和待机都循环。`once` 留给只播一遍的动作。`reverse` 和 `pingpong` 也可以写。文档自己的循环预览仍走整条时间轴，不按标签播。标签不是 cel 链接：`frame duplicate` 仍是一份新的像素。
+
+复制某个标签的最后一帧时，新帧不会自动进这个标签。走路帧还在加的时候先别打标签；这一行的帧齐了再 `tag add`。
+
+```bash
+pixelforge tag add --project hero.json --name idle_down --from 0 --to 0 --loop forward
+pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
+pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2 --atlas hero-sheet.json
+```
+
+`--cols` 仍等于每行帧数。`--atlas` 写出 `pixelforge-atlas` JSON：每一帧的矩形和 `delayMs`，加上上面的标签和 `columns`。不传 `--atlas` 时只出 PNG，和以前一样。Tool API 是 `addTag` / `setTag` / `removeTag`，以及 `exportSpriteSheet` 的 `atlas: true`。
+
+*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only.*
 
 ## Build a facing
 

@@ -4,7 +4,8 @@
 //! [`Document::save_project`] and [`Document::load_project`] instead of
 //! writing a second encoder. The file stores canvas size, the palette, the
 //! palette lock, every frame's indices and delay, the active frame, and, when
-//! the document is more than the original single layer, the layer stack.
+//! the document is more than the original single layer, the layer stack, and,
+//! when any are set, named animation tags.
 //! The undo stack and the playback clock are not part of the file, so a loaded
 //! document undoes back to the opened pixels and is not playing. A frame
 //! written before delays existed omits `delayMs` and loads as
@@ -13,7 +14,8 @@
 //! loads as `reject`; only `clamp` is written back. A file written before
 //! layers existed omits `layers` and `activeLayer` and loads as one layer
 //! named [`crate::DEFAULT_LAYER_NAME`]. A single default layer is still saved
-//! in that older shape. A missing `selection` loads as no mask. The rectangle
+//! in that older shape. A file written before animation tags existed omits
+//! `tags` and loads with none. An empty tag list is still saved that way. A missing `selection` loads as no mask. The rectangle
 //! is written only while one is set. The undo stack is still omitted.
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,7 @@ use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
 use crate::palette::{IndexPolicy, Palette};
 use crate::selection::Selection;
+use crate::tag::{normalize_tag_name, LoopMode, Tag};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -69,6 +72,9 @@ struct ProjectFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selection: Option<SelectionFile>,
     frames: Vec<FrameFile>,
+    /// Named inclusive frame ranges. Missing when the file has no tags.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<TagFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -78,6 +84,17 @@ struct SelectionFile {
     y: u64,
     width: u64,
     height: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TagFile {
+    name: String,
+    from: u64,
+    to: u64,
+    /// Missing means [`LoopMode::Forward`].
+    #[serde(default, rename = "loop")]
+    loop_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -148,6 +165,7 @@ impl Document {
             frames: (0..self.frame_count())
                 .map(|index| self.stored_frame(index))
                 .collect(),
+            tags: self.stored_tags(),
         };
         let mut json = serde_json::to_string_pretty(&file)
             .expect("project fields are JSON numbers, strings, and arrays");
@@ -234,6 +252,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let active_layer = usize::try_from(file.active_layer).expect("active layer was checked");
     let index_policy = index_policy_from_file(file.index_policy)?;
     let selection = selection_from_file(file.selection, width, height)?;
+    let tags = tags_from_file(file.tags, frames.len())?;
     Ok(Document::from_stored(
         width,
         height,
@@ -245,7 +264,44 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         names,
         active_layer,
         selection,
+        tags,
     ))
+}
+
+fn tags_from_file(files: Vec<TagFile>, frame_count: usize) -> Result<Vec<Tag>, KernelError> {
+    let mut tags: Vec<Tag> = Vec::with_capacity(files.len());
+    for (index, file) in files.into_iter().enumerate() {
+        let tag = tag_from_file(index, file, frame_count)?;
+        if tags.iter().any(|existing| existing.name == tag.name) {
+            return Err(invalid(ProjectFileError::TagDuplicate { index }));
+        }
+        tags.push(tag);
+    }
+    Ok(tags)
+}
+
+fn tag_from_file(index: usize, file: TagFile, frame_count: usize) -> Result<Tag, KernelError> {
+    let name = normalize_tag_name(&file.name)
+        .map_err(|()| invalid(ProjectFileError::TagName { index }))?;
+    let from =
+        usize::try_from(file.from).map_err(|_| invalid(ProjectFileError::TagRange { index }))?;
+    let to = usize::try_from(file.to).map_err(|_| invalid(ProjectFileError::TagRange { index }))?;
+    if from > to || to >= frame_count {
+        return Err(invalid(ProjectFileError::TagRange { index }));
+    }
+    let loop_mode = match file.loop_mode.as_deref() {
+        None | Some("forward") => LoopMode::Forward,
+        Some("reverse") => LoopMode::Reverse,
+        Some("pingpong") => LoopMode::PingPong,
+        Some("once") => LoopMode::Once,
+        Some(_) => return Err(invalid(ProjectFileError::TagLoop { index })),
+    };
+    Ok(Tag {
+        name,
+        from,
+        to,
+        loop_mode,
+    })
 }
 
 fn selection_from_file(
@@ -278,6 +334,18 @@ fn index_policy_from_file(value: Option<String>) -> Result<IndexPolicy, KernelEr
 }
 
 impl Document {
+    fn stored_tags(&self) -> Vec<TagFile> {
+        self.tags()
+            .iter()
+            .map(|tag| TagFile {
+                name: tag.name.clone(),
+                from: u64::try_from(tag.from).expect("frame index fits in u64"),
+                to: u64::try_from(tag.to).expect("frame index fits in u64"),
+                loop_mode: Some(tag.loop_mode.as_str().to_string()),
+            })
+            .collect()
+    }
+
     fn stored_layer_names(&self) -> Vec<LayerNameFile> {
         let legacy = self.layer_count() == 1
             && self.layer_name(0).expect("a document has a layer") == DEFAULT_LAYER_NAME
