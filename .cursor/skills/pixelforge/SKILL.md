@@ -8,8 +8,8 @@ description: >-
   a rectangle, editing the palette, locking, quantizing, or remapping it,
   crushing a PNG onto the palette, importing an indexed .aseprite file,
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
-  270 degrees, adding or duplicating frames, undoing, running inspect, scene,
-  tools, or call, or exporting a PNG sequence or sprite sheet.
+  270 degrees, adding or duplicating frames, naming parts and anchors, undoing,
+  running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
   drawing request inside one batched call.
@@ -65,6 +65,7 @@ cargo run -p pixelforge-cli -- --help
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
+- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。这一版不旋转、不插值、不烘焙。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
@@ -90,7 +91,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1
 ```
 
-`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。
 
 `visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
 
@@ -102,7 +103,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。
 
-*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
+*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
 
 ## Pictures, sheets, and canvas commands
 
@@ -312,6 +313,32 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 `tag add` 给闭区间起名。`loop` 是 `forward`（缺省）、`reverse`、`pingpong` 或 `once`。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。标签不是 cel 链接，复制帧仍然复制像素。整条时间轴的循环预览不按标签播放。四向表的行、列、标签名和脚滑检查见 `pixelforge-sprite-4dir`。
 
 *A tag names an inclusive range. `loop` is `forward` (the default), `reverse`, `pingpong`, or `once`. An empty tag list is omitted from the project file. Tags are not cel links. Playback of the whole timeline is unchanged. Four-direction names live in `pixelforge-sprite-4dir`.*
+
+### 士兵的枪和握持点 Gun and grip
+
+部件不是层。枪的像素画在 `gear` 上，部件只记下原点和锚点，这样以后绕握持点转枪时不用把每一格 `fillRect` 再画一遍。肩和肘可以不挂层，只是身体上的点。本地 `(0, 0)` 是 `part add` 的 `x,y`。握持点 `(2, 2)` 的画布格是 `(26, 14)`。这一步不旋转。
+
+*A part is not a layer. The gun pixels stay on `gear`. The part stores the origin and the anchors, so a later turn around the grip does not refill every cell. A shoulder or an elbow can stay unattached. Local `(0, 0)` is the `x,y` of `part add`. Grip `(2, 2)` is canvas cell `(26, 14)`. This step does not rotate.*
+
+```bash
+pixelforge new --width 48 --height 32 --output soldier.json
+pixelforge layer rename --project soldier.json --name body
+pixelforge fill-rect --project soldier.json --x 16 --y 6 --width 10 --height 18 --color-index 3
+pixelforge layer add --project soldier.json --name gear
+pixelforge fill-rect --project soldier.json --layer 1 --x 24 --y 12 --width 14 --height 4 --color-index 1
+pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
+pixelforge part anchor set --project soldier.json --part gun --name grip --x 2 --y 2
+pixelforge part add --project soldier.json --name shoulder --x 22 --y 12
+pixelforge part anchor set --project soldier.json --part shoulder --name joint --x 0 --y 0
+pixelforge part add --project soldier.json --name elbow --x 26 --y 16
+pixelforge part anchor set --project soldier.json --part elbow --name joint --x 0 --y 0
+pixelforge part list --project soldier.json
+pixelforge scene --project soldier.json
+```
+
+`part list` 和 `scene` 的 `parts` 都能读到枪和 `grip`。没有部件时工程文件不写 `parts`。`hflip` / `vflip` / `rotate` 之后锚点还在原来的本地格上，要跟着像素走时用 `part set` 改原点。
+
+*Both `part list` and `scene` return the gun and `grip`. A project with no parts omits `parts`. After `hflip`, `vflip`, or `rotate`, the anchor is still the same local cell. Move the origin with `part set` when the pixels moved and the rest pose should follow.*
 
 ### Palette
 

@@ -76,3 +76,9 @@ pixelforge layer flatten --project hero.json
 合成写进名为 `Layer 1` 的一层。文件回到单层工程，不再写 `layers` 和 `activeLayer`。压平之前用 `preview` 确认合成就是要留下的图。压平是一步撤销，但下一个进程没有这个栈；要留着分层就先复制文件。
 
 *`--layer` does not select the layer. `preview` without `--layer` is the composite. `layer flatten` writes one layer named `Layer 1`.*
+
+## 部件不是层 Parts are not layers
+
+层上的身体、装备、四肢是像素。命名部件（枪、肩、肘）和锚点（握持点）不在层栈里。枪可以 `part add --layer 1` 指向 `gear`，肩可以不挂层。步骤见 `pixelforge` skill 的「士兵的枪和握持点」。压平之后，已经挂了层的部件改指到层 0，锚点还在。
+
+*Body, gear, and limbs on the stack are pixels. A named part and its anchors are not another layer. Point the gun at `gear` with `part add --layer`, or leave a shoulder unattached. The soldier example is in the pixelforge skill. After flatten, an attached part names layer 0 and its anchors stay.*

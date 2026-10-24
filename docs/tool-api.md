@@ -91,13 +91,19 @@
 | `TagExists` | 已经有同名标签 |
 | `TagMissing` | 没有这个名字的标签 |
 | `TagRange` | `from` 大于 `to`，或闭区间超出帧列表 |
+| `PartName` | 部件名是空的、只有空白、含控制字符，或超过 64 个字符 |
+| `PartExists` | 已经有同名部件 |
+| `PartMissing` | 没有这个名字的部件 |
+| `AnchorName` | 锚点名是空的、只有空白、含控制字符，或超过 64 个字符 |
+| `AnchorMissing` | 这个部件上没有这个名字的锚点 |
+| `AnchorCoord` | 锚点的本地 `x` 或 `y` 不在 `-256..=256` |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
 | `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
-| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，或某个 `tags` 项的名字、区间、循环模式、重名不合法时，也是这个码 |
+| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，或某个 `parts` 项的名字、原点、层、锚点不合法时，也是这个码 |
 | `AsepriteFile` | `.aseprite` 字节截断、魔数不对、压缩 cel 解不开，或层 / cel 结构读不完 |
 | `AsepriteSize` | 画布边长不在 `1..=256` |
 | `AsepriteColorMode` | 颜色深度不是索引 8 位 |
@@ -115,13 +121,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, or tag edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, and `listParts`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, or anchor edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -152,6 +158,7 @@
 | `activeLayer` | 当前层，从 0 计。0 在最下面 |
 | `selection` | 矩形选区 `{ "x", "y", "width", "height" }`，或 `null`。见「选区」 |
 | `tags` | `{ "index", "name", "from", "to", "loop" }` 数组，按添加顺序。没有标签时是 `[]`。见「动画标签」 |
+| `parts` | `{ "index", "name", "x", "y", "layer", "anchors" }` 数组，按添加顺序。没有部件时是 `[]`。见「部件与锚点」 |
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
@@ -182,6 +189,7 @@
 | `delayMs` | 当前帧时长，毫秒 |
 | `frames` | `{ "index", "delayMs" }`，时间轴顺序 |
 | `tags` | 与 `inspect` 相同。没有标签时是 `[]` |
+| `parts` | 与 `inspect` 相同。没有部件时是 `[]` |
 
 `visible` 恒为 `true`。`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层，不按 alpha 混合。
 
@@ -514,6 +522,86 @@ CLI：`pixelforge tag set --name walk_down --loop pingpong --rename walk_south`�
 CLI：`pixelforge tag remove --name walk_down`。
 
 错误：`TagName`、`TagMissing`。
+
+### 部件与锚点 Parts and anchors
+
+部件是名字、画布上的静止原点，可选的层下标，和一组命名锚点。它写在工程文件的 `parts` 里；没有部件时省略这个字段。旧文件没有该字段时按空列表读入。撤销栈仍然不进文件。
+
+部件**不是**层，也不是另一块像素缓冲。层仍然是每一帧共用的绘制栈。一个部件可以用 `layer` 指向像素所在的那一层（枪在 `gear` 上），也可以不挂层（肩、肘只是一个点）。多个部件可以指向同一层。`layer` 不切换 `activeLayer`。
+
+原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，以后绕它旋转时不必把每一格 `fillRect` 再画一遍。这一版不存储旋转、曲线、约束或烘焙。
+
+翻转和旋转只搬索引，不搬部件，也不搬锚点。`resizeCanvas` 把原点按同一偏移挪走；原点会离开新画布时，这个部件连同锚点一起去掉，和选区在同一撤销步里。锚点的本地偏移不变。
+
+插一层时，挂在该下标或更上面的部件，`layer` 加一。删一层时，挂在那一层上的部件保留名字和锚点，只是去掉 `layer`；更上面的部件下标减一。重排层时，`layer` 跟着那一层走。`flattenLayers` 把已经挂了层的部件改指到层 0，没挂层的不动。这些调整和层操作在同一步撤销里。
+
+*`A part is a name, a rest-pose origin on the canvas, an optional layer index, and named anchors. The project file stores `parts` and omits the field when the list is empty. A file without the field loads with no parts. The undo stack is still not stored.*
+
+*A part is not a layer and not a second pixel buffer. The layer stack stays the paint stack. `layer` names the paint layer whose pixels belong to the part, and does not select that layer. Omit it for a rig point such as a shoulder. Several parts may name one layer.*
+
+*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. This version does not store a rotation, a curve, a constraint, or a bake.*
+
+*Flip and rotate move indices only. They do not move parts or anchors. `resizeCanvas` translates each origin by the same offset and drops a part, in that same undo step, when the origin would leave the new canvas. Local anchor offsets stay put.*
+
+*Inserting a layer shifts attachments at or above that index. Deleting a layer clears the attachment of a part that named it and shifts later attachments down. The part and its anchors stay. Reordering follows the layer. `flattenLayers` retargets every attached part to layer 0 and leaves an unattached part alone. The layer edit and the part adjustment are one undo step.*
+
+### `listParts`
+
+参数：无。只读。不进撤销栈。
+
+`result`：`{ "parts": [ ... ] }`。每一项与 `inspect` 的 `parts` 相同。没有部件时 `parts` 是 `[]`。
+
+CLI：`pixelforge part list --project soldier.json`。
+
+### `addPart`
+
+`params`：`name`、`x`、`y`，可选 `layer`。`x`、`y` 是原点所在的画布格。`layer` 是像素所在的层，省略表示不挂层。
+
+`result`：`{ "index", "name", "x", "y", "layer", "anchors" }`。`name` 是去掉空白后的名字。`layer` 没有挂层时是 `null`。`anchors` 这时是 `[]`。`index` 是列表末尾。
+
+CLI：`pixelforge part add --name gun --layer 1 --x 24 --y 12`。
+
+错误：`PartName`、`PartExists`、`OutOfBounds`（原点不在画布上）、`LayerIndex`。
+
+### `setPart`
+
+`params`：`name`，外加 `x`、`y`、`layer`、`clearLayer`、`rename` 里的至少一个。没写的字段保持原样。`clearLayer: true` 去掉层挂接，不能和 `layer` 一起写。锚点的本地坐标不动。
+
+`result`：改完之后的部件对象，形状与 `addPart` 相同。结果和原来一样时不进撤销栈。
+
+CLI：`pixelforge part set --name gun --x 26 --rename rifle`。`pixelforge part set --name gun --clear-layer`。
+
+错误：`PartName`、`PartExists`、`PartMissing`、`OutOfBounds`、`LayerIndex`。可选字段都缺，或 `layer` 与 `clearLayer` 同时出现时，是 `InvalidParams`。
+
+### `removePart`
+
+`params`：`name`。像素还在，部件和它的锚点一起删掉。
+
+`result`：`{ "index", "name" }`。`index` 是删掉之前的位置。`name` 是去掉空白后的名字。
+
+CLI：`pixelforge part remove --name gun`。
+
+错误：`PartName`、`PartMissing`。
+
+### `setAnchor`
+
+`params`：`part`（部件名）、`name`、`x`、`y`。`x`、`y` 是本地像素格，整数，范围 `-256..=256`。同名锚点已存在时改偏移；不存在时追加。
+
+`result`：`{ "part", "partIndex", "index", "name", "x", "y" }`。`part` 和 `name` 是去掉空白后的名字。同一个偏移不进撤销栈。
+
+CLI：`pixelforge part anchor set --part gun --name grip --x 2 --y 2`。
+
+错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorCoord`。`x` 或 `y` 不是整数时是 `InvalidParams`。
+
+### `removeAnchor`
+
+`params`：`part`、`name`。部件还在，只删这个锚点。
+
+`result`：`{ "part", "partIndex", "index", "name" }`。`index` 是删掉之前的位置。
+
+CLI：`pixelforge part anchor remove --part gun --name grip`。
+
+错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`。
 
 ### `beginGesture` / `endGesture`
 

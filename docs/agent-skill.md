@@ -16,7 +16,7 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
+| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
 | `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢 | body / gear / limbs。合成预览、`--layer`、`layer flatten`。 |
@@ -209,6 +209,22 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 
 *`tag add` names an inclusive range. `loop` is `forward`, `reverse`, `pingpong`, or `once`, and defaults to `forward`. `tag set` changes the range, the loop, or the name. `tag remove` drops the tag and leaves the frames. A project with no tags omits `tags`. `inspect` and `scene` always include `tags`, and an empty list is `[]`. Tags are not cel links. Playback of the whole timeline is unchanged. Adding or deleting a frame moves existing tags in that same undo step. Duplicating the last frame of a tag does not pull the copy into the tag. Name a four-direction sheet after the frames exist.*
 
+### 部件与锚点 Parts and anchors
+
+部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。翻转和旋转不搬锚点。这一步不旋转、不插值、不烘焙。士兵示例的完整命令在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」。
+
+*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Flip and rotate do not move anchors. This step does not rotate, interpolate, or bake. The soldier commands are in the pixelforge skill.*
+
+```bash
+pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
+pixelforge part anchor set --project soldier.json --part gun --name grip --x 2 --y 2
+pixelforge part list --project soldier.json
+```
+
+握持点 `(2, 2)` 的画布格是 `(26, 14)`。肩和肘用同样的命令，可以不写 `--layer`。
+
+*Grip `(2, 2)` is canvas cell `(26, 14)`. Shoulder and elbow use the same commands and can omit `--layer`.*
+
 同一批修改也可以拆成子命令。子命令各自是一次进程，撤销栈不跨进程：
 
 ```bash
@@ -259,9 +275,9 @@ pixelforge tools
 pixelforge call --project hero.json --request-file edits.json
 ```
 
-`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（没有选区时是 `null`）、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数、`delayMs` 和 `tags`（没有标签时是 `[]`）。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
+`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（没有选区时是 `null`）、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数、`delayMs`、`tags`（没有标签时是 `[]`）和 `parts`（没有部件时是 `[]`）。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
 
-*`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, delay, and `tags` (an empty array when there are none). It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
+*`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, delay, `tags` (an empty array when there are none), and `parts` (an empty array when there are none). It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
 
 `edits.json` 可以是一个 JSON 对象、一个 JSON 数组，或每行一个 JSON 值。也可以把 JSON 从 stdin 送进 `pixelforge call --project hero.json`。每个 `--request` 是一个请求对象，原样交给 `Document::call_tool`。
 
