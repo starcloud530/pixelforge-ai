@@ -30,6 +30,17 @@ pub enum KernelError {
     /// [`crate::Document::import_palette`] was asked for an unknown mode.
     /// The wasm bridge accepts `replace` and `merge`.
     PaletteImportMode,
+    /// Quantize or PNG crush needs an opaque palette entry and none exists.
+    NoPaintColor,
+    /// Bytes are not a decodable PNG, or the expanded image is not 8-bit RGBA.
+    PngFile,
+    /// A PNG's pixel size is not the canvas size. Crush does not scale.
+    PngSize {
+        png_width: u32,
+        png_height: u32,
+        width: u16,
+        height: u16,
+    },
     /// Frame index is outside the frame list.
     FrameIndex { index: usize, len: usize },
     /// The document always keeps one frame.
@@ -112,6 +123,8 @@ pub enum ProjectFileError {
     },
     /// `delayMs` is outside [`crate::MIN_FRAME_DELAY_MS`]..=[`crate::MAX_FRAME_DELAY_MS`].
     FrameDelay { frame: usize, delay: u64 },
+    /// `indexPolicy` is present and is not `reject` or `clamp`.
+    IndexPolicy,
 }
 
 impl KernelError {
@@ -127,6 +140,9 @@ impl KernelError {
             Self::PaletteLocked => "PaletteLocked",
             Self::PaletteFile => "PaletteFile",
             Self::PaletteImportMode => "PaletteImportMode",
+            Self::NoPaintColor => "NoPaintColor",
+            Self::PngFile => "PngFile",
+            Self::PngSize { .. } => "PngSize",
             Self::FrameIndex { .. } => "FrameIndex",
             Self::LastFrame => "LastFrame",
             Self::LayerIndex { .. } => "LayerIndex",
@@ -173,6 +189,17 @@ impl fmt::Display for KernelError {
             Self::PaletteImportMode => {
                 write!(f, "palette import mode must be replace or merge")
             }
+            Self::NoPaintColor => write!(f, "palette has no opaque color"),
+            Self::PngFile => write!(f, "png is not a decodable image"),
+            Self::PngSize {
+                png_width,
+                png_height,
+                width,
+                height,
+            } => write!(
+                f,
+                "png is {png_width}x{png_height}, canvas is {width}x{height}"
+            ),
             Self::FrameIndex { index, len } => {
                 write!(f, "frame {index} is outside 0..{len}")
             }
@@ -273,6 +300,7 @@ impl fmt::Display for ProjectFileError {
                 crate::MIN_FRAME_DELAY_MS,
                 crate::MAX_FRAME_DELAY_MS
             ),
+            Self::IndexPolicy => write!(f, "indexPolicy must be reject or clamp"),
         }
     }
 }

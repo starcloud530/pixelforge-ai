@@ -3,8 +3,9 @@ use std::cmp::Ordering;
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::history::{Change, History};
-use crate::palette::Palette;
+use crate::palette::{IndexPolicy, Palette};
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
+use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -33,8 +34,11 @@ pub struct Document {
     width: u16,
     height: u16,
     palette: Palette,
-    /// When set, recolor, append, and import fail. Paint still writes indices.
+    /// When set, recolor, append, import, and palette remap fail. Paint still
+    /// writes indices. PNG crush writes indices and is not a palette edit.
     palette_locked: bool,
+    /// Out-of-range `paint` / `fill_rect` indices. Default is reject.
+    index_policy: IndexPolicy,
     frames: Vec<Frame>,
     active: usize,
     /// Bottom layer is index 0. The same names and order apply to every frame.
@@ -75,6 +79,7 @@ impl Document {
             height,
             palette,
             palette_locked: false,
+            index_policy: IndexPolicy::Reject,
             frames: vec![Frame::blank(1, len, DEFAULT_FRAME_DELAY_MS)],
             active: 0,
             layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
@@ -100,9 +105,32 @@ impl Document {
         self.palette.colors()
     }
 
-    /// True when recolor, append, and import are refused.
+    /// True when recolor, append, import, and palette remap are refused.
     pub fn palette_locked(&self) -> bool {
         self.palette_locked
+    }
+
+    /// How `paint` and `fill_rect` treat an index past the palette.
+    pub fn index_policy(&self) -> IndexPolicy {
+        self.index_policy
+    }
+
+    /// Resolves a paint index under [`Self::index_policy`].
+    ///
+    /// An in-range opaque index is returned unchanged. Index 0 is
+    /// [`KernelError::PaletteIndex`] in both modes. [`IndexPolicy::Clamp`]
+    /// maps any other out-of-range index to the last opaque entry.
+    pub fn resolve_paint_index(&self, color_index: u8) -> Result<u8, KernelError> {
+        if self.palette.contains_paint_index(color_index) {
+            return Ok(color_index);
+        }
+        if self.index_policy == IndexPolicy::Clamp && color_index != TRANSPARENT_INDEX {
+            let last = self.palette.len().saturating_sub(1);
+            if last >= 1 {
+                return Ok(u8::try_from(last).expect("palette length fits in u8"));
+            }
+        }
+        Err(KernelError::PaletteIndex { index: color_index })
     }
 
     pub fn frame_count(&self) -> usize {
@@ -193,9 +221,7 @@ impl Document {
         y: u16,
         color_index: u8,
     ) -> Result<(), KernelError> {
-        if !self.palette.contains_paint_index(color_index) {
-            return Err(KernelError::PaletteIndex { index: color_index });
-        }
+        let color_index = self.resolve_paint_index(color_index)?;
         let layer = self.layer_or_err(layer)?;
         let offset = self.offset(x, y)?;
         self.write_index(self.active, layer, offset, color_index);
@@ -247,6 +273,23 @@ impl Document {
         self.history.record(Change::PaletteLocked {
             before,
             after: locked,
+        });
+    }
+
+    /// Sets how out-of-range paint indices are treated.
+    ///
+    /// The same value is not recorded. The lock does not freeze this flag:
+    /// it is not a palette color edit. `reject` is omitted from the project
+    /// file. `clamp` is stored as `indexPolicy`.
+    pub fn set_index_policy(&mut self, policy: IndexPolicy) {
+        if self.index_policy == policy {
+            return;
+        }
+        let before = self.index_policy;
+        self.index_policy = policy;
+        self.history.record(Change::IndexPolicy {
+            before,
+            after: policy,
         });
     }
 
@@ -351,6 +394,173 @@ impl Document {
         Ok(())
     }
 
+    /// Nearest-maps every stored index onto the colors in `text` and installs
+    /// that palette. One undo step. A locked palette is refused.
+    ///
+    /// `text` is a GIMP palette or a hex list, the same formats as
+    /// [`Self::import_palette`]. Unlike `replace` import, pixels are not
+    /// cleared: each old color moves to the nearest target color. Index 0
+    /// stays 0. Distance is squared RGB. A tie keeps the lower target index.
+    /// The report lists colors that missed an exact RGB hit, merges (including
+    /// exact index shifts), and how many cells changed index.
+    pub(crate) fn remap_palette_text(&mut self, text: &str) -> Result<MapReport, KernelError> {
+        self.ensure_palette_unlocked()?;
+        let imported = parse_palette_text(text)?;
+        let counts = self.index_counts();
+        let plan = palette_map::plan_target(self.palette.colors(), &counts, &imported)?;
+        Ok(self.commit_palette_plan(plan))
+    }
+
+    /// Reduces the opaque palette to at most `max_colors` entries.
+    ///
+    /// Unused entries drop from the highest index first. Used entries then
+    /// merge into the nearer existing color; that color's RGB is kept.
+    /// `max_colors` does not count the transparent slot. A locked palette is
+    /// refused. One undo step when the palette or any index changes.
+    pub(crate) fn quantize_palette(&mut self, max_colors: u8) -> Result<MapReport, KernelError> {
+        self.ensure_palette_unlocked()?;
+        let counts = self.index_counts();
+        let plan =
+            palette_map::plan_max_colors(self.palette.colors(), &counts, usize::from(max_colors));
+        Ok(self.commit_palette_plan(plan))
+    }
+
+    /// Writes one PNG into one layer by nearest color on the current palette.
+    ///
+    /// The PNG must be the canvas size. This does not scale, slice a sheet, or
+    /// add palette colors. Alpha below 128 becomes index 0. Any higher alpha
+    /// is opaque and matched by squared RGB. A locked palette still allows
+    /// the write, because the palette itself does not change. One undo step
+    /// when an index changes. The active frame and layer stay put.
+    pub(crate) fn apply_png(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        png: &[u8],
+    ) -> Result<MapReport, KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        let layer = self.layer_or_err(layer)?;
+        let (png_width, png_height, rgba) = match palette_map::decode_png(png)? {
+            DecodedPng::TooBig { width, height } => {
+                return Err(KernelError::PngSize {
+                    png_width: width,
+                    png_height: height,
+                    width: self.width,
+                    height: self.height,
+                });
+            }
+            DecodedPng::Image {
+                width,
+                height,
+                rgba,
+            } => (width, height, rgba),
+        };
+        if png_width != u32::from(self.width) || png_height != u32::from(self.height) {
+            return Err(KernelError::PngSize {
+                png_width,
+                png_height,
+                width: self.width,
+                height: self.height,
+            });
+        }
+        let (indices, mut report) = palette_map::crush_rgba(self.palette.colors(), &rgba)?;
+        let mut changes = Vec::new();
+        let before = self.frames[frame].layer_pixels(layer);
+        for (offset, (old, new)) in before
+            .iter()
+            .copied()
+            .zip(indices.iter().copied())
+            .enumerate()
+        {
+            if old != new {
+                changes.push(Change::Pixel {
+                    frame,
+                    layer,
+                    offset,
+                    before: old,
+                    after: new,
+                });
+            }
+        }
+        for change in &changes {
+            let Change::Pixel {
+                frame,
+                layer,
+                offset,
+                after,
+                ..
+            } = change
+            else {
+                continue;
+            };
+            self.frames[*frame].set_on(*layer, *offset, *after);
+        }
+        report.pixels_changed = changes.len();
+        self.history.record_group(changes);
+        Ok(report)
+    }
+
+    fn index_counts(&self) -> Vec<u32> {
+        let mut counts = vec![0u32; self.palette.len()];
+        for frame in &self.frames {
+            for layer in frame.layers() {
+                for index in layer.iter().copied() {
+                    let slot = usize::from(index);
+                    debug_assert!(slot < counts.len(), "stored index is outside the palette");
+                    counts[slot] = counts[slot].saturating_add(1);
+                }
+            }
+        }
+        counts
+    }
+
+    fn commit_palette_plan(&mut self, plan: PalettePlan) -> MapReport {
+        let mut changes = Vec::new();
+        for (frame, pixels) in self.frames.iter().enumerate() {
+            for (layer, buffer) in pixels.layers().iter().enumerate() {
+                for (offset, index) in buffer.iter().copied().enumerate() {
+                    let next = plan.map[usize::from(index)];
+                    if next == index {
+                        continue;
+                    }
+                    changes.push(Change::Pixel {
+                        frame,
+                        layer,
+                        offset,
+                        before: index,
+                        after: next,
+                    });
+                }
+            }
+        }
+        for change in &changes {
+            let Change::Pixel {
+                frame,
+                layer,
+                offset,
+                after,
+                ..
+            } = change
+            else {
+                continue;
+            };
+            self.frames[*frame].set_on(*layer, *offset, *after);
+        }
+        let pixels_changed = changes.len();
+        if self.palette.colors() != plan.colors.as_slice() {
+            let before = self.palette.colors().to_vec();
+            self.palette.install(plan.colors.clone());
+            changes.push(Change::PaletteReplace {
+                before,
+                after: plan.colors,
+            });
+        }
+        self.history.record_group(changes);
+        let mut report = plan.report;
+        report.pixels_changed = pixels_changed;
+        report
+    }
+
     fn ensure_palette_unlocked(&self) -> Result<(), KernelError> {
         if self.palette_locked {
             Err(KernelError::PaletteLocked)
@@ -391,9 +601,7 @@ impl Document {
         height: u16,
         color_index: u8,
     ) -> Result<(), KernelError> {
-        if !self.palette.contains_paint_index(color_index) {
-            return Err(KernelError::PaletteIndex { index: color_index });
-        }
+        let color_index = self.resolve_paint_index(color_index)?;
         let layer = self.layer_or_err(layer)?;
         let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
         let frame = self.active;
@@ -1398,6 +1606,7 @@ impl Document {
         height: u16,
         palette: Palette,
         palette_locked: bool,
+        index_policy: IndexPolicy,
         frames: Vec<Frame>,
         active: usize,
         layer_names: Vec<String>,
@@ -1423,6 +1632,7 @@ impl Document {
             height,
             palette,
             palette_locked,
+            index_policy,
             frames,
             active,
             layer_names,
@@ -1598,6 +1808,9 @@ impl Document {
             }
             Change::PaletteLocked { before, after } => {
                 self.palette_locked = if forward { *after } else { *before };
+            }
+            Change::IndexPolicy { before, after } => {
+                self.index_policy = if forward { *after } else { *before };
             }
             Change::CanvasResize {
                 before_width,

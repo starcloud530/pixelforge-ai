@@ -17,7 +17,9 @@ use serde_json::{Map, Number, Value};
 
 use crate::document::Document;
 use crate::error::KernelError;
+use crate::palette::IndexPolicy;
 use crate::palette_file::PaletteImportMode;
+use crate::palette_map::{ColorMerge, DroppedColor, MapReport};
 use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
 use crate::MAX_CANVAS_EDGE;
 
@@ -40,6 +42,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "addPaletteColor",
     "importPalette",
     "setPaletteLocked",
+    "setIndexPolicy",
+    "remapPalette",
+    "applyPng",
     "setActiveFrame",
     "addFrame",
     "deleteFrame",
@@ -300,24 +305,40 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
         "paint" => {
             let report = take_report_dirty(tool, &mut params)?;
             let (x, y, color_index, layer) = parse_paint(params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
             let before = snaps_if(document, report, &[document.active_frame()], layer)?;
             match layer {
                 Some(layer) => document.paint_on(layer, x, y, color_index),
                 None => document.paint(x, y, color_index),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(with_dirty(empty(), document, before, false))
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
         }
         "fillRect" => {
             let report = take_report_dirty(tool, &mut params)?;
             let (x, y, width, height, color_index, layer) = parse_fill_rect(params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
             let before = snaps_if(document, report, &[document.active_frame()], layer)?;
             match layer {
                 Some(layer) => document.fill_rect_on(layer, x, y, width, height, color_index),
                 None => document.fill_rect(x, y, width, height, color_index),
             }
             .map_err(ToolFailure::Kernel)?;
-            Ok(with_dirty(empty(), document, before, false))
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
         }
         "erase" => {
             let report = take_report_dirty(tool, &mut params)?;
@@ -428,6 +449,38 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             let locked = parse_locked(params)?;
             document.set_palette_locked(locked);
             Ok(empty())
+        }
+        "setIndexPolicy" => {
+            let policy = parse_index_policy(params)?;
+            document.set_index_policy(policy);
+            Ok(serde_json::json!({
+                "mode": document.index_policy().as_str(),
+            }))
+        }
+        "remapPalette" => {
+            let request = parse_remap(params)?;
+            let report = match request {
+                RemapRequest::Text(text) => document.remap_palette_text(&text),
+                RemapRequest::MaxColors(max_colors) => document.quantize_palette(max_colors),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            let mut result = conflict_json(&report);
+            result["paletteLength"] = serde_json::json!(document.palette_colors().len());
+            Ok(result)
+        }
+        "applyPng" => {
+            let (png, frame, layer) = parse_apply_png(params)?;
+            let frame = frame.unwrap_or(document.active_frame());
+            let layer = layer.unwrap_or(document.active_layer());
+            let report = document
+                .apply_png(frame, layer, &png)
+                .map_err(ToolFailure::Kernel)?;
+            let mut result = conflict_json(&report);
+            result["frame"] = serde_json::json!(frame);
+            result["layer"] = serde_json::json!(layer);
+            result["width"] = serde_json::json!(document.width());
+            result["height"] = serde_json::json!(document.height());
+            Ok(result)
         }
         "setActiveFrame" => {
             let index = parse_index(tool, params)?;
@@ -712,6 +765,7 @@ fn inspect_value(document: &Document) -> Value {
         "palette": palette_entries(document),
         "paletteHash": scene::palette_hash(document.palette_colors()),
         "paletteLocked": document.palette_locked(),
+        "indexPolicy": document.index_policy().as_str(),
         "frameCount": document.frame_count(),
         "activeFrame": active,
         "delayMs": delay_ms,
@@ -751,6 +805,7 @@ fn scene_value(document: &Document) -> Value {
         "layerCount": document.layer_count(),
         "layers": scene_layers(document),
         "paletteLocked": document.palette_locked(),
+        "indexPolicy": document.index_policy().as_str(),
         "paletteCount": document.palette_colors().len(),
         "paletteHash": scene::palette_hash(document.palette_colors()),
         "palette": palette_entries(document),
@@ -826,6 +881,80 @@ fn index_value(index: u32) -> Value {
 
 fn empty() -> Value {
     Value::Object(Map::new())
+}
+
+/// Present only when clamp rewrote the requested index. Otherwise `{}`.
+fn clamp_note(requested: u8, written: u8) -> Value {
+    if requested == written {
+        empty()
+    } else {
+        serde_json::json!({
+            "indexPolicy": IndexPolicy::Clamp.as_str(),
+            "requestedIndex": requested,
+            "colorIndex": written,
+        })
+    }
+}
+
+fn conflict_json(report: &MapReport) -> Value {
+    serde_json::json!({
+        "pixelsChanged": report.pixels_changed,
+        "misses": report.misses.iter().map(miss_json).collect::<Vec<_>>(),
+        "merges": report.merges.iter().map(merge_json).collect::<Vec<_>>(),
+        "dropped": report.dropped.iter().map(dropped_json).collect::<Vec<_>>(),
+    })
+}
+
+fn miss_json(merge: &ColorMerge) -> Value {
+    let mut value = serde_json::json!({
+        "r": merge.from.r,
+        "g": merge.from.g,
+        "b": merge.from.b,
+        "pixels": merge.pixels,
+        "intoIndex": merge.into_index,
+        "into": {
+            "r": merge.into.r,
+            "g": merge.into.g,
+            "b": merge.into.b,
+        },
+        "distance": merge.distance,
+    });
+    if let Some(index) = merge.from_index {
+        value["fromIndex"] = serde_json::json!(index);
+    }
+    value
+}
+
+fn merge_json(merge: &ColorMerge) -> Value {
+    let mut value = serde_json::json!({
+        "from": {
+            "r": merge.from.r,
+            "g": merge.from.g,
+            "b": merge.from.b,
+        },
+        "intoIndex": merge.into_index,
+        "into": {
+            "r": merge.into.r,
+            "g": merge.into.g,
+            "b": merge.into.b,
+        },
+        "pixels": merge.pixels,
+        "distance": merge.distance,
+        "exact": merge.exact,
+    });
+    if let Some(index) = merge.from_index {
+        value["fromIndex"] = serde_json::json!(index);
+    }
+    value
+}
+
+fn dropped_json(color: &DroppedColor) -> Value {
+    serde_json::json!({
+        "index": color.index,
+        "r": color.color.r,
+        "g": color.color.g,
+        "b": color.color.b,
+    })
 }
 
 struct LayerSnap {
@@ -1346,6 +1475,72 @@ fn parse_locked(params: Value) -> Result<bool, ToolFailure> {
     require_bool("setPaletteLocked", &map, "locked")
 }
 
+fn parse_index_policy(params: Value) -> Result<IndexPolicy, ToolFailure> {
+    let map = expect_object("setIndexPolicy", params)?;
+    reject_params("setIndexPolicy", &map, &["mode"])?;
+    match require_string("setIndexPolicy", &map, "mode")?.as_str() {
+        "reject" => Ok(IndexPolicy::Reject),
+        "clamp" => Ok(IndexPolicy::Clamp),
+        _ => Err(invalid_params(
+            "setIndexPolicy",
+            "mode must be reject or clamp",
+        )),
+    }
+}
+
+enum RemapRequest {
+    Text(String),
+    MaxColors(u8),
+}
+
+fn parse_remap(params: Value) -> Result<RemapRequest, ToolFailure> {
+    let map = expect_object("remapPalette", params)?;
+    reject_params("remapPalette", &map, &["text", "maxColors"])?;
+    let text = match map.get("text") {
+        None => None,
+        Some(_) => Some(require_string("remapPalette", &map, "text")?),
+    };
+    let max_colors = match map.get("maxColors") {
+        None => None,
+        Some(Value::Number(number)) => match number.as_u64() {
+            Some(value) if (1..=255).contains(&value) => {
+                Some(u8::try_from(value).expect("value was bounded by 255"))
+            }
+            _ => {
+                return Err(invalid_params(
+                    "remapPalette",
+                    "maxColors must be an integer from 1 to 255",
+                ))
+            }
+        },
+        Some(_) => {
+            return Err(invalid_params(
+                "remapPalette",
+                "maxColors must be an integer from 1 to 255",
+            ))
+        }
+    };
+    match (text, max_colors) {
+        (Some(text), None) => Ok(RemapRequest::Text(text)),
+        (None, Some(max_colors)) => Ok(RemapRequest::MaxColors(max_colors)),
+        (Some(_), Some(_)) => Err(invalid_params(
+            "remapPalette",
+            "pass text or maxColors, not both",
+        )),
+        (None, None) => Err(invalid_params("remapPalette", "pass text or maxColors")),
+    }
+}
+
+fn parse_apply_png(params: Value) -> Result<(Vec<u8>, Option<usize>, Option<usize>), ToolFailure> {
+    let map = expect_object("applyPng", params)?;
+    reject_params("applyPng", &map, &["png", "frame", "layer"])?;
+    let text = require_string("applyPng", &map, "png")?;
+    let png = decode_base64(&text).map_err(|_| invalid_params("applyPng", "png must be base64"))?;
+    let frame = optional_frame("applyPng", &map, "frame")?;
+    let layer = optional_frame("applyPng", &map, "layer")?;
+    Ok((png, frame, layer))
+}
+
 fn parse_index(tool: &str, params: Value) -> Result<usize, ToolFailure> {
     let map = expect_object(tool, params)?;
     reject_params(tool, &map, &["index"])?;
@@ -1562,6 +1757,56 @@ fn encode_base64(bytes: &[u8]) -> String {
     out
 }
 
+fn decode_base64(text: &str) -> Result<Vec<u8>, ()> {
+    fn value(byte: u8) -> Option<u8> {
+        match byte {
+            b'A'..=b'Z' => Some(byte - b'A'),
+            b'a'..=b'z' => Some(byte - b'a' + 26),
+            b'0'..=b'9' => Some(byte - b'0' + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let bytes: Vec<u8> = text
+        .bytes()
+        .filter(|byte| !matches!(byte, b' ' | b'\n' | b'\r' | b'\t'))
+        .collect();
+    if bytes.is_empty() || bytes.len() % 4 != 0 {
+        return Err(());
+    }
+    let pad = bytes.iter().rev().take_while(|byte| **byte == b'=').count();
+    if pad > 2 || bytes[..bytes.len() - pad].contains(&b'=') {
+        return Err(());
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    for chunk in bytes.chunks_exact(4) {
+        let mut sextets = [0u8; 4];
+        for (index, byte) in chunk.iter().copied().enumerate() {
+            if byte == b'=' {
+                if index < 2 {
+                    return Err(());
+                }
+                sextets[index] = 0;
+            } else {
+                sextets[index] = value(byte).ok_or(())?;
+            }
+        }
+        let packed = (u32::from(sextets[0]) << 18)
+            | (u32::from(sextets[1]) << 12)
+            | (u32::from(sextets[2]) << 6)
+            | u32::from(sextets[3]);
+        out.push(u8::try_from((packed >> 16) & 0xff).expect("masked to a byte"));
+        if chunk[2] != b'=' {
+            out.push(u8::try_from((packed >> 8) & 0xff).expect("masked to a byte"));
+        }
+        if chunk[3] != b'=' {
+            out.push(u8::try_from(packed & 0xff).expect("masked to a byte"));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1573,6 +1818,13 @@ mod tests {
         assert_eq!(encode_base64(b"fo"), "Zm8=");
         assert_eq!(encode_base64(b"foo"), "Zm9v");
         assert!(encode_base64(b"\x89PNG\r\n\x1a\n\x00\x00\x00\x0d").starts_with("iVBORw0KGgoAAA"));
+        assert_eq!(decode_base64("Zm9v").unwrap(), b"foo");
+        assert_eq!(decode_base64("Zm8=").unwrap(), b"fo");
+        assert_eq!(decode_base64("Zg==").unwrap(), b"f");
+        assert_eq!(decode_base64("Zm\n9v").unwrap(), b"foo");
+        assert!(decode_base64("").is_err());
+        assert!(decode_base64("!!!!").is_err());
+        assert!(decode_base64("Zm9v====").is_err());
     }
 
     #[test]

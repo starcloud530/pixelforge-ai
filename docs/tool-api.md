@@ -78,6 +78,9 @@
 | `PaletteImportMode` | `mode` 不是 `replace` 或 `merge` |
 | `EmptyPalette` | 导入文件没有颜色 |
 | `PaletteTooLarge` | 调色板会超过 256 色 |
+| `NoPaintColor` | 量化或 PNG 压盘时，调色板没有不透明色可映射 |
+| `PngFile` | `applyPng` 的字节不是可解码的图像 |
+| `PngSize` | PNG 的宽高不是画布大小。压盘不缩放 |
 | `FrameIndex` | 帧下标越界 |
 | `LastFrame` | 删掉仅剩的一帧 |
 | `LayerIndex` | 层下标越界 |
@@ -99,13 +102,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、改层名、选层，以及不改变文档的导入和压平，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, or lock that does not change the current value, and an import that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, lock, or index policy that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -124,7 +127,8 @@
 | `width`, `height` | 画布边长，像素 |
 | `palette` | `{ "r", "g", "b", "a" }` 数组。索引 0 是透明 |
 | `paletteHash` | 调色板的 FNV-1a 64 位哈希，16 位小写十六进制。算法见 `scene` |
-| `paletteLocked` | 锁定后不能改色、追加、导入 |
+| `paletteLocked` | 锁定后不能改色、追加、导入、重映射 |
+| `indexPolicy` | `reject`（默认）或 `clamp`。见 `setIndexPolicy` |
 | `frameCount` | 帧数，至少 1 |
 | `activeFrame` | 当前帧，从 0 计 |
 | `delayMs` | 当前帧的时长，毫秒 |
@@ -154,6 +158,7 @@
 | `layerCount` | 层数，至少 1 |
 | `layers` | `{ "index", "name", "visible", "opacity" }`，从底到顶 |
 | `paletteLocked` | 调色板是否锁定 |
+| `indexPolicy` | `reject` 或 `clamp`。省略工程字段时是 `reject` |
 | `paletteCount` | 调色板项数，含索引 0 |
 | `paletteHash` | 见下 |
 | `palette` | 与 `inspect` 相同的 `{ "r", "g", "b", "a" }` 数组 |
@@ -194,7 +199,9 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 写入的是索引，不是 RGB。锁定的调色板不阻止绘制。可选 `layer` 指定要改的层，不写就是当前层；这次调用不改变 `activeLayer`。别的层一格都不动。
 
-*Writes an index, not RGB. A locked palette does not block paint. Optional `layer` chooses the layer and does not change `activeLayer`. Other layers stay put.*
+默认 `indexPolicy` 是 `reject`：`colorIndex` 必须是已有的不透明索引，否则 `PaletteIndex`，文档不变。`clamp` 时，大于等于调色板长度的索引写成最后一项不透明色。索引 0 两种模式都拒绝。只有索引被钳制时，`result` 才多出 `indexPolicy`（`"clamp"`）、`requestedIndex` 和 `colorIndex`；范围内的绘制不带这些字段。`importPalette` 的 `replace` 仍把不再存在的索引清成 0，不看 `indexPolicy`。
+
+*Writes an index, not RGB. A locked palette does not block paint. Optional `layer` chooses the layer and does not change `activeLayer`. Other layers stay put. The default `indexPolicy` is `reject`: an unknown `colorIndex` is `PaletteIndex` and the document stays put. `clamp` writes an index past the palette as the last opaque entry. Index 0 is refused in both modes. `indexPolicy`, `requestedIndex`, and `colorIndex` appear on the result only when the index was clamped. `importPalette` `replace` still clears orphaned indices to 0 and does not read `indexPolicy`.*
 
 错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。
 
@@ -268,7 +275,67 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 ### `setPaletteLocked`
 
-`params`：`locked`（布尔）。`true` 锁定，`false` 解锁。画笔不受影响。同一个值不进撤销栈。这个标记会写入工程文件。
+`params`：`locked`（布尔）。`true` 锁定，`false` 解锁。画笔不受影响。同一个值不进撤销栈。这个标记会写入工程文件。锁定还拒绝 `remapPalette`。它不拒绝 `applyPng`，也不拒绝 `setIndexPolicy`。
+
+### `setIndexPolicy`
+
+`params`：`mode`（`reject` 或 `clamp`）。
+
+`reject` 是默认。越界的 `paint` / `fillRect` 索引返回 `PaletteIndex`。`clamp` 把大于等于调色板长度的索引写成最后一项不透明色；调色板只有透明槽时仍然是 `PaletteIndex`。索引 0 不是钳制对象。同一个值不进撤销栈。只有 `clamp` 写入工程文件的 `indexPolicy`；缺这个字段的旧文件按 `reject` 读入。
+
+`result`：`{ "mode": "reject" | "clamp" }`。
+
+*Sets the document index policy. `reject` is the default and is omitted from the project file. `clamp` is stored. The same value is not recorded. A locked palette does not freeze this flag.*
+
+CLI：`pixelforge palette enforce --mode reject|clamp`。
+
+### `remapPalette`
+
+`params`：`text` 或 `maxColors`，必须二选一。
+
+`text` 是 `.gpl` 或十六进制列表，格式与 `importPalette` 相同。调色板换成「透明 + 文件颜色」，每一格按平方 RGB 距离（`dr²+dg²+db²`）映射到最近的目标色。距离相同取较小的目标索引。不发明新的 RGB。
+
+`maxColors` 是 `1..=255`，只数不透明色，不含索引 0。先从最高索引丢掉没有像素的颜色，再把最近的一对并进像素更多的那一项（一样多则保留较小索引）。存活颜色的 RGB 保持原样，不做平均。
+
+一次调用是一步撤销。调色板和索引都没变时不进栈。锁定时拒绝，文档不变。这里没有 Lospec 在线浏览器；调色板文本由调用方提供。
+
+`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `pixelsChanged` | 存储索引变了的格子数。只换了颜色、索引号没变的格子不算 |
+| `paletteLength` | 调用之后的调色板长度，含索引 0 |
+| `misses` | 没有精确命中目标 RGB 的源颜色。见下 |
+| `merges` | 被折进别的项的颜色，包括压紧后只改了索引号的精确命中 |
+| `dropped` | 因为没人用、又超过 `maxColors` 而删掉的颜色。`text` 重映射时是 `[]` |
+
+`misses` 的一条：`r`、`g`、`b`、`pixels`、`intoIndex`、`into`（`r`、`g`、`b`）、`distance`。来自调色板项时还有 `fromIndex`。`distance` 为 0 的不在这里。
+
+`merges` 的一条：`fromIndex`（PNG 没有）、`from`、`intoIndex`、`into`、`pixels`、`distance`、`exact`。`exact: true` 表示 RGB 相同，只是索引因为压紧或重复色而移动。
+
+`dropped` 的一条：`index`、`r`、`g`、`b`。
+
+*One of `text` or `maxColors`. `text` installs that palette and nearest-maps every index. `maxColors` caps opaque entries. Squared RGB distance, lower index wins a tie, survivor RGB is not averaged. One undo step. Refused while locked. No Lospec browser: the caller supplies the palette text.*
+
+CLI：`pixelforge palette remap --max-colors 8` 或 `--file colors.hex`。
+
+错误：`PaletteLocked`、`PaletteFile`、`EmptyPalette`、`PaletteTooLarge`。两个参数一起给，或一个都不给，或 `maxColors` 越界，是 `InvalidParams`。
+
+### `applyPng`
+
+`params`：`png`（标准 Base64，可以含空白）。可选 `frame`、`layer`，省略时是当前帧和当前层。这次调用不改变 `activeFrame` 或 `activeLayer`。
+
+把这一张 PNG 压进当前调色板，不追加颜色，不缩放，不切精灵表。宽高必须等于画布，否则 `PngSize`。alpha 小于 128 写成索引 0；大于等于 128 当成不透明，按平方 RGB 距离选最近的不透明索引。调色板 alpha 不参与混合。调色板锁定时仍然可以写，因为不改调色板。索引变了才进撤销栈，一步撤销。
+
+只读第一帧。接受展开后的 RGBA、RGB、灰度和带调色板的 PNG。大于画布上限（256）的图不展开像素。
+
+`result` 在 `remapPalette` 的 `pixelsChanged`、`misses`、`merges`、`dropped` 之外还有 `frame`、`layer`、`width`、`height`。PNG 没有源调色板索引，所以 `merges` 不带 `fromIndex`，并且和 `misses` 是同一批未精确命中的颜色。`dropped` 恒为 `[]`。
+
+*Crushes one PNG onto the current palette. The image must match the canvas; there is no scale and no sheet slice. Alpha below 128 becomes index 0. A locked palette still allows the write. `merges` and `misses` list the same near-colors. This is not a Lospec browser.*
+
+CLI：`pixelforge palette apply-png --file sprite.png`。可选 `--frame` 和 `--layer`。
+
+错误：`PngFile`、`PngSize`、`NoPaintColor`、`FrameIndex`、`LayerIndex`。`png` 不是 Base64 时是 `InvalidParams`。
 
 ### `setActiveFrame`
 

@@ -114,6 +114,34 @@ impl Palette {
     }
 }
 
+/// How [`crate::Document::paint`] treats a color index that is not in the palette.
+///
+/// The default is [`IndexPolicy::Reject`]. [`IndexPolicy::Clamp`] is opt-in
+/// and is the only value stored in the project file; an omitted field loads
+/// as reject. Index 0 stays refused in both modes. Use erase for transparency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IndexPolicy {
+    /// `paint` and `fill_rect` return [`crate::KernelError::PaletteIndex`].
+    #[default]
+    Reject,
+    /// An index past the last opaque entry is written as that last entry.
+    ///
+    /// A palette with only the transparent slot still returns
+    /// [`crate::KernelError::PaletteIndex`], because there is no paint color
+    /// to clamp to.
+    Clamp,
+}
+
+impl IndexPolicy {
+    /// Stable token used by the Tool API, the CLI, and the project file.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Reject => "reject",
+            Self::Clamp => "clamp",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

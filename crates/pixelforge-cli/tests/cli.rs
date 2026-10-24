@@ -1758,6 +1758,117 @@ fn scene_dirty_preview_and_diff_are_structured() {
     assert!(compared["rows"].as_array().is_some());
 }
 
+#[test]
+fn palette_enforce_remap_and_apply_png() {
+    let scratch = Scratch::new();
+    let project = scratch.child("swatch.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "2",
+            "--height",
+            "1",
+            "--output",
+            project_arg
+        ]))),
+        0
+    );
+
+    let rejected = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "40",
+    ]));
+    assert_eq!(status(&rejected), 1, "{}", stderr(&rejected));
+    assert_eq!(json_lines(&rejected)[0]["error"]["code"], "PaletteIndex");
+
+    let clamp = pixelforge(&arg(&[
+        "palette",
+        "enforce",
+        "--project",
+        project_arg,
+        "--mode",
+        "clamp",
+    ]));
+    assert_eq!(status(&clamp), 0, "{}", stderr(&clamp));
+    assert_eq!(json_lines(&clamp)[0]["result"]["mode"], "clamp");
+    assert!(load(&project)
+        .save_project()
+        .contains("\"indexPolicy\": \"clamp\""));
+
+    let painted = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "40",
+    ]));
+    assert_eq!(status(&painted), 0, "{}", stderr(&painted));
+    assert_eq!(json_lines(&painted)[0]["result"]["colorIndex"], 8);
+    assert_eq!(json_lines(&painted)[0]["result"]["requestedIndex"], 40);
+    assert_eq!(load(&project).pixels()[0], 8);
+
+    let missing = pixelforge(&arg(&["palette", "remap", "--project", project_arg]));
+    assert_eq!(status(&missing), 2, "{}", stderr(&missing));
+    assert_eq!(json_lines(&missing)[0]["error"]["code"], "Cli");
+
+    let reduced = pixelforge(&arg(&[
+        "palette",
+        "remap",
+        "--project",
+        project_arg,
+        "--max-colors",
+        "4",
+    ]));
+    assert_eq!(status(&reduced), 0, "{}", stderr(&reduced));
+    let report = &json_lines(&reduced)[0]["result"];
+    assert_eq!(report["paletteLength"], 5);
+    assert_eq!(report["pixelsChanged"], 1);
+    assert_eq!(report["dropped"].as_array().unwrap().len(), 4);
+    assert!(report["misses"].as_array().unwrap().is_empty());
+    assert_eq!(report["merges"][0]["exact"], true);
+    assert_eq!(report["merges"][0]["fromIndex"], 8);
+
+    let frames = scratch.child("frames");
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "export",
+            "png",
+            "--project",
+            project_arg,
+            "--out-dir",
+            frames.to_str().unwrap(),
+        ]))),
+        0
+    );
+    let applied = pixelforge(&arg(&[
+        "palette",
+        "apply-png",
+        "--project",
+        project_arg,
+        "--file",
+        frames.join("pixelforge-000.png").to_str().unwrap(),
+    ]));
+    assert_eq!(status(&applied), 0, "{}", stderr(&applied));
+    let crushed = &json_lines(&applied)[0]["result"];
+    assert_eq!(crushed["width"], 2);
+    assert_eq!(crushed["height"], 1);
+    assert_eq!(crushed["pixelsChanged"], 0);
+    assert!(crushed["misses"].as_array().unwrap().is_empty());
+}
+
 fn assert_full_grid(body: &Value, width: usize, height: usize) {
     let rows = body["result"]["rows"].as_array().unwrap();
     assert_eq!(rows.len(), height);
