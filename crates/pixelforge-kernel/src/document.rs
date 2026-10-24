@@ -6,6 +6,7 @@ use crate::history::{Change, History};
 use crate::palette::{IndexPolicy, Palette};
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
+use crate::selection::Selection;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -21,9 +22,10 @@ use crate::TRANSPARENT_INDEX;
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
 /// edits, layer edits, and delay edits record kernel operations on this
-/// document. Drawing writes the active layer. Preview and export composite
-/// the stack. Undo restores those operations; it does not patch a buffer
-/// owned by the shell.
+/// document. Drawing writes the active layer. When a rectangular selection is
+/// set, paint tools skip cells outside that rectangle. Preview and export
+/// composite the stack. Undo restores those operations; it does not patch a
+/// buffer owned by the shell.
 /// Loop playback is preview state: [`Self::tick`] moves the active frame from
 /// each frame's delay and does not push undo entries. Project open and save
 /// encode pixels, palette, the palette lock, frames, and delays, not the undo
@@ -44,6 +46,9 @@ pub struct Document {
     /// Bottom layer is index 0. The same names and order apply to every frame.
     layer_names: Vec<String>,
     active_layer: usize,
+    /// One canvas rectangle shared by every frame and layer, or none.
+    /// Paint tools skip cells outside it. The project file stores it.
+    selection: Option<Selection>,
     history: History,
     playback: Playback,
 }
@@ -84,6 +89,7 @@ impl Document {
             active: 0,
             layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
             active_layer: 0,
+            selection: None,
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -188,6 +194,61 @@ impl Document {
         self.active_layer
     }
 
+    /// The rectangular mask, or `None` when every cell is writable.
+    ///
+    /// One rectangle in canvas coordinates. It is not per layer and not per
+    /// frame. The project file stores it and omits the field when it is clear.
+    pub fn selection(&self) -> Option<Selection> {
+        self.selection
+    }
+
+    /// Stores a rectangle that lies entirely on the canvas.
+    ///
+    /// The same rectangle is not recorded. This does not change
+    /// [`Self::active_layer`] or any pixel. Later paint, erase, fill, copy,
+    /// flip, and index replace skip cells outside it. A move whose source or
+    /// destination leaves the rectangle is [`KernelError::SelectionProtected`].
+    pub fn set_selection(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        self.inclusive_rect(x, y, width, height)?;
+        let after = Selection {
+            x,
+            y,
+            width,
+            height,
+        };
+        if self.selection == Some(after) {
+            return Ok(());
+        }
+        let before = self.selection;
+        self.selection = Some(after);
+        self.history.record(Change::Selection {
+            before,
+            after: Some(after),
+        });
+        Ok(())
+    }
+
+    /// Clears the mask so the whole canvas is writable again.
+    ///
+    /// A document that already has no selection is not recorded. This does not
+    /// change pixels or the active layer.
+    pub fn clear_selection(&mut self) {
+        let Some(before) = self.selection else {
+            return;
+        };
+        self.selection = None;
+        self.history.record(Change::Selection {
+            before: Some(before),
+            after: None,
+        });
+    }
+
     pub fn layer_names(&self) -> &[String] {
         &self.layer_names
     }
@@ -224,6 +285,9 @@ impl Document {
         let color_index = self.resolve_paint_index(color_index)?;
         let layer = self.layer_or_err(layer)?;
         let offset = self.offset(x, y)?;
+        if !self.accepts_write(x, y) {
+            return Ok(());
+        }
         self.write_index(self.active, layer, offset, color_index);
         Ok(())
     }
@@ -402,7 +466,8 @@ impl Document {
     /// cleared: each old color moves to the nearest target color. Index 0
     /// stays 0. Distance is squared RGB. A tie keeps the lower target index.
     /// The report lists colors that missed an exact RGB hit, merges (including
-    /// exact index shifts), and how many cells changed index.
+    /// exact index shifts), and how many cells changed index. The rectangular
+    /// selection is not consulted.
     pub(crate) fn remap_palette_text(&mut self, text: &str) -> Result<MapReport, KernelError> {
         self.ensure_palette_unlocked()?;
         let imported = parse_palette_text(text)?;
@@ -412,6 +477,9 @@ impl Document {
     }
 
     /// Reduces the opaque palette to at most `max_colors` entries.
+    ///
+    /// Does not consult the rectangular selection. Use [`Self::replace_index`]
+    /// to recolor one index inside the rectangle.
     ///
     /// Unused entries drop from the highest index first. Used entries then
     /// merge into the nearer existing color; that color's RGB is kept.
@@ -428,7 +496,8 @@ impl Document {
     /// Writes one PNG into one layer by nearest color on the current palette.
     ///
     /// The PNG must be the canvas size. This does not scale, slice a sheet, or
-    /// add palette colors. Alpha below 128 becomes index 0. Any higher alpha
+    /// add palette colors. It does not consult the rectangular selection.
+    /// Alpha below 128 becomes index 0. Any higher alpha
     /// is opaque and matched by squared RGB. A locked palette still allows
     /// the write, because the palette itself does not change. One undo step
     /// when an index changes. The active frame and layer stay put.
@@ -609,6 +678,9 @@ impl Document {
         for row in y..=y1 {
             let row_offset = pixel_len(self.width, row);
             for col in x..=x1 {
+                if !self.accepts_write(col, row) {
+                    continue;
+                }
                 let offset = row_offset + usize::from(col);
                 let before = self.frames[frame].layer_pixels(layer)[offset];
                 if before == color_index {
@@ -661,6 +733,9 @@ impl Document {
         for row in y..=y1 {
             let row_offset = pixel_len(self.width, row);
             for col in x..=x1 {
+                if !self.accepts_write(col, row) {
+                    continue;
+                }
                 let offset = row_offset + usize::from(col);
                 let before = self.frames[frame].layer_pixels(layer)[offset];
                 if before == TRANSPARENT_INDEX {
@@ -886,6 +961,10 @@ impl Document {
             for col in x..=x1 {
                 let local_x = usize::from(col - x);
                 let mirrored = span - 1 - local_x;
+                let mirror_col = x + u16::try_from(mirrored).expect("mirror x fits in u16");
+                if !self.accepts_write(col, row) || !self.accepts_write(mirror_col, row) {
+                    continue;
+                }
                 let after = sample[local_y * span + mirrored];
                 let offset = row_offset + usize::from(col);
                 let before = self.frames[frame].layer_pixels(layer)[offset];
@@ -948,24 +1027,42 @@ impl Document {
                     .collect()
             })
             .collect();
-        if self.width == width && self.height == height && before_pixels == after_pixels {
+        let before_selection = self.selection;
+        let after_selection = self
+            .selection
+            .and_then(|sel| sel.translated(offset_x, offset_y, width, height));
+        let pixels_same =
+            self.width == width && self.height == height && before_pixels == after_pixels;
+        let selection_same = before_selection == after_selection;
+        if pixels_same && selection_same {
             return Ok(());
         }
         let before_width = self.width;
         let before_height = self.height;
-        self.width = width;
-        self.height = height;
-        for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
-            frame.set_all_layers(pixels);
+        let mut changes = Vec::new();
+        if !pixels_same {
+            self.width = width;
+            self.height = height;
+            for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
+                frame.set_all_layers(pixels);
+            }
+            changes.push(Change::CanvasResize {
+                before_width,
+                before_height,
+                after_width: width,
+                after_height: height,
+                before_pixels,
+                after_pixels,
+            });
         }
-        self.history.record(Change::CanvasResize {
-            before_width,
-            before_height,
-            after_width: width,
-            after_height: height,
-            before_pixels,
-            after_pixels,
-        });
+        if !selection_same {
+            self.selection = after_selection;
+            changes.push(Change::Selection {
+                before: before_selection,
+                after: after_selection,
+            });
+        }
+        self.history.record_group(changes);
         Ok(())
     }
 
@@ -974,7 +1071,8 @@ impl Document {
     /// When `clear_source` is set, source cells outside the destination are
     /// cleared to [`TRANSPARENT_INDEX`] in the same undo step. Across frames
     /// the destination never covers the source, so the whole source rectangle
-    /// is cleared.
+    /// is cleared. A selection skips destination cells outside it on a copy.
+    /// A move is refused unless both rectangles lie inside the selection.
     fn blit_between(
         &mut self,
         layer: usize,
@@ -993,6 +1091,12 @@ impl Document {
         let dst_frame = self.frame_or_err(dst_frame)?;
         let (src_x1, src_y1) = self.inclusive_rect(src_x, src_y, width, height)?;
         let (dst_x1, dst_y1) = self.inclusive_rect(dst_x, dst_y, width, height)?;
+        if clear_source
+            && (!self.rect_inside_selection(src_x, src_y, width, height)
+                || !self.rect_inside_selection(dst_x, dst_y, width, height))
+        {
+            return Err(KernelError::SelectionProtected);
+        }
         let mut sample = Vec::with_capacity(usize::from(width) * usize::from(height));
         {
             let pixels = self.frames[src_frame].layer_pixels(layer);
@@ -1033,7 +1137,9 @@ impl Document {
                 let row_offset = pixel_len(self.width, row);
                 for col in dst_x..=dst_x1 {
                     let offset = row_offset + usize::from(col);
-                    src_plan[offset] = Some(sample[sample_at]);
+                    if self.accepts_write(col, row) {
+                        src_plan[offset] = Some(sample[sample_at]);
+                    }
                     sample_at += 1;
                 }
             }
@@ -1043,7 +1149,9 @@ impl Document {
                 let row_offset = pixel_len(self.width, row);
                 for col in dst_x..=dst_x1 {
                     let offset = row_offset + usize::from(col);
-                    plan[offset] = Some(sample[sample_at]);
+                    if self.accepts_write(col, row) {
+                        plan[offset] = Some(sample[sample_at]);
+                    }
                     sample_at += 1;
                 }
             }
@@ -1158,8 +1266,58 @@ impl Document {
     pub fn erase_on(&mut self, layer: usize, x: u16, y: u16) -> Result<(), KernelError> {
         let layer = self.layer_or_err(layer)?;
         let offset = self.offset(x, y)?;
+        if !self.accepts_write(x, y) {
+            return Ok(());
+        }
         self.write_index(self.active, layer, offset, TRANSPARENT_INDEX);
         Ok(())
+    }
+
+    /// Replaces every `from_index` on the active layer of the active frame.
+    ///
+    /// A selection limits the replace to that rectangle. `to_index` may be 0,
+    /// which clears those cells. Any other `to_index` is resolved like
+    /// [`Self::paint`]. `from_index` must already be stored in the palette,
+    /// including 0. Does not change the active layer. Cells that already hold
+    /// the resolved index are skipped. The cells that change are one undo step.
+    pub fn replace_index(&mut self, from_index: u8, to_index: u8) -> Result<u32, KernelError> {
+        self.replace_index_on(self.active_layer, from_index, to_index)
+    }
+
+    /// [`Self::replace_index`] on one layer. Does not change the active layer.
+    pub fn replace_index_on(
+        &mut self,
+        layer: usize,
+        from_index: u8,
+        to_index: u8,
+    ) -> Result<u32, KernelError> {
+        self.stored_index(from_index)?;
+        let to_index = self.resolve_replace_index(to_index)?;
+        let layer = self.layer_or_err(layer)?;
+        let frame = self.active;
+        let pixels = self.frames[frame].layer_pixels(layer).to_vec();
+        let mut changes = Vec::new();
+        for (offset, before) in pixels.into_iter().enumerate() {
+            if before != from_index || before == to_index {
+                continue;
+            }
+            let x = u16::try_from(offset % usize::from(self.width)).expect("x fits in u16");
+            let y = u16::try_from(offset / usize::from(self.width)).expect("y fits in u16");
+            if !self.accepts_write(x, y) {
+                continue;
+            }
+            self.frames[frame].set_on(layer, offset, to_index);
+            changes.push(Change::Pixel {
+                frame,
+                layer,
+                offset,
+                before,
+                after: to_index,
+            });
+        }
+        let changed = u32::try_from(changes.len()).expect("changed cells fit in u32");
+        self.history.record_group(changes);
+        Ok(changed)
     }
 
     /// Appends a blank frame and returns its index. The active frame stays put.
@@ -1611,6 +1769,7 @@ impl Document {
         active: usize,
         layer_names: Vec<String>,
         active_layer: usize,
+        selection: Option<Selection>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -1619,6 +1778,10 @@ impl Document {
             "project files keep at least one layer"
         );
         debug_assert!(active_layer < layer_names.len(), "active layer was checked");
+        debug_assert!(
+            selection.is_none_or(|sel| sel.fits(width, height)),
+            "selection was checked"
+        );
         let len = pixel_len(width, height);
         debug_assert!(
             frames.iter().all(|frame| {
@@ -1637,6 +1800,7 @@ impl Document {
             active,
             layer_names,
             active_layer,
+            selection,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -1889,6 +2053,9 @@ impl Document {
             Change::ActiveLayer { before, after } => {
                 self.active_layer = if forward { *after } else { *before };
             }
+            Change::Selection { before, after } => {
+                self.selection = if forward { *after } else { *before };
+            }
             Change::ReorderLayer {
                 from,
                 to,
@@ -1977,6 +2144,52 @@ impl Document {
 
     fn pixel_count(&self) -> usize {
         pixel_len(self.width, self.height)
+    }
+
+    /// A cell outside the selection is protected. No selection accepts every cell.
+    fn accepts_write(&self, x: u16, y: u16) -> bool {
+        self.selection.is_none_or(|sel| sel.contains(x, y))
+    }
+
+    /// True when the whole rectangle is writable. No selection accepts every rect
+    /// that the caller has already placed on the canvas.
+    fn rect_inside_selection(&self, x: u16, y: u16, width: u16, height: u16) -> bool {
+        let Some(sel) = self.selection else {
+            return true;
+        };
+        if width == 0 || height == 0 {
+            return false;
+        }
+        let Some(x1) = x.checked_add(width - 1) else {
+            return false;
+        };
+        let Some(y1) = y.checked_add(height - 1) else {
+            return false;
+        };
+        let Some(sel_x1) = sel.x.checked_add(sel.width - 1) else {
+            return false;
+        };
+        let Some(sel_y1) = sel.y.checked_add(sel.height - 1) else {
+            return false;
+        };
+        x >= sel.x && y >= sel.y && x1 <= sel_x1 && y1 <= sel_y1
+    }
+
+    fn stored_index(&self, index: u8) -> Result<u8, KernelError> {
+        if usize::from(index) < self.palette.len() {
+            Ok(index)
+        } else {
+            Err(KernelError::PaletteIndex { index })
+        }
+    }
+
+    /// Index 0 clears cells. Any other index is resolved like [`Self::paint`].
+    fn resolve_replace_index(&self, index: u8) -> Result<u8, KernelError> {
+        if index == TRANSPARENT_INDEX {
+            Ok(TRANSPARENT_INDEX)
+        } else {
+            self.resolve_paint_index(index)
+        }
     }
 
     fn offset(&self, x: u16, y: u16) -> Result<usize, KernelError> {

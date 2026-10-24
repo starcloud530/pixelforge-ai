@@ -90,9 +90,10 @@
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
+| `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
-| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件 |
+| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形时也是这个码 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
 
@@ -137,6 +138,7 @@
 | `composite` | 当前帧按层序叠出来的索引，规则见下面的「图层」 |
 | `layerCount` | 层数，至少 1。每一帧都有同样多的层 |
 | `activeLayer` | 当前层，从 0 计。0 在最下面 |
+| `selection` | 矩形选区 `{ "x", "y", "width", "height" }`，或 `null`。见「选区」 |
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
@@ -155,6 +157,7 @@
 | --- | --- |
 | `width`, `height` | 画布边长，格子 |
 | `activeFrame`, `activeLayer` | 当前帧、当前层，从 0 计 |
+| `selection` | 与 `inspect` 相同。没有选区时是 `null` |
 | `layerCount` | 层数，至少 1 |
 | `layers` | `{ "index", "name", "visible", "opacity" }`，从底到顶 |
 | `paletteLocked` | 调色板是否锁定 |
@@ -192,6 +195,42 @@ CLI：`pixelforge scene --project hero.json`。
 CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就没有这些字段。
 
 *The box covers cells whose stored index changed, not the whole rectangle the tool was asked to touch. A new cell that stays 0 is not a change. Across frames, `dirty` is the union of `regions`. On `resizeCanvas`, a cell that still has a coordinate and holds a different index counts as `changed`, not `clipped`. The CLI flag `--dirty` sends `reportDirty: true`. Without it, these fields are absent.*
+
+### 选区 Selection
+
+矩形选区是文档状态，不是套索，也不是魔棒。`setSelection` 写入一块轴对齐矩形，`clearSelection` 清掉它。没有选区时，画布上每一格都可以写。
+
+选区**写在工程文件里**。字段是 `selection`：`{ "x", "y", "width", "height" }`。清掉之后文件省略这个字段，旧文件没有这个字段时按没有选区读入。撤销栈仍然不进文件：同一次进程里 `undo` 能撤回 `setSelection`，重新打开文件不能。这和 `activeLayer` 一样是下一次 CLI 进程还要接着用的状态，不是手势。
+
+选区是画布坐标上的一块矩形，所有帧共用，不绑定某一层，也不改变 `activeLayer`。要只改头盔，把矩形框在头盔上，并用 `layer` / `--layer` 指向装备层。选区内只有你指定的那一层会被写；选区外任何层都不写。
+
+有选区时：
+
+| 工具 | 选区外 |
+| --- | --- |
+| `paint`、`erase`、`fillRect`、`eraseRect` | 跳过。请求的矩形仍须整块在画布内，否则 `OutOfBounds`，一格都不写 |
+| `copyRect` | 只跳过目标格。源格可以在选区外，源不被改 |
+| `flipHorizontal` | 一格和它的镜像伙伴必须都在选区内，才交换这一对 |
+| `replaceIndex` | 只替换选区内的格子 |
+| `moveRect` | 源矩形和目标矩形必须都整块在选区内，否则 `SelectionProtected`，一格都不写 |
+
+`remapPalette`、`applyPng`、调色板编辑、帧结构、层结构、`flattenLayers` 不看选区。只想改头盔的索引时用 `replaceIndex`，不要用整画布重映射。`resizeCanvas` 不按选区裁像素；选区跟着同一个偏移平移，平移后不能整块留在新画布上就在同一步撤销里清掉。
+
+没有选区时，`replaceIndex` 替换当前帧、指定层（默认当前层）上的全部匹配格子。`toIndex` 为 0 时把这些格子清成透明。其它 `toIndex` 和 `paint` 一样解析。`fromIndex` 必须是调色板里已有的索引，包括 0。不改变 `activeLayer`，也不改其它帧。
+
+`result`：`setSelection` 和 `clearSelection` 是 `{ "selection": { "x", "y", "width", "height" } }` 或 `{ "selection": null }`。`replaceIndex` 是 `{ "fromIndex", "toIndex", "changed" }`。`toIndex` 是写进去的索引。只有发生钳制时才另加 `indexPolicy` 和 `requestedIndex`。同一个选区、已经没有选区、或一格都没变，都不进撤销栈。
+
+CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge replace-index`。
+
+*The rectangle is document state. It is not a lasso and not a magic wand. `setSelection` stores it. `clearSelection` removes it. With no selection, every cell is writable.*
+
+*The project file stores `selection` while one is set and omits the field when it is clear. A file that has no field loads with no mask. The undo stack is still not stored: `undo` in the same process restores `setSelection`, and reopening the file does not. This matches `activeLayer`: the next CLI process needs it.*
+
+*One rectangle in canvas coordinates applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the rectangle.*
+
+*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal` swaps a cell only when that cell and its mirror partner are both inside. `replaceIndex` replaces matching cells inside the rectangle, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection.*
+
+*`remapPalette`, `applyPng`, palette edits, frame structure, layer structure, and `flattenLayers` ignore the selection. `resizeCanvas` translates the rectangle by the same offset and clears it, in that same undo step, when the translated rectangle would leave the new canvas.*
 
 ### `paint`
 
@@ -249,7 +288,35 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 *Moves palette indices, including 0, to the destination and clears source cells that are not part of the destination. `fromFrame` and `toFrame` follow `copyRect`. Across frames the whole source rectangle is cleared, because the destination is on the other frame. Both rectangles must lie inside the canvas. Overlap on the same frame uses the source from before the move, so a source cell that lands inside the destination keeps the moved index. The move is one undo step. A move onto the same rectangle changes nothing and is not recorded. The active frame stays put.*
 
-错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`。可选 `layer` 与 `copyRect` 相同。
+错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`、`SelectionProtected`。可选 `layer` 与 `copyRect` 相同。有选区时，源矩形和目标矩形必须都整块落在选区内，否则整次失败。
+
+### `setSelection`
+
+`params`：`x`、`y`、`width`、`height`。宽高至少为 1，整块必须在画布内。
+
+写入矩形选区。不改像素，不改 `activeLayer`。同一个矩形不进撤销栈。`result.selection` 是这块矩形。详见上面的「选区」。
+
+*Stores the rectangle. Does not change pixels or `activeLayer`. The same rectangle is not recorded. `result.selection` is that rectangle. See Selection above.*
+
+错误：`OutOfBounds`。宽或高为 0 是 `InvalidParams`。
+
+### `clearSelection`
+
+参数：无。
+
+清掉选区。`result.selection` 是 `null`。已经没有选区时不进撤销栈。
+
+*Clears the rectangle. `result.selection` is `null`. Already clear is not recorded.*
+
+### `replaceIndex`
+
+`params`：`fromIndex`、`toIndex`（都是 `0..=255`）。可选 `layer`。
+
+在当前帧上，把等于 `fromIndex` 的格子写成 `toIndex`。有选区时只改选区内。`toIndex` 为 0 时清成透明。其它 `toIndex` 按 `paint` 解析，包括 `clamp`。`fromIndex` 必须已经在调色板里，包括 0。不改变 `activeLayer`，也不改其它帧。`result` 是 `fromIndex`、`toIndex`（写进去的索引）、`changed`。只有发生钳制时才另加 `indexPolicy` 和 `requestedIndex`。一格都没变不进栈。
+
+*Replaces `fromIndex` with `toIndex` on the active frame. A selection limits that to the rectangle. `toIndex` 0 clears those cells. Any other `toIndex` resolves like `paint`. `fromIndex` must already be in the palette, including 0. The active layer and other frames stay put. `toIndex` in the result is the stored index. `indexPolicy` and `requestedIndex` appear only when the index was clamped. No change is not recorded.*
+
+错误：`PaletteIndex`、`LayerIndex`。
 
 ### `setPaletteColor`
 
@@ -504,7 +571,7 @@ CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png
 
 `params`：可选 `frame`（缺省为当前帧）。可选 `x`、`y`、`width`、`height`：四个一起给出就是那块矩形，四个都省略就是整帧。只给一部分是 `InvalidParams`。
 
-把矩形里的索引左右对调。格子 `x` 收到镜像列上的索引：整帧宽 64 时就是 `63 - x`。不改调色板，也不改高光颜色。一步撤销。对称的矩形不进栈。不改变 `activeFrame`。出界则一格都不写。
+把矩形里的索引左右对调。格子 `x` 收到镜像列上的索引：整帧宽 64 时就是 `63 - x`。不改调色板，也不改高光颜色。一步撤销。对称的矩形不进栈。不改变 `activeFrame`。出界则一格都不写。有选区时，只有格子和它的镜像伙伴都在选区内才交换。
 
 *Mirrors indices left to right. Cell `x` receives the index from the mirrored column (`63 - x` on a full frame of width 64). The palette is unchanged, including highlight colors. One undo step. A symmetric rectangle is not recorded. `frame` is not selected. An out-of-bounds rectangle writes nothing.*
 
@@ -514,7 +581,7 @@ CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png
 
 `params`：`width`、`height`（`1..=256`）。可选 `offsetX`、`offsetY`（`i32`，可负）。两个偏移都省略时居中：`offset = (new - old) / 2`，向 0 取整。只给一个是 `InvalidParams`。
 
-把每一帧的索引拷进新画布。旧原点落在 `(offsetX, offsetY)`。没有源的格子是索引 0。落在新画布外的旧格子被裁掉。时长、调色板、锁定和当前帧不变。工程仍是 version 1，只是 `width`、`height` 和各帧 `pixels` 变了。一步撤销能回到原来的缓冲。尺寸和索引都没变时不进栈。
+把每一帧的索引拷进新画布。旧原点落在 `(offsetX, offsetY)`。没有源的格子是索引 0。落在新画布外的旧格子被裁掉。时长、调色板、锁定和当前帧不变。工程仍是 version 1，只是 `width`、`height` 和各帧 `pixels` 变了。一步撤销能回到原来的缓冲。尺寸和索引都没变时不进栈。选区跟着同一个偏移平移；平移后不能整块留在新画布上，就在这一步里清掉。像素本身不按选区裁切。
 
 *Copies every frame's indices onto the new canvas. The old origin lands at `(offsetX, offsetY)`. Omit both offsets to center with `offset = (new - old) / 2`, truncating toward zero. Cells without a source stay index 0. Old cells that fall outside are clipped. Delays, the palette, the lock, and the active frame stay. The file stays version 1. One undo restores the previous buffers. A resize that leaves every index in place is not recorded.*
 

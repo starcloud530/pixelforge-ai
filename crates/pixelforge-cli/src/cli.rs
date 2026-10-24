@@ -65,7 +65,13 @@ and does not recolor. `copy-rect` and `move-rect` take optional
 composite. `layer flatten` collapses that composite into one layer.
 `export sheet --cols N` keeps one row when N is the frame count. `resize`
 copies every layer of every frame into a new canvas; omit offsets to center.
-A standing figure still wants a tall canvas (64x128 or 96x128). `frame
+A standing figure still wants a tall canvas (64x128 or 96x128). `selection set`
+stores one rectangle in the project file. Later paint, erase, fill-rect,
+erase-rect, copy-rect, flip, hflip, and replace-index leave cells outside
+that rectangle unchanged. `move-rect` fails with SelectionProtected unless
+both rectangles lie inside it. `selection clear` removes the field. There
+is no lasso. The rectangle is not per layer: pass `--layer` to edit a helmet
+without touching the body. `frame
 duplicate` does not select the new frame. `layer add` inserts above the
 active layer and selects the new one. `palette enforce` sets indexPolicy
 (`reject` by default, or `clamp`). `palette remap` quantizes with
@@ -220,8 +226,22 @@ pub enum Command {
     /// Copy every frame into a new canvas size. The project format stays version 1.
     ///
     /// Omit `--offset-x` and `--offset-y` to center the old pixels. One undo
-    /// step. A size outside 1..=256 is refused and writes nothing.
+    /// step. A size outside 1..=256 is refused and writes nothing. A stored
+    /// selection moves with the same offset, or is cleared when it would leave
+    /// the new canvas.
     Resize(ResizeArgs),
+    /// One rectangular mask stored in the project file.
+    ///
+    /// Not a lasso. Cells outside the rectangle are protected from paint tools.
+    Selection {
+        #[command(subcommand)]
+        command: SelectionCmd,
+    },
+    /// Replace one stored palette index on the active frame.
+    ///
+    /// A selection limits the replace to that rectangle. Does not change the
+    /// active layer. `to-index` 0 clears those cells.
+    ReplaceIndex(ReplaceIndexArgs),
     /// Palette edits. Paint of an existing index still works while locked.
     Palette {
         #[command(subcommand)]
@@ -442,6 +462,50 @@ pub struct ResizeArgs {
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
+}
+
+#[derive(Subcommand)]
+pub enum SelectionCmd {
+    /// Store one rectangle. Later paint tools skip cells outside it.
+    Set(SelectionSetArgs),
+    /// Remove the rectangle. The project file omits `selection`.
+    Clear {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+}
+
+#[derive(Args)]
+pub struct SelectionSetArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Left column, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Top row, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// Width in cells, from 1. The whole rectangle must lie on the canvas.
+    #[arg(long)]
+    pub width: u16,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: u16,
+}
+
+#[derive(Args)]
+pub struct ReplaceIndexArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Stored index to find, including 0.
+    #[arg(long)]
+    pub from_index: u8,
+    /// Index to write. 0 clears those cells. Any other index must exist.
+    #[arg(long)]
+    pub to_index: u8,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
 }
 
 #[derive(Args)]

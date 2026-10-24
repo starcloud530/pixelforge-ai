@@ -1869,6 +1869,174 @@ fn palette_enforce_remap_and_apply_png() {
     assert!(crushed["misses"].as_array().unwrap().is_empty());
 }
 
+#[test]
+fn selection_limits_a_helmet_recolor_to_the_gear_layer() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "8",
+            "--height",
+            "8",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "layer",
+            "add",
+            "--project",
+            project_arg,
+            "--name",
+            "gear",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "fill-rect",
+            "--project",
+            project_arg,
+            "--layer",
+            "0",
+            "--x",
+            "1",
+            "--y",
+            "2",
+            "--width",
+            "6",
+            "--height",
+            "5",
+            "--color-index",
+            "3",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "fill-rect",
+            "--project",
+            project_arg,
+            "--layer",
+            "1",
+            "--x",
+            "2",
+            "--y",
+            "0",
+            "--width",
+            "4",
+            "--height",
+            "2",
+            "--color-index",
+            "4",
+        ]))),
+        0
+    );
+
+    let selected = pixelforge(&arg(&[
+        "selection",
+        "set",
+        "--project",
+        project_arg,
+        "--x",
+        "2",
+        "--y",
+        "0",
+        "--width",
+        "4",
+        "--height",
+        "2",
+    ]));
+    assert_eq!(status(&selected), 0, "{}", stderr(&selected));
+    let body = &json_lines(&selected)[0];
+    assert_eq!(body["ok"], true);
+    assert_eq!(
+        body["result"]["selection"],
+        serde_json::json!({"x": 2, "y": 0, "width": 4, "height": 2})
+    );
+    let saved = fs::read_to_string(&project).unwrap();
+    assert!(saved.contains("\"selection\""));
+    assert_eq!(load(&project).active_layer(), 1);
+
+    let recolored = pixelforge(&arg(&[
+        "replace-index",
+        "--project",
+        project_arg,
+        "--layer",
+        "1",
+        "--from-index",
+        "4",
+        "--to-index",
+        "5",
+    ]));
+    assert_eq!(status(&recolored), 0, "{}", stderr(&recolored));
+    assert_eq!(json_lines(&recolored)[0]["result"]["changed"], 8);
+
+    let flooded = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--layer",
+        "1",
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--width",
+        "8",
+        "--height",
+        "8",
+        "--color-index",
+        "6",
+    ]));
+    assert_eq!(status(&flooded), 0, "{}", stderr(&flooded));
+
+    let doc = load(&project);
+    assert_eq!(doc.layer_pixels(0, 0).unwrap()[2 * 8 + 1], 3);
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[0], 0);
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[2], 6);
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[1 * 8 + 2], 6);
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[8], 0);
+    assert_eq!(doc.active_layer(), 1);
+    assert_eq!(
+        doc.selection(),
+        Some(pixelforge_kernel::Selection {
+            x: 2,
+            y: 0,
+            width: 4,
+            height: 2,
+        })
+    );
+
+    let cleared = pixelforge(&arg(&["selection", "clear", "--project", project_arg]));
+    assert_eq!(status(&cleared), 0, "{}", stderr(&cleared));
+    assert!(json_lines(&cleared)[0]["result"]["selection"].is_null());
+    assert!(!fs::read_to_string(&project).unwrap().contains("selection"));
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--layer",
+            "1",
+            "--x",
+            "0",
+            "--y",
+            "7",
+            "--color-index",
+            "7",
+        ]))),
+        0
+    );
+    assert_eq!(load(&project).layer_pixels(0, 1).unwrap()[7 * 8], 7);
+}
+
 fn assert_full_grid(body: &Value, width: usize, height: usize) {
     let rows = body["result"]["rows"].as_array().unwrap();
     assert_eq!(rows.len(), height);

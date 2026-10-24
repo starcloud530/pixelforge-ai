@@ -46,7 +46,7 @@ const BY_NAME = {
   ),
   paint: tool(
     "paint",
-    "Write a palette index into one cell. Index 0 is transparent and cannot be painted. A locked palette still allows paint.",
+    "Write a palette index into one cell. Index 0 is transparent and cannot be painted. A locked palette still allows paint. A cell outside the stored selection is left unchanged.",
     {
       x: int("Column, 0-based.", 0, 65535),
       y: int("Row, 0-based.", 0, 65535),
@@ -58,7 +58,7 @@ const BY_NAME = {
   ),
   fillRect: tool(
     "fillRect",
-    "Fill an axis-aligned rectangle on the active frame with one existing palette index. One undo step. A locked palette still allows this. The rectangle must lie entirely inside the canvas. Index 0 is refused.",
+    "Fill an axis-aligned rectangle on the active frame with one existing palette index. One undo step. A locked palette still allows this. The rectangle must lie entirely inside the canvas. Index 0 is refused. Cells outside the stored selection are skipped.",
     {
       x: int("Left column, 0-based.", 0, 65535),
       y: int("Top row, 0-based.", 0, 65535),
@@ -72,7 +72,7 @@ const BY_NAME = {
   ),
   erase: tool(
     "erase",
-    "Set one cell back to transparent index 0.",
+    "Set one cell back to transparent index 0. A cell outside the stored selection is left unchanged.",
     {
       x: int("Column, 0-based.", 0, 65535),
       y: int("Row, 0-based.", 0, 65535),
@@ -83,7 +83,7 @@ const BY_NAME = {
   ),
   eraseRect: tool(
     "eraseRect",
-    "Clear an axis-aligned rectangle on the active frame to transparent index 0. One undo step. The rectangle must lie entirely inside the canvas. A locked palette still allows this. Prefer this over erasing cell by cell.",
+    "Clear an axis-aligned rectangle on the active frame to transparent index 0. One undo step. The rectangle must lie entirely inside the canvas. A locked palette still allows this. Prefer this over erasing cell by cell. Cells outside the stored selection are skipped.",
     {
       x: int("Left column, 0-based.", 0, 65535),
       y: int("Top row, 0-based.", 0, 65535),
@@ -96,7 +96,7 @@ const BY_NAME = {
   ),
   copyRect: tool(
     "copyRect",
-    "Copy palette indices, including 0, from one rectangle to another. One undo step. Source and destination must both lie inside the canvas. The source stays. Optional fromFrame and toFrame copy onto another frame and do not change the active frame. Omit both to stay on the active frame.",
+    "Copy palette indices, including 0, from one rectangle to another. One undo step. Source and destination must both lie inside the canvas. The source stays. Optional fromFrame and toFrame copy onto another frame and do not change the active frame. Omit both to stay on the active frame. Destination cells outside the stored selection are left unchanged.",
     {
       srcX: int("Source left column, 0-based.", 0, 65535),
       srcY: int("Source top row, 0-based.", 0, 65535),
@@ -113,7 +113,7 @@ const BY_NAME = {
   ),
   moveRect: tool(
     "moveRect",
-    "Move palette indices: destination receives the source, including 0, and source cells outside the destination become index 0. One undo step. Optional fromFrame and toFrame move onto another frame and clear the source there. Omit both to stay on the active frame.",
+    "Move palette indices: destination receives the source, including 0, and source cells outside the destination become index 0. One undo step. Optional fromFrame and toFrame move onto another frame and clear the source there. Omit both to stay on the active frame. When a selection is set, both rectangles must lie inside it or the call returns SelectionProtected and writes nothing.",
     {
       srcX: int("Source left column, 0-based.", 0, 65535),
       srcY: int("Source top row, 0-based.", 0, 65535),
@@ -127,6 +127,31 @@ const BY_NAME = {
       reportDirty: REPORT_DIRTY,
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
+  ),
+  setSelection: tool(
+    "setSelection",
+    "Store one rectangle in the project file. Later paint, erase, fillRect, eraseRect, copyRect, flipHorizontal, and replaceIndex skip cells outside it. moveRect requires both rectangles inside it. Does not change pixels or the active layer. There is no lasso.",
+    {
+      x: int("Left column, 0-based.", 0, 65535),
+      y: int("Top row, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+    },
+    ["x", "y", "width", "height"],
+  ),
+  clearSelection: tool(
+    "clearSelection",
+    "Remove the rectangle so the whole canvas is writable. The project file omits selection. Does not change pixels. Already clear is not recorded.",
+  ),
+  replaceIndex: tool(
+    "replaceIndex",
+    "Replace one stored palette index on the active frame. A selection limits the replace to that rectangle. toIndex 0 clears those cells. Optional layer does not select it. Does not change other frames.",
+    {
+      fromIndex: int("Stored index to find, including 0.", 0, 255),
+      toIndex: int("Index to write. 0 clears. Any other index must exist unless clamp is set.", 0, 255),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+    },
+    ["fromIndex", "toIndex"],
   ),
   setPaletteColor: tool(
     "setPaletteColor",
@@ -302,7 +327,7 @@ const BY_NAME = {
   ),
   flipHorizontal: tool(
     "flipHorizontal",
-    "Mirror palette indices left to right inside a rectangle or the whole frame. Cell x receives the index from the mirrored column. Does not recolor. One undo step. Optional frame does not change the active frame. Omit x, y, width, and height together to flip the whole frame.",
+    "Mirror palette indices left to right inside a rectangle or the whole frame. Cell x receives the index from the mirrored column. Does not recolor. One undo step. Optional frame does not change the active frame. Omit x, y, width, and height together to flip the whole frame. A cell is written only when it and its mirror partner are both inside the stored selection.",
     {
       frame: int("Frame to mirror. Omit for the active frame.", 0, 4294967295),
       x: int("Left column. Omit with the other edges to flip the whole frame.", 0, 65535),
