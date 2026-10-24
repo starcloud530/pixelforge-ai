@@ -1620,6 +1620,144 @@ fn game_sprite_canvases_96_and_128_round_trip() {
     assert_eq!(doc.composite_pixels(0).unwrap()[0], 1);
 }
 
+#[test]
+fn scene_dirty_preview_and_diff_are_structured() {
+    let scratch = Scratch::new();
+    let project = scratch.child("state.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "8",
+            "--height",
+            "4",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    let before = fs::read(&project).unwrap();
+    let scene = pixelforge(&arg(&["scene", "--project", project_arg]));
+    assert_eq!(status(&scene), 0, "{}", stderr(&scene));
+    let body = &json_lines(&scene)[0];
+    assert_eq!(body["result"]["width"], 8);
+    assert_eq!(body["result"]["height"], 4);
+    assert_eq!(body["result"]["activeFrame"], 0);
+    assert_eq!(body["result"]["activeLayer"], 0);
+    assert_eq!(body["result"]["paletteHash"], "efb5af0bb69fc10e");
+    assert_eq!(body["result"]["paletteCount"], 9);
+    assert_eq!(body["result"]["frameCount"], 1);
+    assert_eq!(body["result"]["delayMs"], 100);
+    assert_eq!(body["result"]["frames"][0]["delayMs"], 100);
+    assert_eq!(body["result"]["layers"][0]["name"], "Layer 1");
+    assert_eq!(body["result"]["layers"][0]["visible"], true);
+    assert!(body["result"]["layers"][0]["opacity"].is_null());
+    assert!(body["result"].get("pixels").is_none());
+    assert_eq!(fs::read(&project).unwrap(), before);
+
+    let plain = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "2",
+        "--color-index",
+        "3",
+    ]));
+    assert_eq!(json_lines(&plain)[0]["result"], serde_json::json!({}));
+
+    let painted = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "2",
+        "--y",
+        "1",
+        "--color-index",
+        "4",
+        "--dirty",
+    ]));
+    assert_eq!(status(&painted), 0, "{}", stderr(&painted));
+    let dirty = &json_lines(&painted)[0]["result"];
+    assert_eq!(dirty["changed"], 1);
+    assert_eq!(dirty["dirty"]["x"], 2);
+    assert_eq!(dirty["dirty"]["y"], 1);
+    assert_eq!(dirty["dirty"]["width"], 1);
+    assert_eq!(dirty["dirty"]["height"], 1);
+    assert_eq!(dirty["regions"][0]["frame"], 0);
+
+    let before_preview = fs::read(&project).unwrap();
+    let preview = pixelforge(&arg(&["preview", "--project", project_arg]));
+    assert_eq!(status(&preview), 0, "{}", stderr(&preview));
+    let view = &json_lines(&preview)[0]["result"];
+    assert_eq!(view["ink"], 2);
+    assert_eq!(view["bounds"]["width"], 2);
+    assert_eq!(view["bounds"]["height"], 2);
+    assert!(view["indices"].as_array().unwrap().len() >= 2);
+    assert_eq!(view["pixels"][2 * 8 + 1], 3);
+    assert_eq!(view["rows"].as_array().unwrap().len(), 4);
+    assert_eq!(fs::read(&project).unwrap(), before_preview);
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "duplicate",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "erase",
+            "--project",
+            project_arg,
+            "--x",
+            "1",
+            "--y",
+            "2",
+            "--dirty",
+        ]))),
+        0
+    );
+    let diff = pixelforge(&arg(&[
+        "diff",
+        "--project",
+        project_arg,
+        "--frame",
+        "0",
+        "--with",
+        "1",
+    ]));
+    assert_eq!(status(&diff), 0, "{}", stderr(&diff));
+    let compared = &json_lines(&diff)[0]["result"];
+    assert_eq!(compared["changed"], 1);
+    assert_eq!(compared["bounds"]["x"], 1);
+    assert_eq!(compared["bounds"]["y"], 2);
+    assert_eq!(compared["kinds"]["onlyFrame"], 1);
+    assert_eq!(compared["changes"][0]["left"], 3);
+    assert_eq!(compared["changes"][0]["right"], 0);
+    assert!(compared["diffRows"].as_array().unwrap().len() == 4);
+    assert!(compared["rows"].as_array().is_some());
+}
+
 fn assert_full_grid(body: &Value, width: usize, height: usize) {
     let rows = body["result"]["rows"].as_array().unwrap();
     assert_eq!(rows.len(), height);

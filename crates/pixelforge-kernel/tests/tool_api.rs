@@ -696,7 +696,7 @@ fn export_scale_is_nearest_neighbor_and_defaults_to_one() {
 
 #[test]
 fn every_catalog_name_is_a_known_tool() {
-    assert_eq!(TOOL_NAMES.len(), 35);
+    assert_eq!(TOOL_NAMES.len(), 36);
     for name in TOOL_NAMES {
         let mut document = doc();
         let response = call(&mut document, json!({ "tool": name }));
@@ -870,4 +870,244 @@ fn preview_diff_flip_resize_and_cross_frame_blit() {
     let square = tool(&mut document, "exportSpriteSheet", json!({}));
     assert_eq!(square["columns"], json!(2));
     assert_eq!(square["rows"], json!(1));
+}
+
+#[test]
+fn scene_summary_lists_canvas_layers_palette_hash_and_delays() {
+    let mut document = Document::new(8, 4).unwrap();
+    let scene = tool(&mut document, "scene", json!({}));
+    assert_eq!(scene["width"], json!(8));
+    assert_eq!(scene["height"], json!(4));
+    assert_eq!(scene["activeFrame"], json!(0));
+    assert_eq!(scene["activeLayer"], json!(0));
+    assert_eq!(scene["layerCount"], json!(1));
+    assert_eq!(scene["layers"][0]["name"], json!("Layer 1"));
+    assert_eq!(scene["layers"][0]["visible"], json!(true));
+    assert!(scene["layers"][0]["opacity"].is_null());
+    assert!(scene.get("pixels").is_none());
+    assert_eq!(scene["paletteCount"], json!(9));
+    assert_eq!(scene["paletteHash"], json!("efb5af0bb69fc10e"));
+    assert_eq!(scene["palette"][0]["a"], json!(0));
+    assert_eq!(scene["frameCount"], json!(1));
+    assert_eq!(scene["delayMs"], json!(100));
+    assert_eq!(scene["frames"][0]["delayMs"], json!(100));
+    assert_eq!(scene["paletteLocked"], json!(false));
+    assert!(!document.can_undo());
+
+    tool(&mut document, "addLayer", json!({"name": "gear"}));
+    tool(
+        &mut document,
+        "setFrameDelay",
+        json!({"index": 0, "delayMs": 80}),
+    );
+    tool(
+        &mut document,
+        "setPaletteColor",
+        json!({"index": 1, "r": 1, "g": 2, "b": 3}),
+    );
+    let scene = tool(&mut document, "scene", json!({}));
+    assert_eq!(scene["layers"][1]["name"], json!("gear"));
+    assert_eq!(scene["layers"][1]["visible"], json!(true));
+    assert!(scene["layers"][1]["opacity"].is_null());
+    assert_eq!(scene["activeLayer"], json!(1));
+    assert_eq!(scene["frames"][0]["delayMs"], json!(80));
+    assert_ne!(scene["paletteHash"], json!("efb5af0bb69fc10e"));
+    assert_eq!(
+        tool(&mut document, "inspect", json!({}))["paletteHash"],
+        scene["paletteHash"]
+    );
+    let extra = tool_err(&mut document, "scene", json!({"pixels": true}));
+    assert_eq!(extra["code"], json!("InvalidParams"));
+}
+
+#[test]
+fn report_dirty_is_opt_in_and_bounds_changed_cells() {
+    let mut document = Document::new(4, 3).unwrap();
+    let plain = tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 1, "colorIndex": 3}),
+    );
+    assert_eq!(plain, json!({}));
+
+    let same = tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 1, "colorIndex": 3, "reportDirty": true}),
+    );
+    assert_eq!(same["changed"], json!(0));
+    assert!(same["dirty"].is_null());
+    assert_eq!(same["regions"], json!([]));
+
+    let painted = tool(
+        &mut document,
+        "paint",
+        json!({"x": 2, "y": 0, "colorIndex": 4, "reportDirty": true}),
+    );
+    assert_eq!(painted["changed"], json!(1));
+    assert_eq!(
+        painted["dirty"],
+        json!({"x": 2, "y": 0, "width": 1, "height": 1})
+    );
+    assert_eq!(painted["regions"][0]["layer"], json!(0));
+
+    let filled = tool(
+        &mut document,
+        "fillRect",
+        json!({
+            "x": 1,
+            "y": 0,
+            "width": 2,
+            "height": 2,
+            "colorIndex": 4,
+            "reportDirty": true
+        }),
+    );
+    assert_eq!(filled["changed"], json!(3));
+    assert_eq!(
+        filled["dirty"],
+        json!({"x": 1, "y": 0, "width": 2, "height": 2})
+    );
+
+    let erased = tool(
+        &mut document,
+        "eraseRect",
+        json!({"x": 1, "y": 0, "width": 2, "height": 1, "reportDirty": true}),
+    );
+    assert_eq!(erased["changed"], json!(2));
+    assert_eq!(
+        erased["dirty"],
+        json!({"x": 1, "y": 0, "width": 2, "height": 1})
+    );
+
+    tool(&mut document, "addFrame", json!({}));
+    let moved = tool(
+        &mut document,
+        "moveRect",
+        json!({
+            "fromFrame": 0,
+            "toFrame": 1,
+            "srcX": 1,
+            "srcY": 1,
+            "width": 1,
+            "height": 1,
+            "dstX": 3,
+            "dstY": 2,
+            "reportDirty": true
+        }),
+    );
+    assert_eq!(moved["changed"], json!(2));
+    assert_eq!(moved["regions"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        moved["dirty"],
+        json!({"x": 1, "y": 1, "width": 3, "height": 2})
+    );
+
+    let flipped = tool(
+        &mut document,
+        "flipHorizontal",
+        json!({"frame": 1, "reportDirty": true}),
+    );
+    assert!(flipped["changed"].as_u64().unwrap() > 0);
+    assert!(flipped.get("clipped").is_none());
+
+    let shifted = tool(
+        &mut document,
+        "resizeCanvas",
+        json!({"width": 4, "height": 3, "offsetX": 1, "offsetY": 0, "reportDirty": true}),
+    );
+    assert_eq!(shifted["width"], json!(4));
+    assert!(shifted["changed"].as_u64().unwrap() > 0);
+    assert_eq!(shifted["clipped"], json!(0));
+    assert!(shifted.get("dirty").is_some());
+
+    let mut wide = Document::new(4, 1).unwrap();
+    tool(&mut wide, "paint", json!({"x": 3, "y": 0, "colorIndex": 1}));
+    let shrunk = tool(
+        &mut wide,
+        "resizeCanvas",
+        json!({"width": 2, "height": 1, "offsetX": 0, "offsetY": 0, "reportDirty": true}),
+    );
+    assert_eq!(shrunk["changed"], json!(0));
+    assert!(shrunk["dirty"].is_null());
+    assert_eq!(shrunk["clipped"], json!(1));
+
+    let bad = tool_err(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1, "reportDirty": "yes"}),
+    );
+    assert_eq!(bad["code"], json!("InvalidParams"));
+    assert_eq!(
+        bad["message"],
+        json!("paint: reportDirty must be a boolean")
+    );
+    let off = tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1, "reportDirty": false}),
+    );
+    assert_eq!(off, json!({}));
+}
+
+#[test]
+fn preview_and_diff_include_structured_fields() {
+    let mut document = Document::new(4, 2).unwrap();
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 0, "colorIndex": 3}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 1, "colorIndex": 3}),
+    );
+    let preview = tool(&mut document, "previewFrame", json!({}));
+    assert_eq!(preview["ink"], json!(2));
+    assert_eq!(
+        preview["bounds"],
+        json!({"x": 1, "y": 0, "width": 1, "height": 2})
+    );
+    assert_eq!(
+        preview["indices"],
+        json!([{"index": 0, "count": 6}, {"index": 3, "count": 2}])
+    );
+    assert_eq!(preview["pixels"][1], json!(3));
+    assert_eq!(preview["pixels"].as_array().unwrap().len(), 8);
+    assert!(preview["png"].as_str().unwrap().starts_with("iVBORw0KGgo"));
+
+    tool(&mut document, "addFrame", json!({}));
+    tool(&mut document, "setActiveFrame", json!({"index": 1}));
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 0, "y": 0, "colorIndex": 1}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 1, "y": 0, "colorIndex": 4}),
+    );
+    tool(
+        &mut document,
+        "paint",
+        json!({"x": 2, "y": 0, "colorIndex": 5}),
+    );
+    let diff = tool(&mut document, "diffFrames", json!({"frame": 0, "with": 1}));
+    assert_eq!(diff["changed"], json!(4));
+    assert_eq!(diff["kinds"]["differ"], json!(1));
+    assert_eq!(diff["kinds"]["onlyFrame"], json!(1));
+    assert_eq!(diff["kinds"]["onlyWith"], json!(2));
+    assert_eq!(
+        diff["bounds"],
+        json!({"x": 0, "y": 0, "width": 3, "height": 2})
+    );
+    let changes = diff["changes"].as_array().unwrap();
+    assert_eq!(changes.len(), 4);
+    assert_eq!(changes[0]["left"], json!(0));
+    assert_eq!(changes[0]["right"], json!(1));
+    assert_eq!(changes[1]["left"], json!(3));
+    assert_eq!(changes[1]["right"], json!(4));
+    assert_eq!(diff["diffRows"].as_array().unwrap().len(), 2);
 }

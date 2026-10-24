@@ -195,10 +195,16 @@ pixelforge palette import --project hero.json --mode merge --file colors.gpl
 ### 查看与原始调用 Inspect and raw calls
 
 ```bash
+pixelforge scene --project hero.json
 pixelforge inspect --project hero.json
+pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --dirty
 pixelforge tools
 pixelforge call --project hero.json --request-file edits.json
 ```
+
+`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数和 `delayMs`。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
+
+*`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, and delay. It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
 
 `edits.json` 可以是一个 JSON 对象、一个 JSON 数组，或每行一个 JSON 值。也可以把 JSON 从 stdin 送进 `pixelforge call --project hero.json`。每个 `--request` 是一个请求对象，原样交给 `Document::call_tool`。
 
