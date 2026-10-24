@@ -65,7 +65,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip` 只搬索引，不改高光颜色。
 
-*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
+*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A stored `selection` makes those paint tools skip cells outside the rectangle; the file omits the field when the selection is clear. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
 *One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip` moves indices only and does not recolor highlights.*
 
@@ -84,6 +84,26 @@ pixelforge new --width 16 --height 16 --output hero.json
 stdout 是 `inspect` 的响应。文件是 version 1 `pixelforge-project`。`new` 不会覆盖已经存在的文件。16×16 只适合俯视小体型或图标，不适合站立立绘。
 
 *Stdout is the `inspect` response. The file is version 1 `pixelforge-project`. `new` refuses to replace a file that already exists.*
+
+### 只改头盔 Edit only the helmet
+
+选区是工程文件里的一块矩形，不是套索，也不是魔棒。没有选区时文件不写 `selection`。下一次 `pixelforge` 进程会读到它；撤销栈仍然不保存。选区不绑定层，也不改 `activeLayer`。头盔在装备层上时，用 `--layer` 指向那一层：选区外任何层都不写，选区内只写你指定的层。
+
+*The selection is one rectangle in the project file. It is not a lasso and not a magic wand. A clear selection omits `selection`. The next process loads it; the undo stack is still not stored. The rectangle is not tied to a layer and does not change `activeLayer`. Point `--layer` at the gear layer so only that layer is written, and only inside the helmet.*
+
+```bash
+pixelforge layer add --project hero.json --name gear
+pixelforge fill-rect --project hero.json --layer 0 --x 8 --y 16 --width 16 --height 24 --color-index 3
+pixelforge fill-rect --project hero.json --layer 1 --x 10 --y 4 --width 12 --height 10 --color-index 4
+pixelforge selection set --project hero.json --x 10 --y 4 --width 12 --height 10
+pixelforge replace-index --project hero.json --layer 1 --from-index 4 --to-index 6
+pixelforge fill-rect --project hero.json --layer 1 --x 0 --y 0 --width 32 --height 48 --color-index 2
+pixelforge selection clear --project hero.json
+```
+
+`replace-index` 只把装备层上、选区内的索引 4 换成 6。接着那次整画布 `fill-rect` 也只落在头盔矩形里。身体层的索引 3 不动。`move-rect` 的源和目标必须都整块在选区内，否则 `SelectionProtected`，一格都不写。`remap` 和 `apply-png` 不看选区。
+
+*`replace-index` changes index 4 to 6 on the gear layer inside the rectangle. The following full-canvas `fill-rect` also lands only inside the helmet. Index 3 on the body layer stays. `move-rect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection. `remap` and `apply-png` ignore it.*
 
 ### 画、填、擦、复制、移动 Paint, fill, erase, copy, move
 
@@ -220,7 +240,7 @@ pixelforge tools
 pixelforge call --project hero.json --request-file edits.json
 ```
 
-`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数和 `delayMs`。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
+`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（没有选区时是 `null`）、图层（`visible` 恒为 true，`opacity` 恒为 null）、`paletteHash`、帧数和 `delayMs`。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。
 
 *`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, and delay. It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
 

@@ -26,7 +26,8 @@ use base64::Engine;
 
 use crate::cli::{
     BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
-    ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ResizeArgs,
+    ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs,
+    SelectionCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -93,6 +94,8 @@ fn execute(cli: Cli) -> i32 {
         Command::Flip(args) => cmd_flip(args, false),
         Command::Hflip(args) => cmd_flip(args, true),
         Command::Resize(args) => cmd_resize(args),
+        Command::Selection { command } => cmd_selection(command),
+        Command::ReplaceIndex(args) => cmd_replace_index(args),
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
         Command::Layer { command } => cmd_layer(command),
@@ -123,6 +126,40 @@ fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
         return 2;
     }
     0
+}
+
+fn cmd_selection(command: SelectionCmd) -> i32 {
+    match command {
+        SelectionCmd::Set(args) => apply(
+            &args.doc,
+            vec![request(
+                "setSelection",
+                json!({
+                    "x": args.x,
+                    "y": args.y,
+                    "width": args.width,
+                    "height": args.height,
+                }),
+            )],
+        ),
+        SelectionCmd::Clear { doc } => apply(&doc, vec![request("clearSelection", json!({}))]),
+    }
+}
+
+fn cmd_replace_index(args: ReplaceIndexArgs) -> i32 {
+    apply(
+        &args.doc,
+        vec![request(
+            "replaceIndex",
+            with_layer(
+                json!({
+                    "fromIndex": args.from_index,
+                    "toIndex": args.to_index,
+                }),
+                args.layer,
+            ),
+        )],
+    )
 }
 
 fn cmd_paint(args: PaintArgs) -> i32 {

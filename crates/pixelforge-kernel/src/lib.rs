@@ -8,6 +8,9 @@
 //! layer under it.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
+//! A rectangular selection, when stored, limits those paint writes to that
+//! rectangle. The project file stores the rectangle and omits it when clear.
+//! There is no lasso and no magic wand.
 //! Loop playback advances the active frame from those delays. The TypeScript
 //! shell previews this state; it does not own the pixels, the clock, or a
 //! second history.
@@ -34,6 +37,7 @@ mod palette_file;
 mod palette_map;
 mod project;
 mod scene;
+mod selection;
 mod tool_api;
 
 pub use color::Rgba;
@@ -44,6 +48,7 @@ pub use frame::Frame;
 pub use palette::{IndexPolicy, Palette};
 pub use palette_file::PaletteImportMode;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
+pub use selection::Selection;
 pub use tool_api::{TOOL_API_VERSION, TOOL_NAMES};
 
 /// Oldest undo entries past this depth are dropped.

@@ -13,7 +13,8 @@
 //! loads as `reject`; only `clamp` is written back. A file written before
 //! layers existed omits `layers` and `activeLayer` and loads as one layer
 //! named [`crate::DEFAULT_LAYER_NAME`]. A single default layer is still saved
-//! in that older shape.
+//! in that older shape. A missing `selection` loads as no mask. The rectangle
+//! is written only while one is set. The undo stack is still omitted.
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,7 @@ use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
 use crate::palette::{IndexPolicy, Palette};
+use crate::selection::Selection;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -63,7 +65,19 @@ struct ProjectFile {
     /// Missing, or `reject`, unless paint should clamp out-of-range indices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     index_policy: Option<String>,
+    /// Missing when every cell is writable. One rectangle in canvas cells.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    selection: Option<SelectionFile>,
     frames: Vec<FrameFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionFile {
+    x: u64,
+    y: u64,
+    width: u64,
+    height: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +144,7 @@ impl Document {
                 IndexPolicy::Reject => None,
                 IndexPolicy::Clamp => Some("clamp".to_string()),
             },
+            selection: self.selection().map(SelectionFile::from),
             frames: (0..self.frame_count())
                 .map(|index| self.stored_frame(index))
                 .collect(),
@@ -218,6 +233,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     }
     let active_layer = usize::try_from(file.active_layer).expect("active layer was checked");
     let index_policy = index_policy_from_file(file.index_policy)?;
+    let selection = selection_from_file(file.selection, width, height)?;
     Ok(Document::from_stored(
         width,
         height,
@@ -228,7 +244,29 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         active,
         names,
         active_layer,
+        selection,
     ))
+}
+
+fn selection_from_file(
+    value: Option<SelectionFile>,
+    width: u16,
+    height: u16,
+) -> Result<Option<Selection>, KernelError> {
+    let Some(file) = value else {
+        return Ok(None);
+    };
+    let selection = Selection {
+        x: u16::try_from(file.x).map_err(|_| invalid(ProjectFileError::Selection))?,
+        y: u16::try_from(file.y).map_err(|_| invalid(ProjectFileError::Selection))?,
+        width: u16::try_from(file.width).map_err(|_| invalid(ProjectFileError::Selection))?,
+        height: u16::try_from(file.height).map_err(|_| invalid(ProjectFileError::Selection))?,
+    };
+    if selection.fits(width, height) {
+        Ok(Some(selection))
+    } else {
+        Err(invalid(ProjectFileError::Selection))
+    }
 }
 
 fn index_policy_from_file(value: Option<String>) -> Result<IndexPolicy, KernelError> {
@@ -394,6 +432,17 @@ fn palette_from_file(colors: Vec<ColorFile>) -> Result<Palette, KernelError> {
 
 fn invalid(error: ProjectFileError) -> KernelError {
     KernelError::ProjectFile(error)
+}
+
+impl From<Selection> for SelectionFile {
+    fn from(selection: Selection) -> Self {
+        Self {
+            x: u64::from(selection.x),
+            y: u64::from(selection.y),
+            width: u64::from(selection.width),
+            height: u64::from(selection.height),
+        }
+    }
 }
 
 impl From<Rgba> for ColorFile {

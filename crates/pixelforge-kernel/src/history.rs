@@ -4,8 +4,8 @@
 //! rectangle erase, a rectangle copy or move (including across frames), a
 //! horizontal index flip, a canvas resize, a palette color change, a palette
 //! import, a palette lock, a frame-list change, an active-frame change, a
-//! layer-stack change, an active-layer change, a per-frame delay change, or a
-//! whole gesture of those.
+//! layer-stack change, an active-layer change, a rectangular selection, a
+//! per-frame delay change, or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
@@ -13,6 +13,7 @@
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::IndexPolicy;
+use crate::selection::Selection;
 use crate::Rgba;
 use crate::MAX_UNDO;
 
@@ -143,6 +144,12 @@ pub(crate) enum Change {
     ActiveLayer {
         before: usize,
         after: usize,
+    },
+    /// The rectangular mask was set or cleared. `None` means the whole canvas
+    /// is writable. This is not a pixel edit.
+    Selection {
+        before: Option<Selection>,
+        after: Option<Selection>,
     },
     /// The layer at `from` was moved so it sits at `to`.
     ///
@@ -300,6 +307,7 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
             after,
         } => coalesce_pixel(changes, frame, layer, offset, before, after),
         Change::ActiveLayer { before, after } => coalesce_active_layer(changes, before, after),
+        Change::Selection { before, after } => coalesce_selection(changes, before, after),
         Change::PaletteColor {
             index,
             before,
@@ -440,6 +448,27 @@ fn coalesce_active(changes: &mut Vec<Change>, before: usize, after: usize) {
     }
 
     changes.push(Change::ActiveFrame { before, after });
+}
+
+fn coalesce_selection(
+    changes: &mut Vec<Change>,
+    before: Option<Selection>,
+    after: Option<Selection>,
+) {
+    if let Some(Change::Selection {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(*slot, before, "selection history skipped a write");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::Selection { before, after });
 }
 
 fn coalesce_active_layer(changes: &mut Vec<Change>, before: usize, after: usize) {

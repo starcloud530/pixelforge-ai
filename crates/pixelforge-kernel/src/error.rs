@@ -54,6 +54,11 @@ pub enum KernelError {
     LayerName,
     /// Delay is outside [`crate::MIN_FRAME_DELAY_MS`]..=[`crate::MAX_FRAME_DELAY_MS`].
     FrameDelay { delay_ms: u32 },
+    /// A move would write or clear a cell outside the rectangular selection.
+    ///
+    /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
+    /// cells instead of failing.
+    SelectionProtected,
     /// [`crate::Document::undo`] found an empty undo stack.
     NothingToUndo,
     /// [`crate::Document::redo`] found an empty redo stack.
@@ -125,6 +130,8 @@ pub enum ProjectFileError {
     FrameDelay { frame: usize, delay: u64 },
     /// `indexPolicy` is present and is not `reject` or `clamp`.
     IndexPolicy,
+    /// `selection` is present and is not a rectangle that lies on the canvas.
+    Selection,
 }
 
 impl KernelError {
@@ -152,6 +159,7 @@ impl KernelError {
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
+            Self::SelectionProtected => "SelectionProtected",
             Self::ExportScale { .. } => "ExportScale",
             Self::SheetColumns { .. } => "SheetColumns",
             Self::ProjectFile(_) => "ProjectFile",
@@ -222,6 +230,9 @@ impl fmt::Display for KernelError {
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
+            Self::SelectionProtected => {
+                write!(f, "selection protects pixels outside the rectangle")
+            }
             Self::ExportScale { scale } => write!(
                 f,
                 "export scale {scale} must be an integer >= 1 that fits the canvas"
@@ -301,6 +312,7 @@ impl fmt::Display for ProjectFileError {
                 crate::MAX_FRAME_DELAY_MS
             ),
             Self::IndexPolicy => write!(f, "indexPolicy must be reject or clamp"),
+            Self::Selection => write!(f, "selection is not a rectangle on the canvas"),
         }
     }
 }
@@ -317,6 +329,15 @@ mod tests {
         assert_eq!(KernelError::FrameDelay { delay_ms: 0 }.code(), "FrameDelay");
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
+        assert_eq!(KernelError::SelectionProtected.code(), "SelectionProtected");
+        assert_eq!(
+            KernelError::SelectionProtected.to_string(),
+            "selection protects pixels outside the rectangle"
+        );
+        assert_eq!(
+            KernelError::ProjectFile(ProjectFileError::Selection).to_string(),
+            "selection is not a rectangle on the canvas"
+        );
         assert_eq!(KernelError::ExportScale { scale: 0 }.code(), "ExportScale");
         assert_eq!(
             KernelError::SheetColumns { columns: 0 }.code(),

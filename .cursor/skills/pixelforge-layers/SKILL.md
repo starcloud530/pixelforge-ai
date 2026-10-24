@@ -59,6 +59,8 @@ pixelforge layer select --project hero.json --index 0
 
 改装备时当前层留在 `gear`，或显式 `--layer` 指向装备那一层。不要在 `body` 上把装备再画一遍。
 
+只改头盔：`selection set` 框住头盔，再 `--layer` 指向 gear。选区外的格子不写。选区不绑定层，所以漏写 `--layer` 时，选区内的 body 仍会被改。没有套索。步骤见 `pixelforge` skill 的「只改头盔」。
+
 `layer remove` 删当前层或 `--index N`。最后一层不能删。`layer reorder --from 1 --to 0` 把上层挪到下面，`to` 是移动之后的下标。
 
 `copy-rect` / `move-rect` 的 `--layer` 只读写那一层，不跨层复制。
