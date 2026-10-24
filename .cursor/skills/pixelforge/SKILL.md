@@ -6,8 +6,10 @@ description: >-
   installing or running pixelforge, creating or changing a pixelforge-project,
   painting or erasing cells, filling or erasing a rectangle, copying or moving
   a rectangle, editing the palette, locking, quantizing, or remapping it,
-  crushing a PNG onto the palette, adding or duplicating frames, undoing,
-  running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
+  crushing a PNG onto the palette, importing an indexed .aseprite file,
+  flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
+  270 degrees, adding or duplicating frames, undoing, running inspect, scene,
+  tools, or call, or exporting a PNG sequence or sprite sheet.
   Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
   pixelforge-layers, pixelforge-critique) must follow this skill's index-color
   invariants before their own workflow.
@@ -59,9 +61,9 @@ cargo run -p pixelforge-cli -- --help
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
-- 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `replaceIndex` 不改选区外的格子。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
+- 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
-- 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` 只搬索引，不改高光颜色。镜像之后要修高光时见 `pixelforge-sprite-4dir`。
+- 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
 *Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A rectangular `selection` is stored in the project and omitted when clear. Paint tools then skip cells outside it. There is no lasso. `flip` moves indices and does not recolor.*
 
@@ -91,7 +93,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `paletteHash` 是 FNV-1a 64 位，16 位小写十六进制。初值 `14695981039346656037`，乘数 `1099511628211`，按索引把每一项的 `r`、`g`、`b`、`a` 送进去。颜色和顺序不变，哈希就不变。`inspect` 的 `result.paletteHash` 是同一个值。
 
-`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。
+`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。`importAseprite` 不接受这个字段。
 
 `preview` 除了 `rows`，还有 `ink`（非 0 格数）、`bounds`、`indices`（每个索引用了几次）、`pixels`（这一张视图的索引，行优先）。字形 `*` 把 62 及以上折成同一个字符，读索引用 `pixels`。
 
@@ -107,7 +109,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `diff` 只读。`--frame A --with B`。stderr：`.` 索引相同，`!` 两边都有墨且不同，其它字形是唯一有墨的那边。彩色 PNG 在 `result.path`（默认 `<stem>.diff.png`），三格：frame、with、洋葱皮。洋葱皮不改像素。`--scale` 同上。`--layer N` 只比较那一层。
 
-`hflip` 等于 `flip --horizontal`，不需要再写 `--horizontal`。`flip` 必须写 `--horizontal`，否则退出码 `2`。两者都只镜像索引（`x` 收到 `origin + width - 1 - x`），不改颜色。不写矩形就是整帧；写矩形时 `x`、`y`、`width`、`height` 要齐。`--frame N` 不切换当前帧。一步撤销。
+`hflip` 等于 `flip --horizontal`，不需要再写 `--horizontal`。`vflip` 等于 `flip --vertical`。`flip` 必须恰好写其中一个方向，否则退出码 `2`。两者都只搬索引，不改颜色。水平：`x` 收到 `origin + width - 1 - x`。垂直：`y` 收到 `origin + height - 1 - y`。`rotate --degrees` 是 `90`、`180` 或 `270`，顺时针，只搬索引。90 和 270 要求正方形矩形，不改变画布尺寸；不是正方形时是 `RotateSquare`，一格都不写。不写矩形就是整帧；写矩形时 `x`、`y`、`width`、`height` 要齐。`--frame N` 不切换当前帧。`--layer N` 只改那一层。有选区时，目标格和源格都在选区内才写入。一步撤销。
 
 `resize --width W --height H` 把每一帧、每一层的索引导进新画布，格式仍是 version 1。不写偏移就居中；`--offset-x` 和 `--offset-y` 要成对出现。越出新画布的格子被裁掉。放大不会凭空补细节。边长 `1..=256`。96×96、128×128，以及需要时的 96×128、64×128，都在这条边长里，是 `pixelforge-draw` 的正式档，不是另一条命令。默认 `new` 仍是 16×16。`preview` 的 ASCII 按整帧输出，一格一个字形，不裁行。96 和 128 的整张格子很长，阶段检查看 `preview --scale` 的彩色 PNG，ASCII 抽局部行。画布该选哪一档见 `pixelforge-draw`。
 
@@ -115,7 +117,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 平涂用 `fillRect`，挖块用 `eraseRect`，挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
 
-*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` mirrors indices and does not recolor. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows.*
+*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows.*
 
 ## Recipes
 
@@ -148,8 +150,29 @@ pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 2 \
   --src-x 16 --src-y 20 --width 32 --height 36 --dst-x 16 --dst-y 20
 pixelforge hflip --project hero.json --frame 2
 pixelforge flip --horizontal --project hero.json --x 0 --y 40 --width 64 --height 24
+pixelforge vflip --project hero.json
+pixelforge rotate --project hero.json --degrees 90
+pixelforge rotate --project hero.json --degrees 180 --x 0 --y 0 --width 8 --height 8
 pixelforge resize --project hero.json --width 64 --height 64
 pixelforge resize --project hero.json --width 64 --height 96 --offset-x 0 --offset-y 0
+```
+
+### 导入 Aseprite Import an indexed `.aseprite`
+
+只读索引色 8 位：画布、调色板、图像层像素、帧时长。层按文件从底到顶映射，不先合成。组摊平，参考层跳过，隐藏层导入后可见。透明索引不是 0 时和索引 0 对调，槽 0 再强制全透明。`--output` 新建且拒绝已有文件；`--project` 成功后替换。两个目标要且只要一个。不写回 `.aseprite`，没有插件。灰度、RGBA、tilemap、边长超出 `1..=256` 都拒绝。不兼容项看 `result.aseprite`，全文在 `docs/tool-api.md` 的 `importAseprite`。
+
+*Indexed 8-bit only. Layers map bottom to top. `--output` creates and refuses an existing file. `--project` replaces after success. There is no `.aseprite` writer and no plugin API. Read `result.aseprite` and `importAseprite` in `docs/tool-api.md`.*
+
+```bash
+pixelforge import-aseprite --file hero.aseprite --output hero.json
+pixelforge import-aseprite --file hero.aseprite --project hero.json
+```
+
+```json
+{ "tool": "importAseprite", "params": { "bytes": "<base64>" } }
+{ "tool": "flipVertical", "params": { "frame": 0, "layer": 0, "reportDirty": true } }
+{ "tool": "rotate", "params": { "degrees": 90 } }
+{ "tool": "rotate", "params": { "degrees": 180, "x": 0, "y": 0, "width": 8, "height": 8 } }
 ```
 
 ### 只改头盔 Edit only the helmet

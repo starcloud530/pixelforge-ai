@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pixelforge_kernel::Document;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 fn pixelforge(args: &[String]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_pixelforge"))
@@ -103,6 +103,9 @@ fn help_lists_the_agent_commands() {
         "diff",
         "flip",
         "hflip",
+        "vflip",
+        "rotate",
+        "import-aseprite",
         "resize",
         "--from-frame",
         "--horizontal",
@@ -493,6 +496,9 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"previewFrame"));
     assert!(names.contains(&"diffFrames"));
     assert!(names.contains(&"flipHorizontal"));
+    assert!(names.contains(&"flipVertical"));
+    assert!(names.contains(&"rotate"));
+    assert!(names.contains(&"importAseprite"));
     assert!(names.contains(&"resizeCanvas"));
     assert!(names.contains(&"undo"));
 }
@@ -2209,6 +2215,176 @@ fn tags_round_trip_and_sheet_atlas_is_opt_in() {
     ]));
     assert_eq!(status(&duplicate), 1, "{}", stderr(&duplicate));
     assert_eq!(json_lines(&duplicate)[0]["error"]["code"], "TagExists");
+}
+
+#[test]
+fn import_aseprite_then_vflip_and_rotate() {
+    let scratch = Scratch::new();
+    let ase = scratch.child("hero.aseprite");
+    fs::write(&ase, indexed_aseprite()).unwrap();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    let imported = pixelforge(&arg(&[
+        "import-aseprite",
+        "--file",
+        ase.to_str().unwrap(),
+        "--output",
+        project_arg,
+    ]));
+    assert_eq!(status(&imported), 0, "{}", stderr(&imported));
+    let body = &json_lines(&imported)[0];
+    assert_eq!(body["result"]["width"], 2);
+    assert_eq!(body["result"]["height"], 2);
+    assert_eq!(body["result"]["pixels"], json!([1, 2, 0, 3]));
+    assert_eq!(body["result"]["aseprite"]["transparentSwapped"], false);
+    assert_eq!(body["result"]["canUndo"], false);
+    let kept = fs::read(&project).unwrap();
+
+    let again = pixelforge(&arg(&[
+        "import-aseprite",
+        "--file",
+        ase.to_str().unwrap(),
+        "--output",
+        project_arg,
+    ]));
+    assert_eq!(status(&again), 2, "{}", stderr(&again));
+    assert_eq!(fs::read(&project).unwrap(), kept);
+
+    let missing = pixelforge(&arg(&["import-aseprite", "--file", ase.to_str().unwrap()]));
+    assert_eq!(status(&missing), 2, "{}", stderr(&missing));
+
+    let flipped = pixelforge(&arg(&["vflip", "--project", project_arg, "--dirty"]));
+    assert_eq!(status(&flipped), 0, "{}", stderr(&flipped));
+    assert_eq!(load(&project).pixels(), &[0, 3, 1, 2]);
+    assert!(
+        json_lines(&flipped)[0]["result"]["changed"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+
+    let turned = pixelforge(&arg(&[
+        "rotate",
+        "--project",
+        project_arg,
+        "--degrees",
+        "90",
+    ]));
+    assert_eq!(status(&turned), 0, "{}", stderr(&turned));
+    let wide = scratch.child("wide.json");
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "3",
+            "--height",
+            "2",
+            "--output",
+            wide.to_str().unwrap(),
+        ]))),
+        0
+    );
+    let refused = pixelforge(&arg(&[
+        "rotate",
+        "--project",
+        wide.to_str().unwrap(),
+        "--degrees",
+        "90",
+    ]));
+    assert_eq!(status(&refused), 1, "{}", stderr(&refused));
+    assert_eq!(json_lines(&refused)[0]["error"]["code"], "RotateSquare");
+    assert_eq!(load(&wide).width(), 3);
+
+    let replaced = pixelforge(&arg(&[
+        "import-aseprite",
+        "--file",
+        ase.to_str().unwrap(),
+        "--project",
+        wide.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&replaced), 0, "{}", stderr(&replaced));
+    assert_eq!((load(&wide).width(), load(&wide).height()), (2, 2));
+    assert_eq!(load(&wide).pixels(), &[1, 2, 0, 3]);
+}
+
+fn indexed_aseprite() -> Vec<u8> {
+    fn u16(out: &mut Vec<u8>, value: u16) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    fn u32(out: &mut Vec<u8>, value: u32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    let mut layer = Vec::new();
+    u16(&mut layer, 1);
+    u16(&mut layer, 0);
+    u16(&mut layer, 0);
+    u16(&mut layer, 0);
+    u16(&mut layer, 0);
+    u16(&mut layer, 0);
+    layer.push(255);
+    layer.extend_from_slice(&[0, 0, 0]);
+    u16(&mut layer, 5);
+    layer.extend_from_slice(b"torso");
+    let mut layer_chunk = Vec::new();
+    u32(&mut layer_chunk, (6 + layer.len()) as u32);
+    u16(&mut layer_chunk, 0x2004);
+    layer_chunk.extend(layer);
+
+    let mut pal = Vec::new();
+    u32(&mut pal, 4);
+    u32(&mut pal, 0);
+    u32(&mut pal, 3);
+    pal.extend_from_slice(&[0; 8]);
+    for color in [[0, 0, 0, 0], [9, 1, 1, 255], [1, 9, 1, 255], [1, 1, 9, 255]] {
+        u16(&mut pal, 0);
+        pal.extend_from_slice(&color);
+    }
+    let mut pal_chunk = Vec::new();
+    u32(&mut pal_chunk, (6 + pal.len()) as u32);
+    u16(&mut pal_chunk, 0x2019);
+    pal_chunk.extend(pal);
+
+    let mut cel = Vec::new();
+    u16(&mut cel, 0);
+    u16(&mut cel, 0);
+    u16(&mut cel, 0);
+    cel.push(255);
+    u16(&mut cel, 0);
+    u16(&mut cel, 0);
+    cel.extend_from_slice(&[0; 5]);
+    u16(&mut cel, 2);
+    u16(&mut cel, 2);
+    cel.extend_from_slice(&[1, 2, 0, 3]);
+    let mut cel_chunk = Vec::new();
+    u32(&mut cel_chunk, (6 + cel.len()) as u32);
+    u16(&mut cel_chunk, 0x2005);
+    cel_chunk.extend(cel);
+
+    let mut body = Vec::new();
+    u16(&mut body, 0xF1FA);
+    u16(&mut body, 3);
+    u16(&mut body, 90);
+    body.extend_from_slice(&[0, 0]);
+    u32(&mut body, 3);
+    body.extend(&layer_chunk);
+    body.extend(&pal_chunk);
+    body.extend(&cel_chunk);
+    let mut frame = Vec::new();
+    u32(&mut frame, (4 + body.len()) as u32);
+    frame.extend(body);
+
+    let mut header = vec![0u8; 128];
+    header[4..6].copy_from_slice(&0xA5E0u16.to_le_bytes());
+    header[6] = 1;
+    header[8] = 2;
+    header[10] = 2;
+    header[12] = 8;
+    header[28] = 0;
+    let mut out = header;
+    out.extend(frame);
+    let size = out.len() as u32;
+    out[0..4].copy_from_slice(&size.to_le_bytes());
+    out
 }
 
 fn assert_full_grid(body: &Value, width: usize, height: usize) {

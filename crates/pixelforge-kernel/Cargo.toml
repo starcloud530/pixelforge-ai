@@ -6,6 +6,11 @@ publish.workspace = true
 description = "Indexed pixel grid, palette, frames, project files, PNG export, and the Tool API for PixelForge AI."
 
 [dependencies]
+# Already in the lockfile through `png`. Inflates indexed cel chunks only.
+flate2 = "1.0.35"
 png = "0.17.16"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+flate2 = "1.0.35"

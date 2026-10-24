@@ -15,7 +15,8 @@
 use serde::Serialize;
 use serde_json::{Map, Number, Value};
 
-use crate::document::Document;
+use crate::aseprite::AsepriteReport;
+use crate::document::{Document, QuarterTurn};
 use crate::error::KernelError;
 use crate::palette::IndexPolicy;
 use crate::palette_file::PaletteImportMode;
@@ -63,11 +64,14 @@ pub const TOOL_NAMES: &[&str] = &[
     "redo",
     "saveProject",
     "loadProject",
+    "importAseprite",
     "exportPngSequence",
     "exportSpriteSheet",
     "previewFrame",
     "diffFrames",
     "flipHorizontal",
+    "flipVertical",
+    "rotate",
     "resizeCanvas",
     "listLayers",
     "addLayer",
@@ -599,6 +603,14 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             *document = loaded;
             Ok(inspect_value(document))
         }
+        "importAseprite" => {
+            let bytes = parse_aseprite(params)?;
+            let (loaded, report) = Document::from_aseprite(&bytes).map_err(ToolFailure::Kernel)?;
+            *document = loaded;
+            let mut result = inspect_value(document);
+            result["aseprite"] = aseprite_json(&report);
+            Ok(result)
+        }
         "exportPngSequence" => {
             let scale = parse_scale(tool, params)?;
             let (width, height) = document
@@ -721,6 +733,36 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             match spec.layer {
                 Some(layer) => document.flip_horizontal_on(layer, frame, x, y, width, height),
                 None => document.flip_horizontal(frame, x, y, width, height),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(empty(), document, before, false))
+        }
+        "flipVertical" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let spec = parse_mirror(tool, params)?;
+            let frame = spec.frame.unwrap_or(document.active_frame());
+            let before = snaps_if(document, report, &[frame], spec.layer)?;
+            let (x, y, width, height) =
+                spec.rect
+                    .unwrap_or((0, 0, document.width(), document.height()));
+            match spec.layer {
+                Some(layer) => document.flip_vertical_on(layer, frame, x, y, width, height),
+                None => document.flip_vertical(frame, x, y, width, height),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(empty(), document, before, false))
+        }
+        "rotate" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (spec, turn) = parse_rotate(params)?;
+            let frame = spec.frame.unwrap_or(document.active_frame());
+            let before = snaps_if(document, report, &[frame], spec.layer)?;
+            let (x, y, width, height) =
+                spec.rect
+                    .unwrap_or((0, 0, document.width(), document.height()));
+            match spec.layer {
+                Some(layer) => document.rotate_on(layer, frame, x, y, width, height, turn),
+                None => document.rotate(frame, x, y, width, height, turn),
             }
             .map_err(ToolFailure::Kernel)?;
             Ok(with_dirty(empty(), document, before, false))
@@ -1509,14 +1551,14 @@ struct FlipSpec {
 }
 
 fn parse_flip(params: Value) -> Result<FlipSpec, ToolFailure> {
-    let map = expect_object("flipHorizontal", params)?;
-    reject_params(
-        "flipHorizontal",
-        &map,
-        &["frame", "x", "y", "width", "height", "layer"],
-    )?;
-    let frame = optional_frame("flipHorizontal", &map, "frame")?;
-    let layer = optional_frame("flipHorizontal", &map, "layer")?;
+    parse_mirror("flipHorizontal", params)
+}
+
+fn parse_mirror(tool: &str, params: Value) -> Result<FlipSpec, ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["frame", "x", "y", "width", "height", "layer"])?;
+    let frame = optional_frame(tool, &map, "frame")?;
+    let layer = optional_frame(tool, &map, "layer")?;
     let present = ["x", "y", "width", "height"]
         .iter()
         .filter(|key| map.contains_key(**key))
@@ -1524,14 +1566,64 @@ fn parse_flip(params: Value) -> Result<FlipSpec, ToolFailure> {
     let rect = if present == 0 {
         None
     } else if present == 4 {
-        Some(rect_from("flipHorizontal", &map)?)
+        Some(rect_from(tool, &map)?)
     } else {
         return Err(invalid_params(
-            "flipHorizontal",
+            tool,
             "x, y, width, and height must all be set, or all omitted",
         ));
     };
     Ok(FlipSpec { frame, rect, layer })
+}
+
+fn parse_rotate(params: Value) -> Result<(FlipSpec, QuarterTurn), ToolFailure> {
+    let map = expect_object("rotate", params)?;
+    reject_params(
+        "rotate",
+        &map,
+        &["frame", "x", "y", "width", "height", "layer", "degrees"],
+    )?;
+    let degrees = require_u16("rotate", &map, "degrees")?;
+    let turn = match degrees {
+        90 => QuarterTurn::Cw90,
+        180 => QuarterTurn::Cw180,
+        270 => QuarterTurn::Cw270,
+        _ => return Err(invalid_params("rotate", "degrees must be 90, 180, or 270")),
+    };
+    let spec = parse_mirror(
+        "rotate",
+        Value::Object({
+            let mut kept = map;
+            kept.remove("degrees");
+            kept
+        }),
+    )?;
+    Ok((spec, turn))
+}
+
+fn parse_aseprite(params: Value) -> Result<Vec<u8>, ToolFailure> {
+    let map = expect_object("importAseprite", params)?;
+    reject_params("importAseprite", &map, &["bytes"])?;
+    let text = require_string("importAseprite", &map, "bytes")?;
+    decode_base64(&text).map_err(|_| invalid_params("importAseprite", "bytes must be base64"))
+}
+
+fn aseprite_json(report: &AsepriteReport) -> Value {
+    serde_json::json!({
+        "sourceTransparentIndex": report.source_transparent_index,
+        "transparentSwapped": report.transparent_swapped,
+        "hiddenLayers": report.hidden_layers,
+        "skippedGroups": report.skipped_groups,
+        "skippedReference": report.skipped_reference,
+        "backgroundLayers": report.background_layers,
+        "nonNormalBlend": report.non_normal_blend,
+        "partialOpacity": report.partial_opacity,
+        "partialCelOpacity": report.partial_cel_opacity,
+        "nonzeroZIndex": report.nonzero_z_index,
+        "durationDefaulted": report.duration_defaulted,
+        "clippedCells": report.clipped_cells,
+        "ignored": report.ignored,
+    })
 }
 
 fn parse_add_layer(params: Value) -> Result<Option<String>, ToolFailure> {

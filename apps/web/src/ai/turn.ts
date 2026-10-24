@@ -84,7 +84,8 @@ export const AGENT_SYSTEM_PROMPT = [
   "A gesture left open at the end of the reply is closed so the editor is not stuck.",
   "Read-only tools are inspect, scene, saveProject, exportPngSequence, exportSpriteSheet, previewFrame, diffFrames, and listLayers.",
   "Paint writes the active layer. Preview and export show the composite: index 0 shows the layer under it.",
-  "setSelection stores one rectangle in the project. paint, fillRect, erase, eraseRect, copyRect, flipHorizontal, and replaceIndex then leave cells outside it unchanged. moveRect returns SelectionProtected unless both rectangles lie inside it. clearSelection removes the rectangle. There is no lasso.",
+  "setSelection stores one rectangle in the project. paint, fillRect, erase, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex then leave cells outside it unchanged. flipVertical and rotate write a cell only when it and the cell it reads are both inside. moveRect returns SelectionProtected unless both rectangles lie inside it. clearSelection removes the rectangle. There is no lasso.",
+  "importAseprite replaces the document from indexed .aseprite bytes and clears undo. It does not write a .aseprite file. rotate degrees are 90, 180, or 270 clockwise, and 90 or 270 need a square rectangle.",
   "addTag names an inclusive frame range. loop is forward, reverse, pingpong, or once. setTag and removeTag edit that list. exportSpriteSheet with atlas true returns frame rects, delays, columns, and tags. The timeline still loops the whole document. There are no linked cels.",
   "This is one reply. Do not wait for tool results to come back.",
 ].join("\n");

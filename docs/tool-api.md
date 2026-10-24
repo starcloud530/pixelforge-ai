@@ -98,6 +98,14 @@
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
 | `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，或某个 `tags` 项的名字、区间、循环模式、重名不合法时，也是这个码 |
+| `AsepriteFile` | `.aseprite` 字节截断、魔数不对、压缩 cel 解不开，或层 / cel 结构读不完 |
+| `AsepriteSize` | 画布边长不在 `1..=256` |
+| `AsepriteColorMode` | 颜色深度不是索引 8 位 |
+| `AsepritePalette` | 没有可用的索引调色板 |
+| `AsepriteTilemap` | 文件含 tilemap 层或 tilemap cel。整文件不导入 |
+| `AsepritePixel` | 像素索引超出调色板长度 |
+| `AsepriteLayers` | 跳过组和参考层之后，没有图像层可导入 |
+| `RotateSquare` | `rotate` 的 90° 或 270° 矩形不是正方形。一格都不写 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
 
@@ -107,17 +115,17 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
-`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
+`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, canvas resize, recolor, delay, lock, index policy, or tag edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, or tag edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
-*`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
+*`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, or `resizeCanvas` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, or `resizeCanvas` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -185,7 +193,7 @@ CLI：`pixelforge scene --project hero.json`。
 
 ### 脏区 Dirty region
 
-`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
+`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
 
 `true` 时，在这个工具原有的 `result` 字段上再加：
 
@@ -216,7 +224,7 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 | --- | --- |
 | `paint`、`erase`、`fillRect`、`eraseRect` | 跳过。请求的矩形仍须整块在画布内，否则 `OutOfBounds`，一格都不写 |
 | `copyRect` | 只跳过目标格。源格可以在选区外，源不被改 |
-| `flipHorizontal` | 一格和它的镜像伙伴必须都在选区内，才交换这一对 |
+| `flipHorizontal`、`flipVertical`、`rotate` | 目标格和它读到的源格必须都在选区内，才写入这一格 |
 | `replaceIndex` | 只替换选区内的格子 |
 | `moveRect` | 源矩形和目标矩形必须都整块在选区内，否则 `SelectionProtected`，一格都不写 |
 
@@ -234,7 +242,7 @@ CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge re
 
 *One rectangle in canvas coordinates applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the rectangle.*
 
-*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal` swaps a cell only when that cell and its mirror partner are both inside. `replaceIndex` replaces matching cells inside the rectangle, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection.*
+*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the rectangle, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection.*
 
 *`remapPalette`, `applyPng`, palette edits, frame structure, layer structure, and `flattenLayers` ignore the selection. `resizeCanvas` translates the rectangle by the same offset and clears it, in that same undo step, when the translated rectangle would leave the new canvas.*
 
@@ -533,6 +541,44 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 错误：`ProjectFile`。解析失败时原来的文档还在。
 
+### `importAseprite`
+
+`params`：`bytes`（`.aseprite` 或 `.ase` 文件的 Base64）。不接受 `reportDirty`。
+
+成功后换掉当前文档，和 `loadProject` 一样。新文档的撤销栈是空的，没有选区，没有标签，调色板未锁定，`indexPolicy` 是 `reject`，当前帧和当前层都是 0。失败时原来的文档还在。
+
+`result`：与 `inspect` 相同，再加 `aseprite`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `sourceTransparentIndex` | 文件头里的透明索引 |
+| `transparentSwapped` | 透明索引不是 0 时，已经和索引 0 对调 |
+| `hiddenLayers` | 文件里标成隐藏、导入后仍可见的层数 |
+| `skippedGroups` | 跳过的组文件夹数。子层按文件顺序摊进层栈 |
+| `skippedReference` | 跳过的参考层数 |
+| `backgroundLayers` | 标成背景的层数。透明索引仍收成索引 0 |
+| `nonNormalBlend` | 非 Normal 混合的层数。不混合 |
+| `partialOpacity` | 层不透明度不是 255 的层数 |
+| `partialCelOpacity` | cel 不透明度不是 255 的次数 |
+| `nonzeroZIndex` | z-index 不是 0 的 cel 数。不重排 |
+| `durationDefaulted` | 时长为 0、又没有文件头速度、因而写成 100 毫秒的帧数 |
+| `clippedCells` | 落在画布外、被丢掉的像素数 |
+| `ignored` | 跳过的 chunk 名，已排序 |
+
+只读索引色 8 位。画布边长必须在 `1..=256`。图像层按文件顺序从底到顶放进现有层模型，不先合成再压成一层，这样身体和装备还能分开改。组文件夹本身不是一层，子层按文件顺序摊平。参考层不导入。隐藏层导入后可见，因为内核没有隐藏旗标。索引 0 一律改成全透明。文件的透明索引不是 0 时，先把调色板槽 0 和该索引对调，再对调像素，然后强制槽 0 透明。背景层上的这个索引同样收成 0。帧时长会导入：时长 0 时用文件头速度；两边都是 0 则 100 毫秒。
+
+不导入：标签、切片、用户数据、蒙版、色彩配置、外部文件、tilemap。单独的 tileset chunk 记在 `ignored`；tilemap 层或 tilemap cel 整文件拒绝（`AsepriteTilemap`）。混合模式、层不透明度、cel 不透明度、cel z-index 只计数，不参与叠色。层与层之间仍是非 0 索引盖住下层。没有 `.aseprite` 写回，也没有插件接口。
+
+cel 一边超过 256，或 `宽 × 高 × 导入层数 × 帧数` 超过 16777216，整文件拒绝。伸出画布的 cel 裁掉并计入 `clippedCells`。同一层同一帧上，后画的 cel 盖住先画的，不把层上其它格子清掉。链接 cel 复制最终的原始图像，放在链接 cel 自己的坐标上，不保留链接。
+
+读文件用自写的索引子集解析器，只为取出画布、调色板和索引像素。`asefile` 经 `image` 合成出 RGBA，索引就没了。`aseprite-io` 带写回，且声明的最低 Rust 新于本仓库。`flate2` 只用来解开压缩 cel。
+
+*Replaces the document, the same as `loadProject`. The new undo stack is empty. Failure leaves the previous document. Indexed 8-bit only. Image layers map bottom to top so body and gear stay separate. Groups are not stored; their children join that stack in file order. Reference layers are skipped. Hidden layers become visible. Blend, layer opacity, cel opacity, and z-index are counted and not applied. Index 0 is forced transparent; a non-zero transparent index is swapped with slot 0 first. Tags, slices, user data, masks, color profiles, external files, and tilemaps are not imported. There is no `.aseprite` writer and no plugin API. The reader is a small indexed subset parser: `asefile` returns composited RGBA, and `aseprite-io` writes the format back on a newer Rust than this repo. `flate2` only inflates compressed cels.*
+
+错误：`AsepriteFile`、`AsepriteSize`、`AsepriteColorMode`、`AsepritePalette`、`AsepriteTilemap`、`AsepritePixel`、`AsepriteLayers`。`bytes` 不是 Base64 是 `InvalidParams`。
+
+CLI：`pixelforge import-aseprite --file hero.aseprite --output hero.json` 新建工程，目标已存在则拒绝。`--project hero.json` 在导入成功后替换已有工程。两个目标要且只要一个。
+
 ### `exportPngSequence`
 
 `params`：可选 `scale`（整数 `1..=4294967295`，缺省为 1）。不改文档，不进撤销栈。
@@ -660,6 +706,40 @@ CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png
 *Mirrors indices left to right. Cell `x` receives the index from the mirrored column (`63 - x` on a full frame of width 64). The palette is unchanged, including highlight colors. One undo step. A symmetric rectangle is not recorded. `frame` is not selected. An out-of-bounds rectangle writes nothing.*
 
 错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`。可选 `layer`：只镜像这一层。
+
+### `flipVertical`
+
+`params`：与 `flipHorizontal` 相同。可选 `frame`、`layer`、矩形四边，以及 `reportDirty`。
+
+把矩形里的索引上下对调。格子 `(x, y)` 收到 `(x, originY + height - 1 - y)` 上的索引。不改调色板。一步撤销。整块对称时不进栈。不改变 `activeFrame`。出界则一格都不写。有选区时，只有目标格和它读到的源格都在选区内才写入。
+
+*Mirrors indices top to bottom. Cell `(x, y)` receives the index from `(x, originY + height - 1 - y)`. The palette is unchanged. One undo step. A symmetric rectangle is not recorded. `frame` is not selected. An out-of-bounds rectangle writes nothing. With a selection, a cell is written only when it and the cell it reads are both inside.*
+
+错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`。可选 `layer`：只镜像这一层。
+
+CLI：`pixelforge vflip`，或 `pixelforge flip --vertical`。
+
+### `rotate`
+
+`params`：必填 `degrees`，只能是 `90`、`180` 或 `270`（顺时针）。其余与 `flipHorizontal` 相同：可选 `frame`、`layer`、矩形四边、`reportDirty`。其它角度是 `InvalidParams`，文档不变。
+
+在矩形内部重排索引。不改调色板，也不改变画布尺寸，所以其它帧的坐标仍然有效。180° 接受任意矩形。90° 和 270° 要求矩形是正方形，否则 `RotateSquare`，一格都不写。整帧转 90° 或 270° 因此需要正方形画布；要先改边长，用 `resizeCanvas`。
+
+目标格在矩形内的局部坐标是 `(x, y)`，矩形宽 `w`、高 `h`。它读到的源格是：
+
+| 角度 | 源格 |
+| --- | --- |
+| 90 | `(y, h - 1 - x)` |
+| 180 | `(w - 1 - x, h - 1 - y)` |
+| 270 | `(w - 1 - y, x)` |
+
+一步撤销。转完和原来相同则不进栈。只改指定的一层（缺省为当前层），不改变 `activeLayer`。有选区时，目标格和源格都在选区内才写入。
+
+*Turns indices clockwise inside the rectangle. The palette and the canvas size stay, so other frames keep their coordinates. 180 accepts any rectangle. 90 and 270 need a square, or the call is `RotateSquare` and writes nothing. A whole-frame quarter turn therefore needs a square canvas; resize first. One undo step. One layer. A selection writes a cell only when the destination and the source cell are both inside.*
+
+错误：`OutOfBounds`、`FrameIndex`、`LayerIndex`、`RotateSquare`。`degrees` 不是 90、180、270 是 `InvalidParams`。
+
+CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略。
 
 ### `resizeCanvas`
 

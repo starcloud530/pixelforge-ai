@@ -130,7 +130,7 @@ const BY_NAME = {
   ),
   setSelection: tool(
     "setSelection",
-    "Store one rectangle in the project file. Later paint, erase, fillRect, eraseRect, copyRect, flipHorizontal, and replaceIndex skip cells outside it. moveRect requires both rectangles inside it. Does not change pixels or the active layer. There is no lasso.",
+    "Store one rectangle in the project file. Later paint, erase, fillRect, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex skip cells outside it. flipVertical and rotate also require the source cell to sit inside. moveRect requires both rectangles inside it. Does not change pixels or the active layer. There is no lasso.",
     {
       x: int("Left column, 0-based.", 0, 65535),
       y: int("Top row, 0-based.", 0, 65535),
@@ -313,6 +313,14 @@ const BY_NAME = {
     "saveProject",
     "Return the pixelforge-project version 1 JSON text. Does not change the document or the undo stack.",
   ),
+  importAseprite: tool(
+    "importAseprite",
+    "Replace the document with an indexed .aseprite file. bytes is standard base64 of the file. Reads canvas size, the indexed palette, image-layer pixels, and frame durations. Groups are not stored; their child image layers become a flat stack. Reference layers are skipped. Hidden layers become visible. Blend, opacity, and cel z-index are not applied. Tags, slices, tilemaps, and color profiles are not imported. Index 0 becomes the transparent slot, swapping with the file's transparent index when that index is not 0. Does not write a .aseprite file. The undo stack of the new document is empty. There is no plugin API.",
+    {
+      bytes: { type: "string", description: "Standard base64 of an indexed .aseprite or .ase file. No data: prefix." },
+    },
+    ["bytes"],
+  ),
   loadProject: tool(
     "loadProject",
     "Replace the document with a pixelforge-project version 1 file. The text must be the file, not an object. On success the undo stack is empty. A parse error leaves the current document in place.",
@@ -369,6 +377,34 @@ const BY_NAME = {
       layer: int("Layer to mirror. Omit for the active layer. Does not select it.", 0, 4294967295),
       reportDirty: REPORT_DIRTY,
     },
+  ),
+  flipVertical: tool(
+    "flipVertical",
+    "Mirror palette indices top to bottom inside a rectangle or the whole frame. Does not recolor. One undo step. Optional frame does not change the active frame. Omit x, y, width, and height together to flip the whole frame. A cell is written only when it and the cell it reads are both inside the stored selection.",
+    {
+      frame: int("Frame to mirror. Omit for the active frame.", 0, 4294967295),
+      x: int("Left column. Omit with the other edges to flip the whole frame.", 0, 65535),
+      y: int("Top row.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      layer: int("Layer to mirror. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+  ),
+  rotate: tool(
+    "rotate",
+    "Turn palette indices clockwise by 90, 180, or 270 degrees inside a rectangle or the whole frame. 90 and 270 need a square; the canvas size stays. Does not recolor. One undo step. Optional frame does not change the active frame. A cell is written only when it and the cell it reads are both inside the stored selection.",
+    {
+      degrees: int("Clockwise degrees: 90, 180, or 270.", 90, 270),
+      frame: int("Frame to turn. Omit for the active frame.", 0, 4294967295),
+      x: int("Left column. Omit with the other edges to turn the whole frame.", 0, 65535),
+      y: int("Top row.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      layer: int("Layer to turn. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["degrees"],
   ),
   resizeCanvas: tool(
     "resizeCanvas",
