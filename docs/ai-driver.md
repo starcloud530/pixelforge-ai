@@ -67,7 +67,7 @@
 4. 某个调用的参数不是 JSON 对象，或内核返回 `ok: false`，这一轮停下，后面的调用不发送。失败的那一次本身不改文档（`loadProject` 只有解析成功才换文档）。
 5. 外壳用内核的 snapshot 重画画布。列出的是模型发出的工具调用，不是第二份像素缓冲。
 
-撤销：如果模型没有自己调用 `beginGesture`，编排用 `beginGesture` … `endGesture` 把这一轮收成一步，一次撤销退回整轮。模型如果自己管理手势，编排不再包一层；轮末手势还开着时，编排会 `endGesture`，避免界面停在 `OpenGesture`。空的手势不进撤销栈。只读工具（`inspect`、`saveProject`、两个导出）本来就不进栈。
+撤销：如果模型没有自己调用 `beginGesture`，编排用 `beginGesture` … `endGesture` 把这一轮收成一步，一次撤销退回整轮。模型如果自己管理手势，编排不再包一层；轮末手势还开着时，编排会 `endGesture`，避免界面停在 `OpenGesture`。空的手势不进撤销栈。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`）本来就不进栈。
 
 运行的时候画布和快捷键先停住，避免和这一轮交错。播放也会先停下；停播放不进撤销栈。
 
@@ -79,7 +79,7 @@
 4. *If arguments are not a JSON object, or the kernel returns `ok: false`, the turn stops and later calls are not sent. The failed call itself does not change the document (`loadProject` replaces it only after the file parses).*
 5. *The shell redraws from the kernel snapshot. The list is the model's tool calls, not a second pixel buffer.*
 
-*Undo: when the model does not call `beginGesture` itself, the driver wraps the reply in `beginGesture` … `endGesture`, so one undo restores the whole turn. When the model manages the gesture, the driver does not wrap another one. A gesture still open at the end is closed with `endGesture`, so the editor is not stuck on `OpenGesture`. An empty gesture is not recorded. Read-only tools (`inspect`, `saveProject`, and both exports) are not recorded either.*
+*Undo: when the model does not call `beginGesture` itself, the driver wraps the reply in `beginGesture` … `endGesture`, so one undo restores the whole turn. When the model manages the gesture, the driver does not wrap another one. A gesture still open at the end is closed with `endGesture`, so the editor is not stuck on `OpenGesture`. An empty gesture is not recorded. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, and `listLayers`) are not recorded either.*
 
 *While the turn runs, the canvas and keyboard shortcuts pause so they do not interleave. Playback stops first. Stopping playback is not an undo entry.*
 

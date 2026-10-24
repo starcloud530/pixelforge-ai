@@ -6,7 +6,7 @@ description: >-
   installing or running pixelforge, creating or changing a pixelforge-project,
   painting or erasing cells, filling or erasing a rectangle, copying or moving
   a rectangle, editing the palette, adding or duplicating frames, undoing,
-  running inspect, tools, or call, or exporting a PNG sequence or sprite sheet.
+  running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
   pixelforge-layers, pixelforge-critique) must follow this skill's index-color
   invariants before their own workflow.
@@ -69,6 +69,32 @@ stdout 是紧凑 JSON，一行一个响应。解析 stdout 的 `ok` 和 `error.c
 退出码：`0` 每个工具都是 `ok: true`。`1` 某个工具 `ok: false`（stdout 仍是那个错误对象）。`2` 工具没跑起来（文件打不开、工程损坏、请求文件不是 JSON）。`preview` 和 `diff` 在内核拒绝时也是退出码 `2`，stdout 仍是那个错误对象。clap 的用法错误也是退出码 `2`，说明在 stderr，没有 JSON 行。
 
 *`0` all ok, `1` tool error with JSON on stdout, `2` the tool did not run or clap rejected the command. `preview` and `diff` use `2` when the kernel refuses.*
+
+## How to read state
+
+先读状态，再画。`scene` 不改文件，也不把整幅格子打出来。
+
+```bash
+pixelforge scene --project hero.json
+pixelforge inspect --project hero.json
+pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --dirty
+pixelforge preview --project hero.json --scale 4
+pixelforge diff --project hero.json --frame 0 --with 1
+```
+
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。
+
+`visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
+
+`paletteHash` 是 FNV-1a 64 位，16 位小写十六进制。初值 `14695981039346656037`，乘数 `1099511628211`，按索引把每一项的 `r`、`g`、`b`、`a` 送进去。颜色和顺序不变，哈希就不变。`inspect` 的 `result.paletteHash` 是同一个值。
+
+`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`resizeCanvas` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。
+
+`preview` 除了 `rows`，还有 `ink`（非 0 格数）、`bounds`、`indices`（每个索引用了几次）、`pixels`（这一张视图的索引，行优先）。字形 `*` 把 62 及以上折成同一个字符，读索引用 `pixels`。
+
+`diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。
+
+*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
 
 ## Pictures, sheets, and canvas commands
 

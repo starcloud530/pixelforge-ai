@@ -23,9 +23,11 @@ Examples:
   pixelforge move-rect --project hero.json --src-x 20 --src-y 8 --width 8 --height 12 --dst-x 24 --dst-y 10
   pixelforge flip --horizontal --project hero.json
   pixelforge hflip --project hero.json --x 0 --y 0 --width 16 --height 32
+  pixelforge scene --project hero.json
   pixelforge preview --project hero.json --scale 4
   pixelforge preview --project hero.json --frame 1 --scale 4 --output hero-f1.png
   pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+  pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --dirty
   pixelforge resize --project hero.json --width 64 --height 64
   pixelforge layer add --project hero.json --name gear
   pixelforge fill-rect --project hero.json --layer 1 --x 4 --y 8 --width 8 --height 8 --color-index 5
@@ -38,6 +40,15 @@ Examples:
       --request '{\"tool\":\"endGesture\"}'
   pixelforge export png --project hero.json --out-dir ./frames --scale 2
   pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4
+
+`scene` prints a compact summary (canvas, active frame and layer, layer
+names, palette hash, frame delays) and does not dump pixels. `visible` is
+always true and `opacity` is null: the kernel has no hide flag and no
+per-layer opacity. `--dirty` on paint, erase, fill-rect, erase-rect,
+copy-rect, move-rect, flip, hflip, and resize adds `changed`, `dirty`, and
+`regions`. Omit it and those fields stay absent. `preview` JSON also has
+`ink`, `bounds`, `indices`, and `pixels`. `diff` JSON also has `bounds`,
+`kinds`, and `changes`.
 
 `preview` prints an ASCII view on stderr (one glyph per cell: `.` is
 transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index 62 or
@@ -95,10 +106,19 @@ pub enum Command {
         #[arg(long)]
         preview: bool,
     },
+    /// Print a compact scene summary. Does not write the file or return pixels.
+    ///
+    /// Canvas size, active frame and layer, layer names, palette hash, and
+    /// per-frame delay. `visible` is always true. `opacity` is null.
+    Scene {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
     /// Print an ASCII view and write a scaled color PNG of one frame.
     ///
     /// Stdout is one JSON line (`result.rows`, `result.frame`, `result.activeFrame`,
-    /// `result.legend`, `result.scale`, and `result.path`). The same rows are
+    /// `result.legend`, `result.ink`, `result.bounds`, `result.indices`,
+    /// `result.pixels`, `result.scale`, and `result.path`). The same rows are
     /// written to stderr. Does not change the project file or the active frame.
     /// `--frame` draws that index; omit it to draw the active frame. `--scale`
     /// matches `export` (integer >= 1, default 1).
@@ -260,6 +280,9 @@ pub struct PaintArgs {
     /// Layer to edit. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -287,6 +310,9 @@ pub struct FillRectArgs {
     /// Layer to edit. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -311,6 +337,9 @@ pub struct EraseRectArgs {
     /// Layer to edit. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -347,6 +376,9 @@ pub struct BlitRectArgs {
     /// Layer to read and write. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -377,6 +409,9 @@ pub struct FlipArgs {
     /// Layer to mirror. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -398,6 +433,9 @@ pub struct ResizeArgs {
     /// Where the old top edge lands. Omit both offsets to center.
     #[arg(long)]
     pub offset_y: Option<i32>,
+    /// Add changed count, dirty bbox, and clipped ink to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
@@ -416,6 +454,9 @@ pub struct EraseArgs {
     /// Layer to edit. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
 }
 
 #[derive(Subcommand)]

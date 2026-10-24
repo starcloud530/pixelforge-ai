@@ -29,10 +29,20 @@ interface SchemaProperty {
   enum?: readonly string[];
 }
 
+const REPORT_DIRTY: SchemaProperty = {
+  type: "boolean",
+  description:
+    "When true, add changed, dirty bbox, and regions. Omit it and those fields stay absent.",
+};
+
 const BY_NAME = {
   inspect: tool(
     "inspect",
-    "Read the document: size, palette, lock, frames, delays, active-frame indices, undo flags. Changes nothing.",
+    "Read the document: size, palette, lock, frames, delays, active-frame indices, undo flags. Changes nothing. Includes paletteHash.",
+  ),
+  scene: tool(
+    "scene",
+    "Read a compact summary: canvas size, active frame and layer, layer names, palette hash, and frame delays. Does not return pixels. visible is always true and opacity is null. Changes nothing.",
   ),
   paint: tool(
     "paint",
@@ -42,6 +52,7 @@ const BY_NAME = {
       y: int("Row, 0-based.", 0, 65535),
       colorIndex: int("Opaque palette index that already exists.", 1, 255),
       layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
     ["x", "y", "colorIndex"],
   ),
@@ -55,6 +66,7 @@ const BY_NAME = {
       height: int("Height in cells, at least 1.", 1, 65535),
       colorIndex: int("Opaque palette index that already exists.", 1, 255),
       layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
     ["x", "y", "width", "height", "colorIndex"],
   ),
@@ -65,6 +77,7 @@ const BY_NAME = {
       x: int("Column, 0-based.", 0, 65535),
       y: int("Row, 0-based.", 0, 65535),
       layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
     ["x", "y"],
   ),
@@ -77,6 +90,7 @@ const BY_NAME = {
       width: int("Width in cells, at least 1.", 1, 65535),
       height: int("Height in cells, at least 1.", 1, 65535),
       layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
     ["x", "y", "width", "height"],
   ),
@@ -93,6 +107,7 @@ const BY_NAME = {
       fromFrame: int("Source frame. Omit for the active frame.", 0, 4294967295),
       toFrame: int("Destination frame. Omit for the active frame.", 0, 4294967295),
       layer: int("Layer to read and write. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
   ),
@@ -109,6 +124,7 @@ const BY_NAME = {
       fromFrame: int("Source frame. Omit for the active frame.", 0, 4294967295),
       toFrame: int("Destination frame. Omit for the active frame.", 0, 4294967295),
       layer: int("Layer to read and write. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
     ["srcX", "srcY", "width", "height", "dstX", "dstY"],
   ),
@@ -236,7 +252,7 @@ const BY_NAME = {
   ),
   previewFrame: tool(
     "previewFrame",
-    "Read-only scaled color PNG of one frame, standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Does not change the document or the undo stack.",
+    "Read-only view of one frame. Returns ink, bounds, index counts, the row-major index buffer, and a scaled color PNG as standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Does not change the document or the undo stack.",
     {
       frame: int("Frame index to draw. Omit for the active frame.", 0, 4294967295),
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
@@ -245,7 +261,7 @@ const BY_NAME = {
   ),
   diffFrames: tool(
     "diffFrames",
-    "Read-only comparison of two frames. Returns changed cell count, index diff rows, and a base64 PNG with three panels: frame, with, and an onion blend. Shared indices stay one palette color. Differing indices are averaged only in the view. Does not change the document.",
+    "Read-only comparison of two frames. Returns changed, bounds, kinds, changes (left and right indices), diff rows, and a base64 PNG with three panels: frame, with, and an onion blend. Shared indices stay one palette color. Differing indices are averaged only in the view. Does not change the document.",
     {
       frame: int("First frame, left panel.", 0, 4294967295),
       with: int("Second frame, middle panel.", 0, 4294967295),
@@ -264,6 +280,7 @@ const BY_NAME = {
       width: int("Width in cells, at least 1.", 1, 65535),
       height: int("Height in cells, at least 1.", 1, 65535),
       layer: int("Layer to mirror. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
     },
   ),
   resizeCanvas: tool(
@@ -274,6 +291,7 @@ const BY_NAME = {
       height: int("New height, 1 to 256.", 1, 256),
       offsetX: int("Where the old left edge lands. Negative clips.", -2147483648, 2147483647),
       offsetY: int("Where the old top edge lands. Negative clips.", -2147483648, 2147483647),
+      reportDirty: REPORT_DIRTY,
     },
     ["width", "height"],
   ),
@@ -333,6 +351,7 @@ export const TOOL_CATALOG: readonly ChatTool[] = TOOL_NAMES.map((name) => BY_NAM
 /** Tools that never push an undo entry. */
 export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "inspect",
+  "scene",
   "saveProject",
   "exportPngSequence",
   "exportSpriteSheet",

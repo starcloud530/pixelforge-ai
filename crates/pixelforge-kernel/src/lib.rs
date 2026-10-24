@@ -32,6 +32,7 @@ mod history;
 mod palette;
 mod palette_file;
 mod project;
+mod scene;
 mod tool_api;
 
 pub use color::Rgba;
