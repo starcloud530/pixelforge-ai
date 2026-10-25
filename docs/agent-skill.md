@@ -211,9 +211,9 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 
 ### 部件与锚点 Parts and anchors
 
-部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。多帧上的抬枪用 `curve`，采样不写像素，也不烘焙。士兵示例在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」、「部件变换」和「部件曲线」。
+部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。多帧上的抬枪用 `curve`，采样不写像素。手跟握持、枪托贴肩、脚底固定用 `constraint solve`，它才写这一帧。士兵示例在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」、「部件变换」、「部件曲线」和「约束」。
 
-*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Rectangle flip and rotate do not move anchors. `part translate`, `part rotate`, and `part flip` move that layer's ink together with the origin and anchors. Quarter turns are an exact integer map. Any other angle quantizes to 0.01° and then to the nearest cell, around the origin or the `--anchor` cell. A raise across frames uses `curve`. Sampling does not write pixels and does not bake. The soldier commands are in the pixelforge skill.*
+*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Rectangle flip and rotate do not move anchors. `part translate`, `part rotate`, and `part flip` move that layer's ink together with the origin and anchors. Quarter turns are an exact integer map. Any other angle quantizes to 0.01° and then to the nearest cell, around the origin or the `--anchor` cell. A raise across frames uses `curve`. Sampling does not write pixels. A hand, a butt, and a planted foot use `constraint solve`, which writes that one frame. The soldier commands are in the pixelforge skill.*
 
 ```bash
 pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
@@ -228,6 +228,18 @@ pixelforge curve sample --project soldier.json --part gun --channel rotation --f
 `curve` 的帧下标和标签相同。`--frame 2` 在 0 与 4 的中点上，`easeInOut`（`u = t² (3 − 2t)`）和线性一样是 45。`--frame 1` 是四分点，`easeInOut` 是 14.0625。翻转通道只 `hold`。没有曲线时工程文件不写 `curves`。采样不写像素。公式和通道见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「部件曲线」。
 
 *A `curve` uses the same frame index as a tag. `--frame 2` is the midpoint of 0 and 4. `easeInOut` (`u = t² (3 − 2t)`) matches linear there: 45. `--frame 1` is the quarter point, and `easeInOut` is 14.0625. Flip channels are `hold` only. A project with no curves omits `curves`. Sampling does not write pixels. The formula and the channels are in the pixelforge skill.*
+
+```bash
+pixelforge constraint add --project soldier.json --name hand-grip --kind follow --part hand --anchor palm --target gun --target-anchor grip
+pixelforge constraint add --project soldier.json --name butt-shoulder --kind stick --part gun --anchor butt --target shoulder --target-anchor joint
+pixelforge constraint add --project soldier.json --name plant-foot --kind pin --part foot --anchor sole --x 4 --y 11
+pixelforge constraint solve --project soldier.json --frame 4
+pixelforge constraint solve --project soldier.json --frame 4 --apply
+```
+
+`follow` 让手掌落到枪的 `grip`。`stick` 存成 `attach`，把枪托锚点贴到肩的 `joint`。`pin` 把脚的 `sole` 钉在画布格上。`solve` 不带 `--apply` 只打印报告。带 `--frame` 时先采样曲线再解约束；不带 `--frame` 时用 `part rotate` 已经写下的姿势。环、第二条驱动、缺锚点、出画布都报错并且不写。没有约束时工程文件不写 `constraints`。求解规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「约束」。
+
+*A `follow` puts the palm on the gun's `grip`. `stick` is stored as `attach` and puts the butt anchor on the shoulder `joint`. A `pin` plants the foot's `sole` on a canvas cell. `solve` without `--apply` prints the report. With `--frame` it samples curves and then solves. Without `--frame` it uses the pose `part rotate` already wrote. A cycle, a second driver, a missing anchor, or a cell off the canvas is an error and writes nothing. A project with no constraints omits `constraints`. The solve rules are in the pixelforge skill.*
 
 握持点 `(2, 2)` 的画布格是 `(26, 14)`。肩和肘用同样的命令，可以不写 `--layer`。
 

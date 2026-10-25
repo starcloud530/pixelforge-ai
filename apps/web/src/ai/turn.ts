@@ -82,14 +82,15 @@ export const AGENT_SYSTEM_PROMPT = [
   "If you do not call beginGesture, the shell groups this whole reply into one undo step.",
   "If you do call beginGesture, do not call it twice, and the shell will not wrap another gesture around yours.",
   "A gesture left open at the end of the reply is closed so the editor is not stuck.",
-  "Read-only tools are inspect, scene, saveProject, exportPngSequence, exportSpriteSheet, previewFrame, diffFrames, listLayers, listParts, listCurves, sampleCurve, and samplePart.",
+  "Read-only tools are inspect, scene, saveProject, exportPngSequence, exportSpriteSheet, previewFrame, diffFrames, listLayers, listParts, listCurves, sampleCurve, samplePart, and listConstraints.",
   "Paint writes the active layer. Preview and export show the composite: index 0 shows the layer under it.",
   "setSelection stores one rectangle in the project. paint, fillRect, erase, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex then leave cells outside it unchanged. flipVertical and rotate write a cell only when it and the cell it reads are both inside. moveRect returns SelectionProtected unless both rectangles lie inside it. clearSelection removes the rectangle. There is no lasso.",
   "importAseprite replaces the document from indexed .aseprite bytes and clears undo. It does not write a .aseprite file. rotate degrees are 90, 180, or 270 clockwise, and 90 or 270 need a square rectangle.",
   "addTag names an inclusive frame range. loop is forward, reverse, pingpong, or once. setTag and removeTag edit that list. exportSpriteSheet with atlas true returns frame rects, delays, columns, and tags. The timeline still loops the whole document. There are no linked cels.",
   "listParts, addPart, setPart, removePart, setAnchor, and removeAnchor name a part and its anchors. A part is not a layer and not a pixel buffer. Optional layer is the paint layer its pixels live on. x,y on the part is the rest-pose origin on the canvas. Anchor x,y are local pixel offsets from that origin. Rectangle flip and rotate do not move anchors.",
   "translatePart, rotatePart, and flipPart move that part's ink and its origin and anchors in one undo step. Pivot a rotation or flip on an anchor cell or on the origin. Quarter turns are exact. Other angles quantize to 0.01 degree and then to the nearest cell.",
-  "setCurveKey stores a part parameter on a frame index. sampleCurve and samplePart interpolate it. linear is u=t. easeInOut is u=t*t*(3-2*t). Flip channels hold. The sample is the pose from the rest origin and does not write pixels. Do not bake, constrain, or build a curve editor.",
+  "setCurveKey stores a part parameter on a frame index. sampleCurve and samplePart interpolate it. linear is u=t. easeInOut is u=t*t*(3-2*t). Flip channels hold. The sample is the pose from the rest origin and does not write pixels.",
+  "addConstraint stores follow, attach, or pin. stick is stored as attach. solveConstraints is explicit: pass frame to sample curves first, and apply true to write one pixel frame. Omit apply and nothing is written. A linked layer's ink moves with the follower. An unattached part moves its origin only. Do not bake the timeline, and do not build a curve editor.",
   "This is one reply. Do not wait for tool results to come back.",
 ].join("\n");
 

@@ -82,6 +82,10 @@ quantizes to 0.01° and then to the nearest cell. Rectangle flip and rotate
 do not move parts. A selection must cover every ink cell and its destination
 or the part transform writes nothing. `curve` stores keyframes of those
 parameters on frame indices and samples them. It does not write pixels.
+`constraint` stores a follow, attach, or pin. `constraint solve` is the
+step that tracks them: pass `--frame` to sample curves first, and `--apply`
+to write one pixel frame. Omit `--apply` and the file stays as it was.
+Solving does not walk the timeline.
 `import-aseprite --file sprite.aseprite --output hero.json`
 reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
@@ -321,6 +325,7 @@ pub enum Command {
     /// Anchors are pixel offsets from that origin. `part translate`,
     /// `part rotate`, and `part flip` move the linked ink. Keyframed
     /// parameters live under `curve`, which samples and does not bake.
+    /// `constraint solve` tracks a hand, a butt, or a planted foot.
     Part {
         #[command(subcommand)]
         command: PartCmd,
@@ -334,6 +339,17 @@ pub enum Command {
     Curve {
         #[command(subcommand)]
         command: CurveCmd,
+    },
+    /// Follow, attach, and pin constraints. Solving is an explicit step.
+    ///
+    /// Adding a constraint does not move pixels. `solve` reads the stored
+    /// pose, or a curve pose when `--frame` is set, then translates each
+    /// driven part so the named points meet. `--apply` writes that pose
+    /// onto one pixel frame. Omit it and the file is unchanged. A second
+    /// solve stacks on the stored pose. This does not bake the timeline.
+    Constraint {
+        #[command(subcommand)]
+        command: ConstraintCmd,
     },
     /// Undo the last edit recorded in this process.
     ///
@@ -1207,5 +1223,71 @@ pub enum CurveCmd {
         /// Channel name.
         #[arg(long)]
         channel: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConstraintCmd {
+    /// Store one constraint. `stick` is saved as `attach`. Does not move pixels.
+    Add {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Constraint name. Trimmed. 1 to 64 characters. Unique in the file.
+        #[arg(long)]
+        name: String,
+        /// follow, attach, stick, or pin.
+        #[arg(long)]
+        kind: String,
+        /// Part this constraint moves.
+        #[arg(long)]
+        part: String,
+        /// Follower anchor. Omit on follow or pin to use the origin.
+        #[arg(long)]
+        anchor: Option<String>,
+        /// Part that follow or attach tracks.
+        #[arg(long)]
+        target: Option<String>,
+        /// Anchor on the target. Required for follow and attach.
+        #[arg(long)]
+        target_anchor: Option<String>,
+        /// Pin column. A leading minus is a value, and it must lie on the canvas.
+        #[arg(long, allow_hyphen_values = true)]
+        x: Option<i32>,
+        /// Pin row. A leading minus is a value, and it must lie on the canvas.
+        #[arg(long, allow_hyphen_values = true)]
+        y: Option<i32>,
+    },
+    /// List constraints. Does not change the file.
+    List {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Remove one constraint. Parts and pixels stay.
+    Remove {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Constraint name.
+        #[arg(long)]
+        name: String,
+    },
+    /// Sample an optional curve pose, then solve. `--apply` writes one frame.
+    ///
+    /// Omit `--frame` to use the stored pose, including a pose `part rotate`
+    /// already wrote. `--frame` may be fractional. Rotation, flips, and
+    /// translation are sampled around the stored origin, then constraints
+    /// translate followers. A cycle, a second driver, a missing anchor, or a
+    /// cell off the canvas returns an error and writes nothing.
+    Solve {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Curve frame. A leading minus is a value. Omit to skip curves.
+        #[arg(long, allow_hyphen_values = true)]
+        frame: Option<f64>,
+        /// Write the pose onto `--pixel-frame` or the active frame.
+        #[arg(long)]
+        apply: bool,
+        /// Pixel frame to write. Omit for the active frame.
+        #[arg(long)]
+        pixel_frame: Option<u32>,
     },
 }
