@@ -22,11 +22,16 @@ export interface ChatTool {
 }
 
 interface SchemaProperty {
-  type: "integer" | "number" | "boolean" | "string";
+  type: "integer" | "number" | "boolean" | "string" | "array";
   description: string;
   minimum?: number;
   maximum?: number;
   enum?: readonly string[];
+  items?: {
+    type: "integer" | "string";
+    minimum?: number;
+    maximum?: number;
+  };
 }
 
 const REPORT_DIRTY: SchemaProperty = {
@@ -519,7 +524,7 @@ const BY_NAME = {
   ),
   solveConstraints: tool(
     "solveConstraints",
-    "Sample curves when frame is set, then translate driven parts so follow, attach, and pin points meet. Omit frame to use the stored pose. Omit apply, or send false, and nothing is written. apply true writes one pixelFrame (the active frame when omitted) as one undo step when the pose changed. A linked layer's non-zero ink moves. An unattached part moves its origin only. A second call stacks. This does not walk the timeline.",
+    "Sample curves when frame is set, then translate driven parts so follow, attach, and pin points meet. Omit frame to use the stored pose. Omit apply, or send false, and nothing is written. apply true writes one pixelFrame (the active frame when omitted) as one undo step when the pose changed. A linked layer's non-zero ink moves. An unattached part moves its origin only. A second call stacks. This poses one frame. bake walks the timeline.",
     {
       frame: {
         type: "number",
@@ -530,6 +535,26 @@ const BY_NAME = {
         description: "Write the pose when true. Omit or false to leave the document unchanged.",
       },
       pixelFrame: int("Pixel frame to write. Omit for the active frame.", 0, 4294967295),
+    },
+  ),
+  bake: tool(
+    "bake",
+    "Sample part curves, then solve constraints, and write ordinary editable pixel frames over an inclusive index range. The source frame's pixels stay the rest pose, so a second bake does not stack. Stored part origins, curves, and constraints stay. fps sets delayMs to round(1000/fps) on every frame in the range, including the source. Omit parts to pose every part. Omit layers to write only layers a posed part moves, or the linked layers of parts when that filter is set. constraints false samples curves and skips the solver. from past the last frame appends posed copies of the source. One bake is one undo step when pixels or delays change. There is no script runtime.",
+    {
+      from: int("First frame index, inclusive. Default 0. May equal the frame count to append only.", 0, 4095),
+      to: int("Last frame index, inclusive. Default is the last existing frame. Past the end appends frames. Must be below 4096.", 0, 4095),
+      source: int("Rest-pose frame. Default 0. Its pixels are not rewritten.", 0, 4294967295),
+      fps: {
+        type: "number",
+        description: "Playback rate. Sets delayMs to round(1000/fps) on every frame in the range. Must be finite and greater than 0.",
+        minimum: 0,
+      },
+      parts: names("Pose only these parts. Omit to pose every part. An empty array is refused."),
+      layers: indices("Write only these layers. Omit to write the layers the pose moves."),
+      constraints: {
+        type: "boolean",
+        description: "Solve constraints after sampling curves. Omit or true solves them. false samples curves only.",
+      },
     },
   ),
   beginGesture: tool(
@@ -750,4 +775,16 @@ function tool(
 
 function int(description: string, minimum: number, maximum: number): SchemaProperty {
   return { type: "integer", description, minimum, maximum };
+}
+
+function names(description: string): SchemaProperty {
+  return { type: "array", description, items: { type: "string" } };
+}
+
+function indices(description: string): SchemaProperty {
+  return {
+    type: "array",
+    description,
+    items: { type: "integer", minimum: 0, maximum: 4294967295 },
+  };
 }

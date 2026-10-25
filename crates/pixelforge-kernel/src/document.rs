@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 use crate::constraint::{
     apply_deltas, canvas_local, constraints_after_rename, constraints_after_resize,
     constraints_for_parts, ink_label, motion_steps, orient_part, place_origin, prepare_constraint,
-    solve_order, Constraint, ConstraintKind, PosedPart, SolveReport, SolvedAnchor, SolvedPart,
+    solve_order, warp_ink, Constraint, ConstraintKind, MotionStep, PosedPart, SolveReport,
+    SolvedAnchor, SolvedPart,
 };
 use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
@@ -28,12 +29,227 @@ use crate::tag::{
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
+use crate::MAX_BAKE_FRAMES;
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_FRAME_DELAY_MS;
 use crate::MAX_LAYER_NAME_CHARS;
 use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
+
+/// What [`Document::bake`] was asked to write.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BakeOptions {
+    /// First frame index. `None` is 0.
+    pub from: Option<usize>,
+    /// Last frame index, inclusive. `None` is the last existing frame.
+    pub to: Option<usize>,
+    /// Frame whose pixels are the rest pose. `None` is frame 0.
+    ///
+    /// Bake never overwrites this frame. A second bake reads the same rest
+    /// ink, so it does not stack.
+    pub source: Option<usize>,
+    /// When set, each frame in the range gets `round(1000 / fps)` milliseconds.
+    pub fps: Option<f64>,
+    /// Pose only these parts. `None` poses every part. An empty list poses none.
+    pub parts: Option<Vec<String>>,
+    /// Write only these layers. `None` writes the layers the pose moves,
+    /// or the linked layers of `parts` when that filter is set.
+    pub layers: Option<Vec<usize>>,
+    /// Sample curves, then solve constraints. `false` samples curves only.
+    pub constraints: bool,
+}
+
+impl Default for BakeOptions {
+    fn default() -> Self {
+        Self {
+            from: None,
+            to: None,
+            source: None,
+            fps: None,
+            parts: None,
+            layers: None,
+            constraints: true,
+        }
+    }
+}
+
+/// One frame after [`Document::bake`].
+///
+/// `x` and `y` on each part are the posed origin. The file keeps the rest
+/// origin. `rest` is the source frame, which was not rewritten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BakeFrame {
+    pub index: usize,
+    pub rest: bool,
+    pub delay_ms: u32,
+    pub dropped: u32,
+    /// Layers whose ink was replaced from the rest pose. Empty on the source.
+    pub layers: Vec<usize>,
+    pub parts: Vec<SolvedPart>,
+}
+
+/// What [`Document::bake`] wrote. Curves and constraints are not removed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BakeReport {
+    pub from: usize,
+    pub to: usize,
+    pub source: usize,
+    pub fps: Option<f64>,
+    pub delay_ms: Option<u32>,
+    pub constraints: bool,
+    pub appended: usize,
+    pub wrote: bool,
+    pub dropped: u32,
+    pub frames: Vec<BakeFrame>,
+}
+
+struct BakePlan {
+    index: usize,
+    rest: bool,
+    delay_ms: u32,
+    is_new: bool,
+    new_frame: Option<Frame>,
+    writes: Vec<(usize, Vec<u8>, u32)>,
+    dropped: u32,
+    layers: Vec<usize>,
+    parts: Vec<SolvedPart>,
+}
+
+fn delay_from_fps(fps: f64) -> Result<u32, KernelError> {
+    if !fps.is_finite() || fps <= 0.0 {
+        return Err(KernelError::BakeFps);
+    }
+    let rounded = (1000.0 / fps).round();
+    if !rounded.is_finite() || rounded < 1.0 || rounded > f64::from(MAX_FRAME_DELAY_MS) {
+        let delay_ms = if rounded.is_finite() && (0.0..=f64::from(u32::MAX)).contains(&rounded) {
+            rounded as u32
+        } else if rounded > f64::from(u32::MAX) {
+            u32::MAX
+        } else {
+            0
+        };
+        return Err(KernelError::FrameDelay { delay_ms });
+    }
+    Ok(rounded as u32)
+}
+
+fn stored_bake_part(part: &crate::part::Part) -> SolvedPart {
+    SolvedPart {
+        name: part.name.clone(),
+        x: part.x,
+        y: part.y,
+        layer: part.layer,
+        ink: "unchanged",
+        dropped: 0,
+        anchors: part
+            .anchors
+            .iter()
+            .map(|anchor| SolvedAnchor {
+                name: anchor.name.clone(),
+                x: anchor.x,
+                y: anchor.y,
+                canvas_x: i32::from(part.x) + i32::from(anchor.x),
+                canvas_y: i32::from(part.y) + i32::from(anchor.y),
+            })
+            .collect(),
+    }
+}
+
+fn bake_write_layers(
+    posed: &[PosedPart],
+    steps: &[Vec<MotionStep>],
+    parts: Option<&[String]>,
+    layers: Option<&[usize]>,
+    layer_count: usize,
+) -> Vec<usize> {
+    let mut moving = Vec::new();
+    for (index, part) in posed.iter().enumerate() {
+        if steps[index].is_empty() {
+            continue;
+        }
+        if let Some(layer) = part.oriented.layer {
+            if !moving.contains(&layer) {
+                moving.push(layer);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for layer in 0..layer_count {
+        if layers.is_some_and(|layers| !layers.contains(&layer)) {
+            continue;
+        }
+        if let Some(names) = parts {
+            let linked = posed.iter().any(|part| {
+                names.iter().any(|name| name == &part.oriented.name)
+                    && part.oriented.layer == Some(layer)
+            });
+            if linked {
+                out.push(layer);
+            }
+            continue;
+        }
+        if layers.is_some() || moving.contains(&layer) {
+            out.push(layer);
+        }
+    }
+    out
+}
+
+fn describe_bake_parts(
+    posed: &[PosedPart],
+    steps: &[Vec<MotionStep>],
+    written: &[usize],
+    dropped: &[(usize, u32)],
+    width: u16,
+    height: u16,
+) -> Result<Vec<SolvedPart>, KernelError> {
+    let mut parts = Vec::with_capacity(posed.len());
+    for (index, part) in posed.iter().enumerate() {
+        let moves = !steps[index].is_empty();
+        let layer = part.oriented.layer;
+        let written_layer = layer.is_some_and(|layer| written.contains(&layer));
+        let lost = layer
+            .and_then(|layer| {
+                dropped
+                    .iter()
+                    .find(|(dropped_layer, _)| *dropped_layer == layer)
+                    .map(|(_, lost)| *lost)
+            })
+            .unwrap_or(0);
+        let anchors = part
+            .oriented
+            .anchors
+            .iter()
+            .map(|anchor| {
+                let (canvas_x, canvas_y) =
+                    canvas_local(part, i32::from(anchor.x), i32::from(anchor.y))?;
+                Ok(SolvedAnchor {
+                    name: anchor.name.clone(),
+                    x: anchor.x,
+                    y: anchor.y,
+                    canvas_x,
+                    canvas_y,
+                })
+            })
+            .collect::<Result<Vec<_>, KernelError>>()?;
+        let (origin_x, origin_y) = place_origin(part, width, height)?;
+        parts.push(SolvedPart {
+            name: part.oriented.name.clone(),
+            x: origin_x,
+            y: origin_y,
+            layer,
+            ink: if moves && written_layer {
+                "moved"
+            } else {
+                "unchanged"
+            },
+            dropped: if moves && written_layer { lost } else { 0 },
+            anchors,
+        });
+    }
+    Ok(parts)
+}
 
 /// Indexed pixel document: size, palette, frames, layers, delays, tags, parts, curves, constraints, and the undo stack.
 ///
@@ -2548,6 +2764,343 @@ impl Document {
             constraints: solved,
             parts: solved_parts,
         })
+    }
+
+    /// Samples part curves into pixel frames, then solves constraints.
+    ///
+    /// Each target frame is posed from the rest ink on `source` (frame 0 when
+    /// omitted), using the same curve order and constraint solver as
+    /// [`Self::solve_constraints`]. The source frame itself is not rewritten,
+    /// and the stored part origins stay at rest, so a second bake does not
+    /// stack. Curves and constraints stay in the file.
+    ///
+    /// `from`..=`to` defaults to every existing frame. `to` past the last frame
+    /// appends posed copies of the source. `from` past the frame count is
+    /// [`KernelError::BakeRange`]. `fps` sets `delayMs` to `round(1000 / fps)`
+    /// on every frame in the range, including the source.
+    ///
+    /// On an existing frame, only layers the pose moves are replaced, unless
+    /// `parts` or `layers` names them. Duplicate the rest frame first so a
+    /// body with no part is already there. Appended frames copy every source
+    /// layer, then replace the posed ones.
+    ///
+    /// A failure writes nothing. A success that changes pixels, delays, or the
+    /// frame list is one undo step. The same pixels and delays are not recorded.
+    pub fn bake(&mut self, options: BakeOptions) -> Result<BakeReport, KernelError> {
+        let delay_ms = match options.fps {
+            None => None,
+            Some(fps) => Some(delay_from_fps(fps)?),
+        };
+        let source = self.frame_or_err(options.source.unwrap_or(0))?;
+        let len = self.frames.len();
+        let from = options.from.unwrap_or(0);
+        let to = options.to.unwrap_or(len - 1);
+        if from > to || from > len || to >= MAX_BAKE_FRAMES {
+            return Err(KernelError::BakeRange { from, to, len });
+        }
+        let part_filter = match &options.parts {
+            None => None,
+            Some(names) => Some(self.normalize_bake_parts(names)?),
+        };
+        let layer_filter = match &options.layers {
+            None => None,
+            Some(layers) => Some(self.normalize_bake_layers(layers)?),
+        };
+        let included: Vec<bool> = self
+            .parts
+            .iter()
+            .map(|part| match &part_filter {
+                None => true,
+                Some(names) => names.iter().any(|name| name == &part.name),
+            })
+            .collect();
+        let source_layers: Vec<Vec<u8>> = (0..self.layer_names.len())
+            .map(|layer| self.frames[source].layer_pixels(layer).to_vec())
+            .collect();
+        let source_delay = self.frames[source].delay_ms();
+        let mut plans = Vec::with_capacity(to - from + 1);
+        for index in from..=to {
+            if index == source {
+                let delay = delay_ms.unwrap_or(source_delay);
+                plans.push(BakePlan {
+                    index,
+                    rest: true,
+                    delay_ms: delay,
+                    is_new: false,
+                    new_frame: None,
+                    writes: Vec::new(),
+                    dropped: 0,
+                    layers: Vec::new(),
+                    parts: self.parts.iter().map(stored_bake_part).collect(),
+                });
+                continue;
+            }
+            let posed = self.pose_bake(index as f64, &included, options.constraints)?;
+            let mut steps_per_part = Vec::with_capacity(posed.len());
+            let mut moving: Vec<(usize, usize)> = Vec::new();
+            for (part_index, part) in posed.iter().enumerate() {
+                let steps = motion_steps(part)?;
+                if !steps.is_empty() {
+                    if let Some(layer) = part.oriented.layer {
+                        moving.push((layer, part_index));
+                    }
+                }
+                steps_per_part.push(steps);
+            }
+            let write_layers = bake_write_layers(
+                &posed,
+                &steps_per_part,
+                part_filter.as_deref(),
+                layer_filter.as_deref(),
+                self.layer_names.len(),
+            );
+            for (layer, _) in &moving {
+                if write_layers.contains(layer)
+                    && moving.iter().filter(|(other, _)| other == layer).count() > 1
+                {
+                    return Err(KernelError::ConstraintLayer { layer: *layer });
+                }
+            }
+            let is_new = index >= len;
+            let mut writes = Vec::new();
+            let mut dropped = 0u32;
+            let mut per_layer_dropped = Vec::new();
+            for layer in &write_layers {
+                let (next, lost) = if let Some((_, part_index)) = moving
+                    .iter()
+                    .find(|(moving_layer, _)| moving_layer == layer)
+                {
+                    warp_ink(
+                        self.width,
+                        self.height,
+                        &source_layers[*layer],
+                        &steps_per_part[*part_index],
+                        |x, y| self.accepts_write(x, y),
+                    )?
+                } else {
+                    (source_layers[*layer].clone(), 0)
+                };
+                if is_new {
+                    self.reject_ink_outside(&next)?;
+                } else {
+                    self.reject_diff_outside(index, *layer, &next)?;
+                }
+                dropped = dropped.saturating_add(lost);
+                per_layer_dropped.push((*layer, lost));
+                writes.push((*layer, next, lost));
+            }
+            let parts = describe_bake_parts(
+                &posed,
+                &steps_per_part,
+                &write_layers,
+                &per_layer_dropped,
+                self.width,
+                self.height,
+            )?;
+            let delay = delay_ms.unwrap_or(if is_new {
+                source_delay
+            } else {
+                self.frames[index].delay_ms()
+            });
+            let new_frame = if is_new {
+                let mut layers = source_layers.clone();
+                for (layer, next, _) in &writes {
+                    layers[*layer] = next.clone();
+                }
+                self.reject_ink_outside_all(&layers)?;
+                Some(Frame::from_layers(layers, delay))
+            } else {
+                None
+            };
+            plans.push(BakePlan {
+                index,
+                rest: false,
+                delay_ms: delay,
+                is_new,
+                new_frame,
+                writes,
+                dropped,
+                layers: write_layers,
+                parts,
+            });
+        }
+
+        let active = self.active;
+        let mut changes = Vec::new();
+        for plan in &plans {
+            if plan.is_new {
+                let frame = plan
+                    .new_frame
+                    .clone()
+                    .expect("an appended bake frame stores its pixels");
+                let index = self.frames.len();
+                debug_assert_eq!(index, plan.index);
+                self.frames.push(frame.clone());
+                changes.push(Change::InsertFrame {
+                    index,
+                    frame,
+                    active_before: active,
+                    active_after: active,
+                });
+                continue;
+            }
+            for (layer, next, _) in &plan.writes {
+                let mut pixels = vec![None; next.len()];
+                for (offset, after) in next.iter().enumerate() {
+                    pixels[offset] = Some(*after);
+                }
+                self.push_plan(plan.index, *layer, &pixels, &mut changes);
+            }
+            let before = self.frames[plan.index].delay_ms();
+            if before != plan.delay_ms {
+                self.frames[plan.index].set_delay_ms(plan.delay_ms);
+                if plan.index == self.active && self.playback.elapsed_ms >= plan.delay_ms {
+                    self.playback.elapsed_ms = 0;
+                }
+                changes.push(Change::FrameDelay {
+                    index: plan.index,
+                    before,
+                    after: plan.delay_ms,
+                });
+            }
+        }
+        let wrote = !changes.is_empty();
+        self.history.record_group(changes);
+        let appended = plans.iter().filter(|plan| plan.is_new).count();
+        let dropped = plans
+            .iter()
+            .map(|plan| plan.dropped)
+            .fold(0u32, u32::saturating_add);
+        let frames = plans
+            .iter()
+            .map(|plan| BakeFrame {
+                index: plan.index,
+                rest: plan.rest,
+                delay_ms: plan.delay_ms,
+                dropped: plan.dropped,
+                layers: plan.layers.clone(),
+                parts: plan.parts.clone(),
+            })
+            .collect();
+        Ok(BakeReport {
+            from,
+            to,
+            source,
+            fps: options.fps,
+            delay_ms,
+            constraints: options.constraints,
+            appended,
+            wrote,
+            dropped,
+            frames,
+        })
+    }
+
+    fn pose_bake(
+        &self,
+        frame: f64,
+        included: &[bool],
+        solve: bool,
+    ) -> Result<Vec<PosedPart>, KernelError> {
+        let mut posed = Vec::with_capacity(self.parts.len());
+        for (index, part) in self.parts.iter().enumerate() {
+            let sample = if included[index] { Some(frame) } else { None };
+            posed.push(orient_part(
+                part,
+                &self.curves,
+                sample,
+                self.width,
+                self.height,
+            )?);
+        }
+        if solve {
+            let filtered: Vec<Constraint> = self
+                .constraints
+                .iter()
+                .filter(|constraint| {
+                    self.parts
+                        .iter()
+                        .enumerate()
+                        .any(|(index, part)| included[index] && part.name == constraint.part)
+                })
+                .cloned()
+                .collect();
+            let order = solve_order(&filtered)?;
+            apply_deltas(&mut posed, &filtered, &order, self.width, self.height)?;
+        } else {
+            for part in &posed {
+                place_origin(part, self.width, self.height)?;
+            }
+        }
+        Ok(posed)
+    }
+
+    fn normalize_bake_parts(&self, names: &[String]) -> Result<Vec<String>, KernelError> {
+        let mut out = Vec::new();
+        for name in names {
+            let name = normalize_part_name(name).map_err(|()| KernelError::PartName)?;
+            if self.parts.iter().all(|part| part.name != name) {
+                return Err(KernelError::PartMissing);
+            }
+            if !out.iter().any(|existing| existing == &name) {
+                out.push(name);
+            }
+        }
+        Ok(out)
+    }
+
+    fn normalize_bake_layers(&self, layers: &[usize]) -> Result<Vec<usize>, KernelError> {
+        let mut out = Vec::new();
+        for &layer in layers {
+            self.layer_or_err(layer)?;
+            if !out.contains(&layer) {
+                out.push(layer);
+            }
+        }
+        Ok(out)
+    }
+
+    fn reject_diff_outside(
+        &self,
+        frame: usize,
+        layer: usize,
+        next: &[u8],
+    ) -> Result<(), KernelError> {
+        if self.selection.is_none() {
+            return Ok(());
+        }
+        let current = self.frames[frame].layer_pixels(layer);
+        for (offset, (before, after)) in current.iter().zip(next.iter()).enumerate() {
+            if before != after && !self.accepts_offset(offset) {
+                return Err(KernelError::SelectionProtected);
+            }
+        }
+        Ok(())
+    }
+
+    fn reject_ink_outside(&self, pixels: &[u8]) -> Result<(), KernelError> {
+        if self.selection.is_none() {
+            return Ok(());
+        }
+        for (offset, index) in pixels.iter().enumerate() {
+            if *index != TRANSPARENT_INDEX && !self.accepts_offset(offset) {
+                return Err(KernelError::SelectionProtected);
+            }
+        }
+        Ok(())
+    }
+
+    fn reject_ink_outside_all(&self, layers: &[Vec<u8>]) -> Result<(), KernelError> {
+        for layer in layers {
+            self.reject_ink_outside(layer)?;
+        }
+        Ok(())
+    }
+
+    fn accepts_offset(&self, offset: usize) -> bool {
+        let x = u16::try_from(offset % usize::from(self.width)).expect("x fits in u16");
+        let y = u16::try_from(offset / usize::from(self.width)).expect("y fits in u16");
+        self.accepts_write(x, y)
     }
 
     fn transform_part(

@@ -11,7 +11,8 @@ description: >-
   270 degrees, naming parts and anchors, translating, rotating, or flipping a
   named part on the pixel grid, keyframing that part's rotation, translation,
   or flip and sampling the curve, solving a follow, attach, or pin constraint
-  so a hand, a gun butt, or a planted foot tracks an anchor, adding or
+  so a hand, a gun butt, or a planted foot tracks an anchor, baking those
+  sampled poses into editable pixel frames, adding or
   duplicating frames, undoing,
   running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
@@ -69,11 +70,11 @@ cargo run -p pixelforge-cli -- --help
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
-- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素。约束见「约束」：`constraint solve` 才把从动部件的锚点跟到目标，挂接层的墨水在 `--apply` 时一起平移。空的约束列表不写进文件。这一版不把整条时间轴烘焙成格子。
+- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素。约束见「约束」：`constraint solve` 才把从动部件的锚点跟到目标，挂接层的墨水在 `--apply` 时一起平移。空的约束列表不写进文件。`bake` 把曲线和约束采样写进一段帧的像素里，源帧的像素留着，曲线和约束也不删。见「烘焙」。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
-*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A rectangular `selection` is stored in the project and omitted when clear. Paint tools then skip cells outside it. There is no lasso. `flip` moves indices and does not recolor.*
+*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A rectangular `selection` is stored in the project and omitted when clear. Paint tools then skip cells outside it. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file.*
 
 ## Output and exit codes
 
@@ -209,9 +210,9 @@ pixelforge call --project hero.json \
 
 *A batched `call` is one process, not one edit. `beginGesture` / `endGesture` group undo only. Count each drawing request. Duplicate and merge first, then send what remains.*
 
-枪已经是挂在自己那一层上的部件时，抬枪用一次 `part rotate`，或一条旋转曲线加一次 `constraint solve --frame N --apply`。手跟握持用一条 `follow`，枪托贴肩用一条 `attach`，脚底固定用一条 `pin`，同一次 `solve` 按依赖顺序解完。挂接层的墨水跟着平移，不必把整只手再 `fillRect` 一遍。省略 `--apply` 只读报告。一次 `solveConstraints` 是一次内核操作、一步撤销。上面四条仍然管还没有变成部件的身体和扫描行。整条时间轴烘焙成格子留到以后。矩形 `hflip` / `rotate` 不搬部件。
+枪已经是挂在自己那一层上的部件时，抬枪用一次 `part rotate`，或一条旋转曲线。一帧用 `constraint solve --frame N --apply`。整段用 `bake`。手跟握持用一条 `follow`，枪托贴肩用一条 `attach`，脚底固定用一条 `pin`。挂接层的墨水跟着走，不必把整只手再 `fillRect` 一遍。省略 `--apply` 只读这一帧。一次 `solveConstraints` 或一次 `bake` 是一次内核操作、一步撤销。上面四条仍然管还没有变成部件的身体和扫描行。矩形 `hflip` / `rotate` 不搬部件。
 
-*When the gun is already a part on its own layer, one `part rotate` poses it. A raise that spans frames is a rotation curve plus one `constraint solve --frame N --apply`. A `follow` puts the hand on the grip, an `attach` puts the butt on the shoulder, and a `pin` plants the foot. That one solve runs them in dependency order and translates the linked layer, so the hand is not a second pass of `fillRect`. Omit `--apply` to read the report. One `solveConstraints` is one kernel operation and one undo step. The four rules still cover a body that is not a part. Baking the timeline into cells comes later. Rectangle `hflip` and `rotate` do not move parts.*
+*When the gun is already a part on its own layer, one `part rotate` poses it. A raise on one frame is a rotation curve plus `constraint solve --frame N --apply`. A raise across frames is `bake`. A `follow` puts the hand on the grip, an `attach` puts the butt on the shoulder, and a `pin` plants the foot. Linked ink moves with the part, so the hand is not a second pass of `fillRect`. Omit `--apply` to read that one frame. One `solveConstraints` or one `bake` is one kernel operation and one undo step. The four rules still cover a body that is not a part. Rectangle `hflip` and `rotate` do not move parts.*
 
 ## Recipes
 
@@ -358,7 +359,7 @@ pixelforge scene --project soldier.json
 
 只改 `frame`（缺省当前帧）的像素。部件列表仍是整份文档一份，所以这一下的原点描述的是你刚转过的那一帧，其它帧的像素不动。枪和别的墨水不要挂在同一层：变换搬走的是这一层上全部非 0 格。有选区时，这些格和落点必须都在选区内，否则 `SelectionProtected`，一格都不写。落出画布是 `PartOffCanvas`。
 
-不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧只采样，不把采样写进格子。见「部件曲线」。手、枪托和脚底用「约束」里的显式 `constraint solve`，一次调用解当前这一帧。整条时间轴烘焙成格子不在这里。
+不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧只采样，不把采样写进格子。见「部件曲线」。手、枪托和脚底用「约束」里的显式 `constraint solve`，一次调用解当前这一帧。整段帧用「烘焙」。
 
 *A part transform moves the linked layer's ink and the origin and anchors in one undo step. It remaps indices and does not invent colors. The pivot is the center of the origin cell, or of `--anchor`. An unattached shoulder only moves its origin.*
 
@@ -366,7 +367,7 @@ pixelforge scene --project soldier.json
 
 *`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index and reports `dropped`. Read `grid` and `degreesCenti`.*
 
-*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, or full IK chain. A keyframe curve samples a pose and does not write cells. See Part curves. A hand, a butt, and a planted foot use an explicit `constraint solve` in Constraints. That call poses one frame. Baking the timeline into cells is not here.*
+*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, or full IK chain. A keyframe curve samples a pose and does not write cells. See Part curves. A hand, a butt, and a planted foot use an explicit `constraint solve` in Constraints. That call poses one frame. A span of frames uses Bake.*
 
 ```bash
 pixelforge part translate --project soldier.json --name gun --dx 2 --dy 0
@@ -383,7 +384,7 @@ pixelforge part flip --horizontal --project soldier.json --name gun --anchor gri
 
 ### 部件曲线 Part curves
 
-曲线记的是相对静止姿势的变换参数，时间轴是帧下标，和标签、`setFrameDelay` 同一条轴。不读 `delayMs`，也不另起时钟。`curve sample` 的 `--frame` 可以是小数：`2` 是第 2 帧上的关键帧，`2.5` 是第 2 帧到第 3 帧的中点（按帧下标，不按毫秒加权）。采样不写像素，也不调用 `part rotate`。把采样交给 `part rotate` / `part translate` / `part flip` 时，要从静止姿势施加；已经转过的那一帧再施加一次会叠加上去。这一版不烘焙。
+曲线记的是相对静止姿势的变换参数，时间轴是帧下标，和标签、`setFrameDelay` 同一条轴。不读 `delayMs`，也不另起时钟。`curve sample` 的 `--frame` 可以是小数：`2` 是第 2 帧上的关键帧，`2.5` 是第 2 帧到第 3 帧的中点（按帧下标，不按毫秒加权）。采样不写像素，也不调用 `part rotate`。把采样交给 `part rotate` / `part translate` / `part flip` 时，要从静止姿势施加；已经转过的那一帧再施加一次会叠加上去。采样本身不写像素。整段写进格子用「烘焙」，不要在 `bake` 已经摆好的帧上再 `part rotate` 一次。
 
 通道是 `rotation`（顺时针角度，和 `part rotate` 一样收到 `(-180, 180]` 再量化到 0.01°）、`translateX`、`translateY`（整格，采样结果可以是小数，交给 `part translate` 之前要自己取整）、`flipHorizontal`、`flipVertical`（`0` 或 `1`）。一个部件的一个通道一条曲线。
 
@@ -397,7 +398,7 @@ pixelforge part flip --horizontal --project soldier.json --name gun --anchor gri
 
 插帧、删帧会在同一步撤销里挪关键帧下标，和标签一样。删掉某一帧上的关键帧；曲线空了就去掉。改名会带着曲线走。删掉部件或 `resize` 把原点裁出画布时，它的曲线一起去掉。没有曲线时工程文件不写 `curves`。版本仍是 1。未知字段仍然拒绝。
 
-*A curve stores transform parameters relative to the rest pose. The timeline is the frame index, the same axis as tags and `setFrameDelay`. It does not read `delayMs` and it does not start another clock. `curve sample --frame` may be fractional: `2` is the key on frame 2, and `2.5` is halfway from frame 2 to frame 3 in index space, not weighted by milliseconds. Sampling does not write pixels and does not call `part rotate`. Apply a sample with `part rotate`, `part translate`, or `part flip` from the rest pose. Applying it again on a frame that was already transformed stacks. This does not bake.*
+*A curve stores transform parameters relative to the rest pose. The timeline is the frame index, the same axis as tags and `setFrameDelay`. It does not read `delayMs` and it does not start another clock. `curve sample --frame` may be fractional: `2` is the key on frame 2, and `2.5` is halfway from frame 2 to frame 3 in index space, not weighted by milliseconds. Sampling does not write pixels and does not call `part rotate`. Apply a sample with `part rotate`, `part translate`, or `part flip` from the rest pose. Applying it again on a frame that was already transformed stacks. `bake` writes a span of those samples. Do not `part rotate` a frame that bake already posed.*
 
 *Channels are `rotation` (clockwise degrees, wrapped into `(-180, 180]` and quantized to 0.01° like `part rotate`), `translateX`, `translateY` (whole cells; a sample may be fractional, so round it before `part translate`), and `flipHorizontal`, `flipVertical` (`0` or `1`). One curve per part per channel.*
 
@@ -449,7 +450,7 @@ pixelforge curve remove --project soldier.json --part gun --channel rotation --f
 
 失败整次不写：锚点已经删掉是 `AnchorMissing`（约束还留在文件里，下次求解再报）；原点或最终墨水出画布是 `PartOffCanvas`；添加时钉点不在画布上也是 `PartOffCanvas`；选区没盖住源格和落点是 `SelectionProtected`。`apply` 省略或 false 时同样做完这些检查，返回报告，不进撤销栈。
 
-`--apply` 把姿势写进 `--pixel-frame`（缺省当前帧）：挂了层的部件，该层非 0 墨水平移，`ink` 为 `moved`；没挂层的只改原点和锚点，`ink` 为 `metadata`；这一次没有位移的是 `unchanged`。有改动才是一步撤销。再解一次会叠在存下的姿势上：曲线再采样一次就再转一次，已经对齐的约束则 `wrote` 为 false。不建新帧，也不沿时间轴逐帧写。那是以后的烘焙。
+`--apply` 把姿势写进 `--pixel-frame`（缺省当前帧）：挂了层的部件，该层非 0 墨水平移，`ink` 为 `moved`；没挂层的只改原点和锚点，`ink` 为 `metadata`；这一次没有位移的是 `unchanged`。有改动才是一步撤销。再解一次会叠在存下的姿势上：曲线再采样一次就再转一次，已经对齐的约束则 `wrote` 为 false。不建新帧，也不沿时间轴逐帧写。整段帧是「烘焙」。
 
 改名会改写约束里的 `part` 和 `target`。删掉部件会丢掉提到它的约束。`resize` 把钉点按同一偏移挪走，钉点出画布或部件被裁掉时丢掉该约束。删锚点不删约束。空列表不写 `constraints`。版本仍是 1。未知字段拒绝。
 
@@ -463,7 +464,7 @@ pixelforge curve remove --project soldier.json --part gun --channel rotation --f
 
 *A failure writes nothing. A removed anchor is `AnchorMissing` and the constraint stays for the next solve. An origin or a final ink cell off the canvas is `PartOffCanvas`. A pin cell off the canvas is `PartOffCanvas` at add time. A selection that misses a source or destination cell is `SelectionProtected`. `apply` omitted or false runs the same checks, returns the report, and does not push undo.*
 
-*`--apply` writes the pose onto `--pixel-frame`, or the active frame. A linked layer's non-zero ink translates and `ink` is `moved`. An unattached part moves its origin and anchors and `ink` is `metadata`. A part with no motion is `unchanged`. A change is one undo step. Solving again stacks on the stored pose: another curve sample turns again, and a constraint that is already met returns `wrote` false. The call does not create frames and does not walk the timeline. That bake comes later.*
+*`--apply` writes the pose onto `--pixel-frame`, or the active frame. A linked layer's non-zero ink translates and `ink` is `moved`. An unattached part moves its origin and anchors and `ink` is `metadata`. A part with no motion is `unchanged`. A change is one undo step. Solving again stacks on the stored pose: another curve sample turns again, and a constraint that is already met returns `wrote` false. The call does not create frames and does not walk the timeline. A span of frames is Bake.*
 
 *Renaming a part rewrites `part` and `target`. Removing a part drops constraints that name it. `resize` shifts pin cells with the canvas and drops a constraint whose pin or part leaves the canvas. Removing an anchor leaves the constraint. An empty list omits `constraints`. The version stays 1. Unknown fields are rejected.*
 
@@ -487,6 +488,42 @@ pixelforge constraint solve --project soldier.json --frame 4 --apply
 { "tool": "addConstraint", "params": { "name": "butt-shoulder", "kind": "stick", "part": "gun", "anchor": "butt", "target": "shoulder", "targetAnchor": "joint" } }
 { "tool": "addConstraint", "params": { "name": "plant-foot", "kind": "pin", "part": "foot", "anchor": "sole", "x": 4, "y": 11 } }
 { "tool": "solveConstraints", "params": { "frame": 4, "apply": true } }
+```
+
+### 烘焙 Bake
+
+`bake` 把曲线采样和约束求解写进普通像素帧。写完之后用现有的 `paint`、选区和 `tag` 接着改。没有内置脚本，也没有动画 DSL。外部程序驱动 CLI，例如 `examples/soldier-raise-gun.py`：画好静止姿势，复制帧，写下旋转曲线和 `follow` / `attach` / `pin`，再 `bake --fps 12`。
+
+闭区间是 `--from` 到 `--to`，缺省从 0 到最后一帧。`--source` 缺省第 0 帧，是静止墨水。这一帧的像素不改，所以再烤一次不会叠加上去。报告里的部件 `x`、`y` 是摆好的原点；文件里的原点仍是静止姿势。曲线和约束留下，不自动删。
+
+每一帧都从静止墨水摆姿势，通道顺序和 `constraint solve --frame` 相同：绕存着的原点旋转、水平翻转、垂直翻转，然后整格平移。默认先解约束。`--curves-only`（Tool API 的 `constraints: false`）只采样曲线。`--part` 可重复，只摆这些部件，从动部件也只跟被选中的目标。`--layer` 可重复，只改这些层。两个都省略时，只改这一帧里真的动了的挂接层，没挂部件的身体留在已经复制好的帧上。所以先 `frame duplicate` 静止帧，再打关键帧，再 `bake`。`--to` 超过现有帧数时追加帧，追加的帧先整帧复制源帧，再盖上摆好的层。`from` 可以等于当前帧数（只追加）。`from` 大于帧数会留出空档，是 `BakeRange`。`to` 必须小于 4096。
+
+`--fps` 把区间里每一帧（含源帧）的 `delayMs` 设成 `round(1000/fps)`。12 fps 是 83 毫秒。区间外的帧不动。fps 不是大于 0 的有限数是 `BakeFps`。四舍五入后的时长不在 `1..=65535` 是 `FrameDelay`。
+
+像素或时长有变化才记一步撤销。失败（出画布、缺锚点、环、两条驱动、同一层两个会动的部件、选区没盖住）整次不写。烘焙后的格子就是普通索引，选区、画笔、标签都认它们。工程文件仍是 version 1，没有 `bake` 字段。
+
+*bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. `examples/soldier-raise-gun.py` draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`.*
+
+*`--from` and `--to` are an inclusive range. The default is frame 0 through the last frame. `--source` defaults to frame 0 and is the rest ink. That frame's pixels are not rewritten, so a second bake does not stack. Reported part `x` and `y` are the posed origin. The file keeps the rest origin. Curves and constraints stay.*
+
+*Each frame is posed from the rest ink. Channel order matches `constraint solve --frame`: rotation, horizontal flip, and vertical flip around the stored origin, then whole-cell translation. Constraints are solved unless `--curves-only` (`constraints: false`) is set. Repeat `--part` to pose only those parts; a follower tracks a target only when that target is included. Repeat `--layer` to write only those layers. With neither filter, only a layer that a moving part uses is replaced, so a body with no part stays on frames you duplicated first. Duplicate the rest frame, then set keys, then bake. `--to` past the last frame appends. An appended frame copies every source layer, then overwrites the posed layers. `from` may equal the frame count. `from` past the frame count is `BakeRange`, because it would leave a gap. `to` must be below 4096.*
+
+*`--fps` sets `delayMs` to `round(1000/fps)` on every frame in the range, including the source. 12 fps is 83 ms. Frames outside the range keep their delay. A non-finite or non-positive fps is `BakeFps`. A rounded delay outside `1..=65535` is `FrameDelay`.*
+
+*A change to pixels or delays is one undo step. A failure writes nothing: off canvas, a missing anchor, a cycle, a second driver, two moving parts on one layer, or a selection that misses a cell. Baked cells are ordinary indices, so selection, paint, and tags accept them. The project stays version 1 and has no `bake` field.*
+
+```bash
+pixelforge frame duplicate --project soldier.json --index 0
+pixelforge curve set --project soldier.json --part gun --channel rotation --frame 0 --value 0
+pixelforge curve set --project soldier.json --part gun --channel rotation --frame 4 --value 90
+pixelforge bake --project soldier.json --from 0 --to 4 --fps 12
+pixelforge bake --project soldier.json --part gun --part hand --layer 0
+pixelforge bake --project soldier.json --from 4 --to 4 --curves-only
+```
+
+```json
+{ "tool": "bake", "params": { "from": 0, "to": 11, "fps": 12 } }
+{ "tool": "bake", "params": { "parts": ["gun", "hand"], "layers": [0], "constraints": false } }
 ```
 
 ### Palette

@@ -25,9 +25,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    AnchorCmd, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EraseRectArgs, ExportCmd,
-    FillRectArgs, FlipArgs, FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd, PartCmd,
-    ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
+    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EraseRectArgs,
+    ExportCmd, FillRectArgs, FlipArgs, FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd,
+    PartCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -110,6 +110,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Part { command } => cmd_part(command),
         Command::Curve { command } => cmd_curve(command),
         Command::Constraint { command } => cmd_constraint(command),
+        Command::Bake(args) => cmd_bake(args),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
@@ -993,6 +994,32 @@ fn cmd_curve(command: CurveCmd) -> i32 {
             )],
         ),
     }
+}
+
+fn cmd_bake(args: BakeArgs) -> i32 {
+    let mut params = serde_json::Map::new();
+    if let Some(from) = args.from {
+        params.insert("from".into(), json!(from));
+    }
+    if let Some(to) = args.to {
+        params.insert("to".into(), json!(to));
+    }
+    if let Some(source) = args.source {
+        params.insert("source".into(), json!(source));
+    }
+    if let Some(fps) = args.fps {
+        params.insert("fps".into(), json!(fps));
+    }
+    if !args.parts.is_empty() {
+        params.insert("parts".into(), json!(args.parts));
+    }
+    if !args.layers.is_empty() {
+        params.insert("layers".into(), json!(args.layers));
+    }
+    if args.curves_only {
+        params.insert("constraints".into(), json!(false));
+    }
+    apply(&args.doc, vec![request("bake", Value::Object(params))])
 }
 
 fn cmd_constraint(command: ConstraintCmd) -> i32 {
