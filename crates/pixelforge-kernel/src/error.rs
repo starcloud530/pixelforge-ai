@@ -79,6 +79,12 @@ pub enum KernelError {
     AnchorMissing,
     /// An anchor's local `x` or `y` is outside `-MAX_CANVAS_EDGE..=MAX_CANVAS_EDGE`.
     AnchorCoord { x: i32, y: i32 },
+    /// A part angle is not finite, or its absolute value is above 1_000_000.
+    PartAngle,
+    /// A part transform would move the origin or an ink cell off the canvas.
+    ///
+    /// `x` and `y` are the cell that would not fit. The call writes nothing.
+    PartOffCanvas { x: i32, y: i32 },
     /// A move would write or clear a cell outside the rectangular selection.
     ///
     /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
@@ -231,6 +237,8 @@ impl KernelError {
             Self::AnchorName => "AnchorName",
             Self::AnchorMissing => "AnchorMissing",
             Self::AnchorCoord { .. } => "AnchorCoord",
+            Self::PartAngle => "PartAngle",
+            Self::PartOffCanvas { .. } => "PartOffCanvas",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -337,6 +345,16 @@ impl fmt::Display for KernelError {
                 f,
                 "anchor {x},{y} is outside -{MAX_CANVAS_EDGE}..={MAX_CANVAS_EDGE}"
             ),
+            Self::PartAngle => write!(
+                f,
+                "part angle must be a finite number of degrees from -1000000 to 1000000"
+            ),
+            Self::PartOffCanvas { x, y } => {
+                write!(
+                    f,
+                    "part transform would place a cell at {x},{y} outside the canvas"
+                )
+            }
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
@@ -515,6 +533,11 @@ mod tests {
             "tag 0 loop must be forward, reverse, pingpong, or once"
         );
         assert_eq!(KernelError::PartMissing.code(), "PartMissing");
+        assert_eq!(KernelError::PartAngle.code(), "PartAngle");
+        assert_eq!(
+            KernelError::PartOffCanvas { x: -1, y: 2 }.to_string(),
+            "part transform would place a cell at -1,2 outside the canvas"
+        );
         assert_eq!(
             KernelError::AnchorCoord { x: 300, y: 0 }.to_string(),
             "anchor 300,0 is outside -256..=256"

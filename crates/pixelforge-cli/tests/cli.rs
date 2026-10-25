@@ -503,6 +503,9 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"resizeCanvas"));
     assert!(names.contains(&"addPart"));
     assert!(names.contains(&"setAnchor"));
+    assert!(names.contains(&"translatePart"));
+    assert!(names.contains(&"rotatePart"));
+    assert!(names.contains(&"flipPart"));
     assert!(names.contains(&"undo"));
 }
 
@@ -2582,4 +2585,137 @@ fn glyph_at(body: &Value, x: usize, y: usize) -> char {
         .chars()
         .nth(x)
         .unwrap()
+}
+
+#[test]
+fn part_transforms_move_the_gun_on_the_grid() {
+    let scratch = Scratch::new();
+    let project = scratch.child("gun.json");
+    let path = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new", "--width", "8", "--height", "8", "--output", path
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            path,
+            "--x",
+            "4",
+            "--y",
+            "3",
+            "--color-index",
+            "1"
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "part",
+            "add",
+            "--project",
+            path,
+            "--name",
+            "gun",
+            "--layer",
+            "0",
+            "--x",
+            "3",
+            "--y",
+            "3"
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "part",
+            "anchor",
+            "set",
+            "--project",
+            path,
+            "--part",
+            "gun",
+            "--name",
+            "grip",
+            "--x",
+            "1",
+            "--y",
+            "0"
+        ]))),
+        0
+    );
+    let quant = pixelforge(&arg(&[
+        "part",
+        "rotate",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--degrees",
+        "20.004",
+    ]));
+    assert_eq!(status(&quant), 0, "{}", stderr(&quant));
+    assert_eq!(json_lines(&quant)[0]["result"]["grid"], json!("nearest"));
+    assert_eq!(json_lines(&quant)[0]["result"]["degreesCenti"], json!(2000));
+    let moved = pixelforge(&arg(&[
+        "part",
+        "translate",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--dx",
+        "1",
+        "--dy",
+        "-1",
+        "--dirty",
+    ]));
+    assert_eq!(status(&moved), 0, "{}", stderr(&moved));
+    let body = &json_lines(&moved)[0]["result"];
+    assert_eq!(body["alignment"], json!("translate"));
+    assert_eq!(body["dx"], json!(1));
+    assert!(body["changed"].as_u64().unwrap() > 0);
+    let turned = pixelforge(&arg(&[
+        "part",
+        "rotate",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--degrees",
+        "90",
+        "--anchor",
+        "grip",
+    ]));
+    assert_eq!(status(&turned), 0, "{}", stderr(&turned));
+    assert_eq!(json_lines(&turned)[0]["result"]["grid"], json!("quarter"));
+    assert_eq!(
+        json_lines(&turned)[0]["result"]["alignment"],
+        json!("center-on-anchor")
+    );
+    let missing = pixelforge(&arg(&["part", "flip", "--project", path, "--name", "gun"]));
+    assert_eq!(status(&missing), 2, "{}", stderr(&missing));
+    let flipped = pixelforge(&arg(&[
+        "part",
+        "flip",
+        "--horizontal",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--anchor",
+        "grip",
+    ]));
+    assert_eq!(status(&flipped), 0, "{}", stderr(&flipped));
+    assert_eq!(
+        json_lines(&flipped)[0]["result"]["direction"],
+        json!("horizontal")
+    );
+    assert_eq!(
+        json_lines(&flipped)[0]["result"]["sampling"],
+        json!("exact")
+    );
 }

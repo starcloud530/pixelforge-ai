@@ -8,9 +8,10 @@ use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
 use crate::part::{
     anchor_offset_i64, normalize_part_name, parts_after_flatten, parts_after_layer_insert,
-    parts_after_layer_remove, parts_after_reorder, parts_after_resize, LayerAttach, Part,
+    parts_after_layer_remove, parts_after_reorder, parts_after_resize, Anchor, LayerAttach, Part,
     PartUpdate,
 };
+use crate::part_xform::{self, map_point, CellMap, Motion, PartPose};
 use crate::selection::Selection;
 use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
@@ -1990,6 +1991,256 @@ impl Document {
         Ok((part_index, anchor_index))
     }
 
+    /// Moves a part by whole cells.
+    ///
+    /// The origin and every anchor's canvas cell shift by `(dx, dy)`. Local
+    /// anchor offsets stay. Ink on the linked layer of `frame` shifts with
+    /// them. An unattached part only moves its metadata. One undo step when
+    /// anything changes. A zero move is not recorded. `frame` is not selected.
+    ///
+    /// Every non-zero cell on that layer must land on the canvas. When a
+    /// selection is set, every non-zero cell and its destination must lie
+    /// inside it, the same all-or-nothing rule as [`Self::move_rect`]. The
+    /// call writes nothing when either check fails.
+    pub fn translate_part(
+        &mut self,
+        name: &str,
+        dx: i32,
+        dy: i32,
+        frame: usize,
+    ) -> Result<PartPose, KernelError> {
+        self.transform_part(name, Motion::Translate { dx, dy }, None, frame)
+    }
+
+    /// Turns a part clockwise around its origin, or around a named anchor.
+    ///
+    /// The pivot is the center of that cell. See [`crate::part_xform`] for the
+    /// 0.01° quantization and the nearest-neighbor rule. Quarter turns use an
+    /// integer map. One undo step on `frame` plus the part. `frame` is not
+    /// selected. A multiple of 360° that quantizes to 0 is not recorded.
+    pub fn rotate_part(
+        &mut self,
+        name: &str,
+        degrees: f64,
+        anchor: Option<&str>,
+        frame: usize,
+    ) -> Result<PartPose, KernelError> {
+        self.transform_part(name, Motion::Rotate(degrees), anchor, frame)
+    }
+
+    /// Mirrors a part around its origin, or around a named anchor.
+    ///
+    /// `vertical` is false for a left-right mirror. The mirror fixes the pivot
+    /// cell: `x` becomes `2 * pivot_x - x` (or the same for `y`). Indices
+    /// move and colors do not. Applying the same flip again restores a part
+    /// whose ink stayed on the canvas. One undo step. `frame` is not selected.
+    pub fn flip_part(
+        &mut self,
+        name: &str,
+        vertical: bool,
+        anchor: Option<&str>,
+        frame: usize,
+    ) -> Result<PartPose, KernelError> {
+        let motion = if vertical {
+            Motion::FlipVertical
+        } else {
+            Motion::FlipHorizontal
+        };
+        self.transform_part(name, motion, anchor, frame)
+    }
+
+    fn transform_part(
+        &mut self,
+        name: &str,
+        motion: Motion,
+        anchor: Option<&str>,
+        frame: usize,
+    ) -> Result<PartPose, KernelError> {
+        let name = normalize_part_name(name).map_err(|()| KernelError::PartName)?;
+        let index = self.part_position(&name)?;
+        let frame = self.frame_or_err(frame)?;
+        let part = self.parts[index].clone();
+        let pivot_anchor = match anchor {
+            None => None,
+            Some(raw) => Some(normalize_part_name(raw).map_err(|()| KernelError::AnchorName)?),
+        };
+        let (pivot_x, pivot_y) = match &pivot_anchor {
+            None => (i32::from(part.x), i32::from(part.y)),
+            Some(anchor_name) => part
+                .anchor_canvas(anchor_name)
+                .ok_or(KernelError::AnchorMissing)?,
+        };
+        let resolved = part_xform::resolve_motion(motion)?;
+        let (origin_x, origin_y) = self.mapped_canvas_cell(
+            i32::from(part.x),
+            i32::from(part.y),
+            pivot_x,
+            pivot_y,
+            &resolved.map,
+        )?;
+        let anchors =
+            self.mapped_anchors(&part, origin_x, origin_y, pivot_x, pivot_y, &resolved.map)?;
+        let (planned, dropped) =
+            self.plan_part_ink(&part, frame, pivot_x, pivot_y, &resolved.map)?;
+        let mut next_parts = self.parts.clone();
+        next_parts[index] = Part {
+            x: origin_x,
+            y: origin_y,
+            anchors,
+            ..part
+        };
+        let parts_changed = next_parts != self.parts;
+        let pixels_changed = planned.as_ref().is_some_and(|(_, next, old)| next != old);
+        let alignment = if resolved.dx.is_some() {
+            "translate"
+        } else if pivot_anchor.is_some() {
+            "center-on-anchor"
+        } else {
+            "center-on-origin"
+        };
+        if parts_changed || pixels_changed {
+            let mut changes = Vec::new();
+            if let Some((layer, next, old)) = planned {
+                let mut plan = vec![None; next.len()];
+                for (offset, (before, after)) in old.iter().zip(next.iter()).enumerate() {
+                    if before != after {
+                        plan[offset] = Some(*after);
+                    }
+                }
+                self.push_plan(frame, layer, &plan, &mut changes);
+            }
+            if parts_changed {
+                let before = std::mem::replace(&mut self.parts, next_parts);
+                changes.push(Change::Parts {
+                    before,
+                    after: self.parts.clone(),
+                });
+            }
+            self.history.record_group(changes);
+        }
+        Ok(PartPose {
+            index,
+            frame,
+            pivot_x,
+            pivot_y,
+            pivot_anchor,
+            alignment,
+            sampling: resolved.sampling,
+            grid: resolved.grid,
+            degrees_centi: resolved.degrees_centi,
+            dx: resolved.dx,
+            dy: resolved.dy,
+            direction: resolved.direction,
+            dropped,
+        })
+    }
+
+    fn mapped_canvas_cell(
+        &self,
+        x: i32,
+        y: i32,
+        pivot_x: i32,
+        pivot_y: i32,
+        map: &CellMap,
+    ) -> Result<(u16, u16), KernelError> {
+        let (x, y) = map_point(map, x, y, pivot_x, pivot_y)
+            .map_err(|(x, y)| KernelError::PartOffCanvas { x, y })?;
+        self.require_canvas_cell(x, y)
+    }
+
+    fn mapped_anchors(
+        &self,
+        part: &Part,
+        origin_x: u16,
+        origin_y: u16,
+        pivot_x: i32,
+        pivot_y: i32,
+        map: &CellMap,
+    ) -> Result<Vec<Anchor>, KernelError> {
+        let mut anchors = Vec::with_capacity(part.anchors.len());
+        for anchor in &part.anchors {
+            let canvas_x = i32::from(part.x).saturating_add(i32::from(anchor.x));
+            let canvas_y = i32::from(part.y).saturating_add(i32::from(anchor.y));
+            let (mapped_x, mapped_y) = map_point(map, canvas_x, canvas_y, pivot_x, pivot_y)
+                .map_err(|(x, y)| KernelError::PartOffCanvas { x, y })?;
+            let local_x = i64::from(mapped_x) - i64::from(origin_x);
+            let local_y = i64::from(mapped_y) - i64::from(origin_y);
+            let Some((local_x, local_y)) = anchor_offset_i64(local_x, local_y) else {
+                return Err(KernelError::AnchorCoord {
+                    x: i32_from_i64(local_x),
+                    y: i32_from_i64(local_y),
+                });
+            };
+            anchors.push(Anchor {
+                name: anchor.name.clone(),
+                x: local_x,
+                y: local_y,
+            });
+        }
+        Ok(anchors)
+    }
+
+    /// New ink buffer for the part's layer, or `None` when the part is unattached.
+    ///
+    /// The returned old buffer is the layer before the transform. `dropped` is
+    /// the number of ink cells that lost a nearest-neighbor collision.
+    fn plan_part_ink(
+        &self,
+        part: &Part,
+        frame: usize,
+        pivot_x: i32,
+        pivot_y: i32,
+        map: &CellMap,
+    ) -> Result<(Option<(usize, Vec<u8>, Vec<u8>)>, u32), KernelError> {
+        let Some(layer) = part.layer else {
+            return Ok((None, 0));
+        };
+        let layer = self.layer_or_err(layer)?;
+        let old = self.frames[frame].layer_pixels(layer).to_vec();
+        let mut next = old.clone();
+        let mut moves = Vec::new();
+        for y in 0..self.height {
+            let row = pixel_len(self.width, y);
+            for x in 0..self.width {
+                let offset = row + usize::from(x);
+                let index = old[offset];
+                if index == TRANSPARENT_INDEX {
+                    continue;
+                }
+                let (dest_x, dest_y) =
+                    self.mapped_canvas_cell(i32::from(x), i32::from(y), pivot_x, pivot_y, map)?;
+                if !self.accepts_write(x, y) || !self.accepts_write(dest_x, dest_y) {
+                    return Err(KernelError::SelectionProtected);
+                }
+                let dest = pixel_len(self.width, dest_y) + usize::from(dest_x);
+                moves.push((offset, index, dest));
+            }
+        }
+        let mut claimed = vec![false; old.len()];
+        let mut unique = 0u32;
+        for (_, _, dest) in &moves {
+            if !claimed[*dest] {
+                claimed[*dest] = true;
+                unique += 1;
+            }
+        }
+        let dropped = u32::try_from(moves.len()).unwrap_or(u32::MAX) - unique;
+        for (offset, _, _) in &moves {
+            next[*offset] = TRANSPARENT_INDEX;
+        }
+        for (_, index, dest) in &moves {
+            next[*dest] = *index;
+        }
+        Ok((Some((layer, next, old)), dropped))
+    }
+
+    fn require_canvas_cell(&self, x: i32, y: i32) -> Result<(u16, u16), KernelError> {
+        match (u16::try_from(x), u16::try_from(y)) {
+            (Ok(x), Ok(y)) if x < self.width && y < self.height => Ok((x, y)),
+            _ => Err(KernelError::PartOffCanvas { x, y }),
+        }
+    }
+
     /// True while [`Self::tick`] advances frames.
     pub fn playing(&self) -> bool {
         self.playback.playing
@@ -2732,6 +2983,10 @@ fn check_size(width: u16, height: u16) -> Result<(), KernelError> {
     } else {
         Ok(())
     }
+}
+
+fn i32_from_i64(value: i64) -> i32 {
+    i32::try_from(value).unwrap_or(if value > 0 { i32::MAX } else { i32::MIN })
 }
 
 fn pixel_len(width: u16, height: u16) -> usize {
