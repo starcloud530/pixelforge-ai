@@ -25,9 +25,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    AnchorCmd, BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs,
-    FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd, PartCmd, ProjectArgs, ReplaceIndexArgs,
-    ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
+    AnchorCmd, BlitRectArgs, Cli, Command, CurveCmd, EraseRectArgs, ExportCmd, FillRectArgs,
+    FlipArgs, FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd, PartCmd, ProjectArgs,
+    ReplaceIndexArgs, ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -108,6 +108,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Tag { command } => cmd_tag(command),
         Command::Layer { command } => cmd_layer(command),
         Command::Part { command } => cmd_part(command),
+        Command::Curve { command } => cmd_curve(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
@@ -908,6 +909,105 @@ fn cmd_part(command: PartCmd) -> i32 {
             }
             apply(&doc, vec![request("flipPart", with_dirty(params, dirty))])
         }
+    }
+}
+
+fn cmd_curve(command: CurveCmd) -> i32 {
+    match command {
+        CurveCmd::Set {
+            doc,
+            part,
+            channel,
+            frame,
+            value,
+            ease,
+        } => {
+            let mut params = json!({
+                "part": part,
+                "channel": curve_channel(&channel),
+                "frame": frame,
+                "value": value,
+            });
+            if let Some(ease) = ease {
+                params["ease"] = json!(curve_ease(&ease));
+            }
+            apply(&doc, vec![request("setCurveKey", params)])
+        }
+        CurveCmd::List { doc, part } => {
+            let mut params = json!({});
+            if let Some(part) = part {
+                params["part"] = json!(part);
+            }
+            apply(&doc, vec![request("listCurves", params)])
+        }
+        CurveCmd::Sample {
+            doc,
+            part,
+            channel,
+            frame,
+        } => match channel {
+            Some(channel) => apply(
+                &doc,
+                vec![request(
+                    "sampleCurve",
+                    json!({
+                        "part": part,
+                        "channel": curve_channel(&channel),
+                        "frame": frame,
+                    }),
+                )],
+            ),
+            None => apply(
+                &doc,
+                vec![request(
+                    "samplePart",
+                    json!({ "part": part, "frame": frame }),
+                )],
+            ),
+        },
+        CurveCmd::Remove {
+            doc,
+            part,
+            channel,
+            frame,
+        } => apply(
+            &doc,
+            vec![request(
+                "removeCurveKey",
+                json!({
+                    "part": part,
+                    "channel": curve_channel(&channel),
+                    "frame": frame,
+                }),
+            )],
+        ),
+        CurveCmd::Clear { doc, part, channel } => apply(
+            &doc,
+            vec![request(
+                "clearCurve",
+                json!({
+                    "part": part,
+                    "channel": curve_channel(&channel),
+                }),
+            )],
+        ),
+    }
+}
+
+fn curve_channel(raw: &str) -> String {
+    match raw {
+        "translate-x" | "translate_x" => "translateX".to_string(),
+        "translate-y" | "translate_y" => "translateY".to_string(),
+        "flip-horizontal" | "flip_horizontal" => "flipHorizontal".to_string(),
+        "flip-vertical" | "flip_vertical" => "flipVertical".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn curve_ease(raw: &str) -> String {
+    match raw {
+        "ease-in-out" | "ease_in_out" => "easeInOut".to_string(),
+        other => other.to_string(),
     }
 }
 

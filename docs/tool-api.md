@@ -99,13 +99,18 @@
 | `AnchorCoord` | 锚点的本地 `x` 或 `y` 不在 `-256..=256` |
 | `PartAngle` | 部件角度不是有限数，或绝对值大于 1000000 |
 | `PartOffCanvas` | 部件变换会把原点或某个非 0 格放到画布外。一格都不写 |
+| `CurveValue` | 曲线的值对这个通道不合法。旋转要有限且绝对值不超过 1000000。平移必须是 `i32` 里的整数格。翻转是 `0` 或 `1` |
+| `CurveEase` | 这个通道不接受这个缓动。翻转只能 `hold` |
+| `CurveMissing` | 这个部件没有该通道的曲线 |
+| `CurveKeyMissing` | 这条曲线在该帧上没有关键帧 |
+| `CurveFrame` | 采样位置不是有限数 |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
 | `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。部件变换时，挂接层上有非 0 格或其落点不在选区内。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
-| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，或某个 `parts` 项的名字、原点、层、锚点不合法时，也是这个码 |
+| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，某个 `parts` 项的名字、原点、层、锚点不合法，或某个 `curves` 项的部件、通道、关键帧、缓动、数值不合法时，也是这个码 |
 | `AsepriteFile` | `.aseprite` 字节截断、魔数不对、压缩 cel 解不开，或层 / cel 结构读不完 |
 | `AsepriteSize` | 画布边长不在 `1..=256` |
 | `AsepriteColorMode` | 颜色深度不是索引 8 位 |
@@ -123,13 +128,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart` 或 `flipPart` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, and `listParts`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, or part translate / rotate / flip that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, and `samplePart`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, or curve-key edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -161,6 +166,7 @@
 | `selection` | 矩形选区 `{ "x", "y", "width", "height" }`，或 `null`。见「选区」 |
 | `tags` | `{ "index", "name", "from", "to", "loop" }` 数组，按添加顺序。没有标签时是 `[]`。见「动画标签」 |
 | `parts` | `{ "index", "name", "x", "y", "layer", "anchors" }` 数组，按添加顺序。没有部件时是 `[]`。见「部件与锚点」 |
+| `curves` | `{ "index", "part", "channel", "keys" }` 数组，按添加顺序。没有曲线时是 `[]`。见「部件曲线」 |
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
@@ -192,6 +198,7 @@
 | `frames` | `{ "index", "delayMs" }`，时间轴顺序 |
 | `tags` | 与 `inspect` 相同。没有标签时是 `[]` |
 | `parts` | 与 `inspect` 相同。没有部件时是 `[]` |
+| `curves` | 与 `inspect` 相同。没有曲线时是 `[]` |
 
 `visible` 恒为 `true`。`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层，不按 alpha 混合。
 
@@ -542,7 +549,7 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 *A part is not a layer and not a second pixel buffer. The layer stack stays the paint stack. `layer` names the paint layer whose pixels belong to the part, and does not select that layer. Omit it for a rig point such as a shoulder. Several parts may name one layer.*
 
-*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The file does not store a rotation angle, a curve, a constraint, or a bake.*
+*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The part record does not store a rotation angle. Parameter curves live in `curves`, not on the part. The file does not store a constraint or a bake.*
 
 *Rectangle `flipHorizontal`, `flipVertical`, and `rotate` move indices only. They do not move parts or anchors. `translatePart`, `rotatePart`, and `flipPart` move the linked layer's indices on one frame and update the origin and anchors in that same undo step. `resizeCanvas` translates each origin by the same offset and drops a part, in that same undo step, when the origin would leave the new canvas. Local anchor offsets stay put.*
 
@@ -637,7 +644,7 @@ CLI：`pixelforge part translate --name gun --dx 2 --dy -1`。`--frame` 指定�
 
 只改 `frame`（缺省为当前帧）上挂接层的索引，并改这一份原点与锚点。锚点先变成画布坐标再映射，然后重新写成相对新原点的本地格，这样握持点在整数变换里仍停在原来的画布格上。本地结果超出 `-256..=256` 时是 `AnchorCoord`，一格都不写。落点出画布是 `PartOffCanvas`。选区规则与 `translatePart` 相同。量化成 0° 时不进撤销栈。
 
-不做自由仿射、亚像素合成、骨骼界面、脚本、曲线（#56）、约束（#57）或烘焙（#58）。
+不做自由仿射、亚像素合成、骨骼界面或脚本。关键帧采样见「部件曲线」，它不写像素。约束（#57）和烘焙（#58）不在这里。
 
 CLI：`pixelforge part rotate --name gun --degrees 90 --anchor grip`。
 
@@ -658,6 +665,106 @@ CLI：`pixelforge part flip --horizontal --name gun --anchor grip`。必须恰�
 错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`、`AnchorCoord`、`PartOffCanvas`、`SelectionProtected`、`FrameIndex`、`LayerIndex`。`direction` 不是那两个字符串时是 `InvalidParams`。
 
 *Translate, rotate, and flip a part on the indexed grid. The pivot is the center of the origin cell, or of a named anchor. Quarter turns, flips, and translates are exact integer maps. Any other angle quantizes to 0.01° (ties away from zero) and then each ink cell center snaps to the nearest cell (ties away from the pivot). Indices move; colors are not invented. One frame's linked layer moves with the origin and anchors in one undo step. Rectangle flip and rotate still leave parts where they are.*
+
+### 部件曲线 Part curves
+
+曲线是部件变换参数在帧下标上的轨道，和标签、`delayMs` 共用这一条时间轴。采样不读 `delayMs`，也不推动播放时钟。`frame` 为整数时是某一帧；为小数时落在两帧之间。`2` 是第 2 帧，`2.5` 是第 2 帧到第 3 帧的中点（按帧下标，不按毫秒）。结果是相对静止姿势的参数。它不写像素，也不调用 `rotatePart` / `translatePart` / `flipPart`。外部代码或以后的烘焙从静止姿势施加这些数；已经变换过的帧再施加一次会叠加上去。
+
+一个部件的一个通道一条曲线。通道：
+
+| `channel` | `value` | 缺省 `ease` |
+| --- | --- | --- |
+| `rotation` | 顺时针角度。和 `rotatePart` 一样收到 `(-180, 180]`，量化到 0.01°，平局远离 0 | `linear` |
+| `translateX`, `translateY` | 相对静止原点的整格。必须是整数 | `linear` |
+| `flipHorizontal`, `flipVertical` | `0` 或 `1` | `hold` |
+
+关键帧上的 `ease` 是离开这一帧、走向下一帧。最后一帧的 `ease` 会存下来，只有后面再出现关键帧才参与采样。`t = (frame - left) / (right - left)`，`u` 是权重，采样值是 `left + (right - left) * u`：
+
+- `linear`：`u = t`
+- `easeInOut`：`u = t² (3 − 2t)`（Hermite smoothstep）。`t = 1/2` 时 `u = 1/2`，中点和线性相同。`t = 1/4` 时 `u = 5/32`
+- `hold`：`u = 0`，停在左关键帧，直到下一关键帧的下标。翻转只能用这个
+
+旋转在存好的百分之一度上混合，不走 ±180° 的短弧。关键帧区间外夹住端点（`interpolation` 为 `clamp`）。正好落在关键帧上返回该帧（`interpolation` 为 `key`），不混合。
+
+插帧、删帧在同一步撤销里挪关键帧下标。删掉的那一帧上的关键帧被去掉；曲线空了就去掉。部件改名会带着曲线走。删掉部件，或 `resizeCanvas` 把原点裁出画布，曲线一起去掉。工程文件版本仍是 1。没有曲线时不写 `curves`。缺这个字段的旧文件按没有曲线读入。未知字段仍然拒绝。文件里的 `ease` 缺省时不写。
+
+*A curve is a track of part-transform parameters on the frame index, the same axis as tags and `delayMs`. Sampling does not read `delayMs` and does not move the playback clock. An integer `frame` is that frame. A fractional `frame` falls between frames: `2` is frame 2, and `2.5` is halfway from frame 2 to frame 3 in index space, not weighted by milliseconds. The number is the pose relative to the rest origin. It does not write pixels and it does not call `rotatePart`, `translatePart`, or `flipPart`. Later code, or a later bake, applies it from the rest pose. Applying it again on a frame that was already transformed stacks.*
+
+*One curve per part per channel. The ease on a key is how that key leaves toward the next one. The last key's ease is stored and used only after a later key exists. `t = (frame - left) / (right - left)` and the sample is `left + (right - left) * u`.*
+
+- *`linear`: `u = t`*
+- *`easeInOut`: `u = t² (3 − 2t)` (Hermite smoothstep). At `t = 1/2`, `u = 1/2`, so the midpoint matches linear. At `t = 1/4`, `u = 5/32`*
+- *`hold`: `u = 0` until the next key. Flip channels accept only this*
+
+*Rotation blends stored centi-degrees and does not take the short arc across ±180°. Outside the span, `interpolation` is `clamp`. On a key it is `key`. Inserting or deleting a frame moves key indices in that undo step. A key on a deleted frame is dropped, and an empty curve is dropped. Renaming a part renames its curves. Removing a part, or a resize that drops its origin, drops its curves. The project version stays 1. An empty list is omitted. An older file that lacks `curves` loads with none. Unknown fields are still rejected. A default ease is omitted from the file.*
+
+### `setCurveKey`
+
+`params`：`part`、`channel`、`frame`、`value`。可选 `ease`。
+
+`frame` 必须是已有帧的下标。同一帧再设一次会替换值和缓动。结果和已存的关键帧相同时不进撤销栈。
+
+`result`：`index`、`keyIndex`、`part`、`channel`、`frame`、`value`（量化后的数）、`ease`。
+
+CLI：`pixelforge curve set --part gun --channel rotation --frame 0 --value 0 --ease ease-in-out`。`--ease ease-in-out` 和 `easeInOut` 相同。`--channel translate-x` 和 `translateX` 相同。
+
+错误：`PartName`、`PartMissing`、`FrameIndex`、`CurveValue`、`CurveEase`。`channel` 或 `ease` 不是已知名字时是 `InvalidParams`。
+
+### `removeCurveKey`
+
+`params`：`part`、`channel`、`frame`。
+
+删掉这一帧上的关键帧。最后一帧被删掉时，整条曲线去掉，`removedCurve` 为 true。像素不动。
+
+`result`：`index`、`part`、`channel`、`frame`、`removedCurve`。
+
+CLI：`pixelforge curve remove --part gun --channel rotation --frame 0`。
+
+错误：`PartName`、`PartMissing`、`CurveMissing`、`CurveKeyMissing`。
+
+### `clearCurve`
+
+`params`：`part`、`channel`。
+
+删掉这一条曲线。
+
+`result`：`index`、`part`、`channel`。
+
+CLI：`pixelforge curve clear --part gun --channel rotation`。
+
+错误：`PartName`、`PartMissing`、`CurveMissing`。
+
+### `listCurves`
+
+`params`：无，或可选 `part`。只读。
+
+`result`：`{ "curves": [ { "index", "part", "channel", "keys": [ { "frame", "value", "ease" } ] } ] }`。响应里的 `ease` 总是写出，包括缺省值。指定了 `part` 但部件不存在时是 `PartMissing`，不是空数组。
+
+CLI：`pixelforge curve list --part gun`。
+
+### `sampleCurve`
+
+`params`：`part`、`channel`、`frame`。`frame` 是有限数，可以是小数。只读。不写像素。
+
+`result`：`part`、`channel`、`frame`、`value`、`interpolation`（`key`、`clamp`、`linear`、`easeInOut` 或 `hold`）、`leftFrame`、`rightFrame`（夹住或正好在关键帧上时是 `null`）。
+
+从 0° 到 90°，`easeInOut` 在中点是 45，在四分点是 14.0625。线性的四分点是 22.5。
+
+CLI：`pixelforge curve sample --part gun --channel rotation --frame 2`。
+
+错误：`PartName`、`PartMissing`、`CurveMissing`、`CurveFrame`。
+
+### `samplePart`
+
+`params`：`part`、`frame`。只读。不写像素。
+
+`result`：`part`、`frame`，再加上已经有曲线的通道。没有曲线的通道省略，不是 0。字段名就是通道名：`rotation`、`translateX`、`translateY`、`flipHorizontal`、`flipVertical`。
+
+CLI：`pixelforge curve sample --part gun --frame 2`。不写 `--channel` 就是这一条。
+
+错误：`PartName`、`PartMissing`、`CurveFrame`。
+
+*Keyframe tracks sample part-transform parameters. They do not write pixels. `easeInOut` is Hermite smoothstep. Its midpoint matches linear. Flip holds. Apply the sample from the rest pose.*
 
 ### `beginGesture` / `endGesture`
 

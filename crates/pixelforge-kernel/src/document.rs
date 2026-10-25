@@ -1,5 +1,9 @@
 use std::cmp::Ordering;
 
+use crate::curve::{
+    curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
+    Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
+};
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::history::{Change, History};
@@ -26,7 +30,7 @@ use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, frames, layers, delays, tags, parts, and the undo stack.
+/// Indexed pixel document: size, palette, frames, layers, delays, tags, parts, curves, and the undo stack.
 ///
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
@@ -64,6 +68,9 @@ pub struct Document {
     /// Named parts and local anchors. Empty when the file omits `parts`.
     /// Not a layer and not a pixel buffer.
     parts: Vec<Part>,
+    /// Keyframed part-transform parameters. Empty when the file omits `curves`.
+    /// Sampling reads this list and does not write pixels.
+    curves: Vec<Curve>,
     history: History,
     playback: Playback,
 }
@@ -107,6 +114,7 @@ impl Document {
             selection: None,
             tags: Vec::new(),
             parts: Vec::new(),
+            curves: Vec::new(),
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -1138,9 +1146,12 @@ impl Document {
             self.width == width && self.height == height && before_pixels == after_pixels;
         let selection_same = before_selection == after_selection;
         let before_parts = self.parts.clone();
+        let before_curves = self.curves.clone();
         let after_parts = parts_after_resize(&before_parts, offset_x, offset_y, width, height);
+        let after_curves = curves_for_parts(&before_curves, &after_parts);
         let parts_same = before_parts == after_parts;
-        if pixels_same && selection_same && parts_same {
+        let curves_same = before_curves == after_curves;
+        if pixels_same && selection_same && parts_same && curves_same {
             return Ok(());
         }
         let before_width = self.width;
@@ -1173,6 +1184,13 @@ impl Document {
             changes.push(Change::Parts {
                 before: before_parts,
                 after: after_parts,
+            });
+        }
+        if !curves_same {
+            self.curves = after_curves.clone();
+            changes.push(Change::Curves {
+                before: before_curves,
+                after: after_curves,
             });
         }
         self.history.record_group(changes);
@@ -1440,9 +1458,11 @@ impl Document {
     pub fn add_frame(&mut self) -> usize {
         let index = self.frames.len();
         let before_tags = self.tags.clone();
+        let before_curves = self.curves.clone();
         self.frames.push(self.blank_frame());
         self.tags = tags_after_insert(&before_tags, index);
-        self.record_frame_change(before_tags, Change::AddFrame { index });
+        self.curves = curves_after_insert(&before_curves, index);
+        self.record_frame_change(before_tags, before_curves, Change::AddFrame { index });
         index
     }
 
@@ -1469,13 +1489,16 @@ impl Document {
         let inserted = index + 1;
         let active_before = self.active;
         let before_tags = self.tags.clone();
+        let before_curves = self.curves.clone();
         self.frames.insert(inserted, frame.clone());
         if self.active >= inserted {
             self.active += 1;
         }
         self.tags = tags_after_insert(&before_tags, inserted);
+        self.curves = curves_after_insert(&before_curves, inserted);
         self.record_frame_change(
             before_tags,
+            before_curves,
             Change::InsertFrame {
                 index: inserted,
                 frame,
@@ -1499,8 +1522,10 @@ impl Document {
         }
         let active_before = self.active;
         let before_tags = self.tags.clone();
+        let before_curves = self.curves.clone();
         let frame = self.frames.remove(index);
         self.tags = tags_after_remove(&before_tags, index);
+        self.curves = curves_after_remove(&before_curves, index);
         self.active = match active_before.cmp(&index) {
             Ordering::Greater => active_before - 1,
             Ordering::Equal => index.min(self.frames.len() - 1),
@@ -1509,6 +1534,7 @@ impl Document {
         self.clamp_elapsed();
         self.record_frame_change(
             before_tags,
+            before_curves,
             Change::RemoveFrame {
                 index,
                 frame,
@@ -1913,19 +1939,27 @@ impl Document {
         if next == self.parts[index] {
             return Ok(index);
         }
-        let before = self.parts.clone();
+        let previous_name = self.parts[index].name.clone();
+        let before_parts = self.parts.clone();
+        let before_curves = self.curves.clone();
         self.parts[index] = next;
-        self.record_parts(before);
+        if self.parts[index].name != previous_name {
+            self.curves =
+                curves_after_rename(&before_curves, &previous_name, &self.parts[index].name);
+        }
+        self.record_rig(before_parts, before_curves);
         Ok(index)
     }
 
-    /// Removes the part with this name, including its anchors. Returns the removed index.
+    /// Removes the part with this name, including its anchors and curves. Returns the removed index.
     pub fn remove_part(&mut self, name: &str) -> Result<usize, KernelError> {
         let name = normalize_part_name(name).map_err(|()| KernelError::PartName)?;
         let index = self.part_position(&name)?;
-        let before = self.parts.clone();
+        let before_parts = self.parts.clone();
+        let before_curves = self.curves.clone();
         self.parts.remove(index);
-        self.record_parts(before);
+        self.curves = curves_for_parts(&before_curves, &self.parts);
+        self.record_rig(before_parts, before_curves);
         Ok(index)
     }
 
@@ -1989,6 +2023,202 @@ impl Document {
         self.parts[part_index].anchors.remove(anchor_index);
         self.record_parts(before);
         Ok((part_index, anchor_index))
+    }
+
+    /// Keyframed part parameters, in insertion order. Empty when the file has none.
+    pub fn curves(&self) -> &[Curve] {
+        &self.curves
+    }
+
+    /// Sets one key on a part channel. Creates the curve when that channel is new.
+    ///
+    /// `frame` is a timeline index, the same axis as tags. `value` is degrees
+    /// for rotation, whole cells for translate, or `0` / `1` for flip. `ease`
+    /// is how this key leaves toward the next one. Omit it and rotation or
+    /// translate use linear, while flip uses hold. The same stored key is not
+    /// recorded. One undo step. This does not write pixels.
+    pub fn set_curve_key(
+        &mut self,
+        part: &str,
+        channel: CurveChannel,
+        frame: usize,
+        value: f64,
+        ease: Option<Ease>,
+    ) -> Result<CurveWrite, KernelError> {
+        let part = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        self.part_position(&part)?;
+        if frame >= self.frames.len() {
+            return Err(KernelError::FrameIndex {
+                index: frame,
+                len: self.frames.len(),
+            });
+        }
+        let ease = ease.unwrap_or_else(|| channel.default_ease());
+        if !channel.allows(ease) {
+            return Err(KernelError::CurveEase);
+        }
+        let stored = channel.store(value)?;
+        let canonical = channel.decode(stored);
+        if let Some(index) = self.curve_position(&part, channel) {
+            if let Some(key_index) = self.curves[index]
+                .keys
+                .iter()
+                .position(|key| key.frame == frame)
+            {
+                let current = &self.curves[index].keys[key_index];
+                if current.value == stored && current.ease == ease {
+                    return Ok(CurveWrite {
+                        index,
+                        key_index,
+                        value: canonical,
+                        ease,
+                    });
+                }
+            }
+        }
+        let before = self.curves.clone();
+        let (index, key_index) = if let Some(index) = self.curve_position(&part, channel) {
+            let keys = &mut self.curves[index].keys;
+            if let Some(key_index) = keys.iter().position(|key| key.frame == frame) {
+                keys[key_index].value = stored;
+                keys[key_index].ease = ease;
+                (index, key_index)
+            } else {
+                let key_index = keys
+                    .iter()
+                    .position(|key| key.frame > frame)
+                    .unwrap_or(keys.len());
+                keys.insert(
+                    key_index,
+                    CurveKey {
+                        frame,
+                        value: stored,
+                        ease,
+                    },
+                );
+                (index, key_index)
+            }
+        } else {
+            let index = self.curves.len();
+            self.curves.push(Curve {
+                part,
+                channel,
+                keys: vec![CurveKey {
+                    frame,
+                    value: stored,
+                    ease,
+                }],
+            });
+            (index, 0)
+        };
+        self.record_curves(before);
+        Ok(CurveWrite {
+            index,
+            key_index,
+            value: canonical,
+            ease,
+        })
+    }
+
+    /// Removes one key. The last key drops the curve. Frames stay.
+    pub fn remove_curve_key(
+        &mut self,
+        part: &str,
+        channel: CurveChannel,
+        frame: usize,
+    ) -> Result<CurveRemoval, KernelError> {
+        let part = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        self.part_position(&part)?;
+        let index = self
+            .curve_position(&part, channel)
+            .ok_or(KernelError::CurveMissing)?;
+        if !self.curves[index].keys.iter().any(|key| key.frame == frame) {
+            return Err(KernelError::CurveKeyMissing);
+        }
+        let before = self.curves.clone();
+        self.curves[index].keys.retain(|key| key.frame != frame);
+        let removed_curve = self.curves[index].keys.is_empty();
+        if removed_curve {
+            self.curves.remove(index);
+        }
+        self.record_curves(before);
+        Ok(CurveRemoval {
+            index,
+            part,
+            channel,
+            frame,
+            removed_curve,
+        })
+    }
+
+    /// Removes every key of one part channel. Returns the curve index it had.
+    pub fn clear_curve(&mut self, part: &str, channel: CurveChannel) -> Result<usize, KernelError> {
+        let part = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        self.part_position(&part)?;
+        let index = self
+            .curve_position(&part, channel)
+            .ok_or(KernelError::CurveMissing)?;
+        let before = self.curves.clone();
+        self.curves.remove(index);
+        self.record_curves(before);
+        Ok(index)
+    }
+
+    /// Interpolated value of one channel at `frame`.
+    ///
+    /// `frame` may be fractional. `2` is the key on frame 2 when one exists.
+    /// `2.5` is halfway from frame 2 to frame 3 in index space, not in
+    /// `delayMs`. This does not write pixels and does not push undo.
+    pub fn sample_curve(
+        &self,
+        part: &str,
+        channel: CurveChannel,
+        frame: f64,
+    ) -> Result<CurveSample, KernelError> {
+        let part = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        self.part_position(&part)?;
+        if !frame.is_finite() {
+            return Err(KernelError::CurveFrame);
+        }
+        let curve = self
+            .curves
+            .iter()
+            .find(|curve| curve.part == part && curve.channel == channel)
+            .ok_or(KernelError::CurveMissing)?;
+        Ok(sample_keys(channel, &curve.keys, frame))
+    }
+
+    /// Every keyed channel of one part at `frame`. Missing channels are not keyed.
+    ///
+    /// The numbers are the pose relative to the rest origin. Passing one to
+    /// `rotate_part` or `translate_part` on a frame that was already
+    /// transformed stacks. This call does not apply that pose.
+    pub fn sample_part(&self, part: &str, frame: f64) -> Result<PartSample, KernelError> {
+        let part = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        self.part_position(&part)?;
+        if !frame.is_finite() {
+            return Err(KernelError::CurveFrame);
+        }
+        let mut sample = PartSample {
+            part: part.clone(),
+            frame,
+            rotation: None,
+            translate_x: None,
+            translate_y: None,
+            flip_horizontal: None,
+            flip_vertical: None,
+        };
+        for curve in self.curves.iter().filter(|curve| curve.part == part) {
+            let value = sample_keys(curve.channel, &curve.keys, frame).value;
+            match curve.channel {
+                CurveChannel::Rotation => sample.rotation = Some(value),
+                CurveChannel::TranslateX => sample.translate_x = Some(value),
+                CurveChannel::TranslateY => sample.translate_y = Some(value),
+                CurveChannel::FlipHorizontal => sample.flip_horizontal = Some(value),
+                CurveChannel::FlipVertical => sample.flip_vertical = Some(value),
+            }
+        }
+        Ok(sample)
     }
 
     /// Moves a part by whole cells.
@@ -2403,6 +2633,7 @@ impl Document {
         selection: Option<Selection>,
         tags: Vec<Tag>,
         parts: Vec<Part>,
+        curves: Vec<Curve>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -2428,6 +2659,18 @@ impl Document {
             }),
             "parts were checked"
         );
+        debug_assert!(
+            curves.iter().all(|curve| {
+                parts.iter().any(|part| part.name == curve.part)
+                    && !curve.keys.is_empty()
+                    && curve
+                        .keys
+                        .windows(2)
+                        .all(|pair| pair[0].frame < pair[1].frame)
+                    && curve.keys.iter().all(|key| key.frame < frames.len())
+            }),
+            "curves were checked"
+        );
         let len = pixel_len(width, height);
         debug_assert!(
             frames.iter().all(|frame| {
@@ -2449,6 +2692,7 @@ impl Document {
             selection,
             tags,
             parts,
+            curves,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -2473,12 +2717,23 @@ impl Document {
         });
     }
 
-    fn record_frame_change(&mut self, before_tags: Vec<Tag>, change: Change) {
+    fn record_frame_change(
+        &mut self,
+        before_tags: Vec<Tag>,
+        before_curves: Vec<Curve>,
+        change: Change,
+    ) {
         let mut changes = vec![change];
         if before_tags != self.tags {
             changes.push(Change::Tags {
                 before: before_tags,
                 after: self.tags.clone(),
+            });
+        }
+        if before_curves != self.curves {
+            changes.push(Change::Curves {
+                before: before_curves,
+                after: self.curves.clone(),
             });
         }
         self.history.record_group(changes);
@@ -2511,6 +2766,40 @@ impl Document {
                 after: self.parts.clone(),
             });
         }
+    }
+
+    fn record_curves(&mut self, before: Vec<Curve>) {
+        if before != self.curves {
+            self.history.record(Change::Curves {
+                before,
+                after: self.curves.clone(),
+            });
+        }
+    }
+
+    fn record_rig(&mut self, before_parts: Vec<Part>, before_curves: Vec<Curve>) {
+        let mut changes = Vec::new();
+        if before_parts != self.parts {
+            changes.push(Change::Parts {
+                before: before_parts,
+                after: self.parts.clone(),
+            });
+        }
+        if before_curves != self.curves {
+            changes.push(Change::Curves {
+                before: before_curves,
+                after: self.curves.clone(),
+            });
+        }
+        if !changes.is_empty() {
+            self.history.record_group(changes);
+        }
+    }
+
+    fn curve_position(&self, part: &str, channel: CurveChannel) -> Option<usize> {
+        self.curves
+            .iter()
+            .position(|curve| curve.part == part && curve.channel == channel)
     }
 
     fn part_position(&self, name: &str) -> Result<usize, KernelError> {
@@ -2792,6 +3081,13 @@ impl Document {
             }
             Change::Parts { before, after } => {
                 self.parts = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
+            }
+            Change::Curves { before, after } => {
+                self.curves = if forward {
                     after.clone()
                 } else {
                     before.clone()

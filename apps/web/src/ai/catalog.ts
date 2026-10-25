@@ -399,6 +399,93 @@ const BY_NAME = {
     },
     ["name", "direction"],
   ),
+  setCurveKey: tool(
+    "setCurveKey",
+    "Set one key on a part channel. frame is an integer frame index, the same axis as tags. value is clockwise degrees for rotation, whole cells for translateX or translateY, or 0 or 1 for flipHorizontal or flipVertical. ease is how this key leaves toward the next key: linear, easeInOut (smoothstep u = t*t*(3-2*t)), or hold. Omit ease for linear, or hold on a flip channel. Flip rejects any other ease. The same stored key is not recorded. Does not write pixels. One undo step.",
+    {
+      part: { type: "string", description: "Part name." },
+      channel: {
+        type: "string",
+        description: "rotation, translateX, translateY, flipHorizontal, or flipVertical.",
+        enum: ["rotation", "translateX", "translateY", "flipHorizontal", "flipVertical"],
+      },
+      frame: int("Frame index, 0-based. Must exist.", 0, 4294967295),
+      value: {
+        type: "number",
+        description:
+          "Degrees, whole cells, or 0/1. Rotation quantizes to 0.01 degree. Translate must be an integer.",
+      },
+      ease: {
+        type: "string",
+        description: "linear, easeInOut, or hold. Omit for the channel default.",
+        enum: ["linear", "easeInOut", "hold"],
+      },
+    },
+    ["part", "channel", "frame", "value"],
+  ),
+  removeCurveKey: tool(
+    "removeCurveKey",
+    "Remove one key. The last key drops the curve. Frames and pixels stay. One undo step.",
+    {
+      part: { type: "string", description: "Part name." },
+      channel: {
+        type: "string",
+        description: "rotation, translateX, translateY, flipHorizontal, or flipVertical.",
+        enum: ["rotation", "translateX", "translateY", "flipHorizontal", "flipVertical"],
+      },
+      frame: int("Frame index of the key.", 0, 4294967295),
+    },
+    ["part", "channel", "frame"],
+  ),
+  clearCurve: tool(
+    "clearCurve",
+    "Remove every key of one part channel. One undo step. Does not write pixels.",
+    {
+      part: { type: "string", description: "Part name." },
+      channel: {
+        type: "string",
+        description: "rotation, translateX, translateY, flipHorizontal, or flipVertical.",
+        enum: ["rotation", "translateX", "translateY", "flipHorizontal", "flipVertical"],
+      },
+    },
+    ["part", "channel"],
+  ),
+  listCurves: tool(
+    "listCurves",
+    "Read part-parameter curves. Pass part to list one part. Does not change the document.",
+    {
+      part: { type: "string", description: "Part name. Omit to list every curve." },
+    },
+  ),
+  sampleCurve: tool(
+    "sampleCurve",
+    "Interpolate one channel at a frame position. frame may be fractional: 2 is frame 2, and 2.5 is halfway to frame 3 in frame-index space, not weighted by delayMs. easeInOut is t*t*(3-2*t); at t=0.5 it matches linear. Does not write pixels.",
+    {
+      part: { type: "string", description: "Part name." },
+      channel: {
+        type: "string",
+        description: "rotation, translateX, translateY, flipHorizontal, or flipVertical.",
+        enum: ["rotation", "translateX", "translateY", "flipHorizontal", "flipVertical"],
+      },
+      frame: {
+        type: "number",
+        description: "Frame position. May be fractional. Not weighted by delayMs.",
+      },
+    },
+    ["part", "channel", "frame"],
+  ),
+  samplePart: tool(
+    "samplePart",
+    "Interpolate every keyed channel of one part. Missing channels are omitted, not zero. Values are the pose relative to the rest origin. Does not call rotatePart, translatePart, or flipPart, and does not write pixels.",
+    {
+      part: { type: "string", description: "Part name." },
+      frame: {
+        type: "number",
+        description: "Frame position. May be fractional. Not weighted by delayMs.",
+      },
+    },
+    ["part", "frame"],
+  ),
   beginGesture: tool(
     "beginGesture",
     "Start grouping later successful edits into one undo step. Fails if a gesture is already open.",
@@ -588,6 +675,9 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "diffFrames",
   "listLayers",
   "listParts",
+  "listCurves",
+  "sampleCurve",
+  "samplePart",
 ];
 
 function tool(

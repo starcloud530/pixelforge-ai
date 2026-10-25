@@ -5,11 +5,13 @@
 //! horizontal index flip, a canvas resize, a palette color change, a palette
 //! import, a palette lock, a frame-list change, an active-frame change, a
 //! layer-stack change, an active-layer change, a rectangular selection, a
-//! per-frame delay change, a named part list, or a whole gesture of those.
+//! per-frame delay change, a named part list, a part-parameter curve list,
+//! or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
 
+use crate::curve::Curve;
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::IndexPolicy;
@@ -114,6 +116,16 @@ pub(crate) enum Change {
     Parts {
         before: Vec<Part>,
         after: Vec<Part>,
+    },
+    /// The part-parameter curve list was replaced.
+    ///
+    /// Stored as a snapshot so one undo restores curves together with the
+    /// frame insert or delete that moved their keys, or the part rename,
+    /// removal, or resize that renamed or dropped them. Sampling does not
+    /// write pixels, so this entry has no pixel payload.
+    Curves {
+        before: Vec<Curve>,
+        after: Vec<Curve>,
     },
     /// Whether palette edits and imports are refused.
     PaletteLocked {
@@ -340,6 +352,7 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
         Change::ActiveFrame { before, after } => coalesce_active(changes, before, after),
         Change::Tags { before, after } => coalesce_tags(changes, before, after),
         Change::Parts { before, after } => coalesce_parts(changes, before, after),
+        Change::Curves { before, after } => coalesce_curves(changes, before, after),
         other => changes.push(other),
     }
 }
@@ -507,6 +520,23 @@ fn coalesce_parts(changes: &mut Vec<Change>, before: Vec<Part>, after: Vec<Part>
     }
 
     changes.push(Change::Parts { before, after });
+}
+
+fn coalesce_curves(changes: &mut Vec<Change>, before: Vec<Curve>, after: Vec<Curve>) {
+    if let Some(Change::Curves {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(slot, &before, "curve history skipped a write");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::Curves { before, after });
 }
 
 fn coalesce_tags(changes: &mut Vec<Change>, before: Vec<Tag>, after: Vec<Tag>) {

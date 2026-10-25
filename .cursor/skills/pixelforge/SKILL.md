@@ -9,7 +9,8 @@ description: >-
   crushing a PNG onto the palette, importing an indexed .aseprite file,
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
   270 degrees, naming parts and anchors, translating, rotating, or flipping a
-  named part on the pixel grid, adding or duplicating frames, undoing,
+  named part on the pixel grid, keyframing that part's rotation, translation,
+  or flip and sampling the curve, adding or duplicating frames, undoing,
   running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
@@ -66,7 +67,7 @@ cargo run -p pixelforge-cli -- --help
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
-- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。这一版不旋转、不插值、不烘焙。
+- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素，也不烘焙。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
@@ -92,7 +93,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1
 ```
 
-`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。
 
 `visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
 
@@ -104,7 +105,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。
 
-*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools and on part translate, rotate, and flip; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
+*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `curves` is the part-parameter tracks, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools and on part translate, rotate, and flip; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
 
 ## Pictures, sheets, and canvas commands
 
@@ -206,9 +207,9 @@ pixelforge call --project hero.json \
 
 *A batched `call` is one process, not one edit. `beginGesture` / `endGesture` group undo only. Count each drawing request. Duplicate and merge first, then send what remains.*
 
-枪已经是挂在自己那一层上的部件时，抬枪、挪枪、镜像用 `part rotate` / `part translate` / `part flip` 一次调用，不要把枪的格子再 `fillRect` 一遍。上面四条仍然管还没有变成部件的身体和扫描行。矩形 `hflip` / `rotate` 不搬部件。
+枪已经是挂在自己那一层上的部件时，抬枪、挪枪、镜像用 `part rotate` / `part translate` / `part flip` 一次调用，不要把枪的格子再 `fillRect` 一遍。同一下抬枪要落在好几帧上时，用 `curve set` 记下旋转关键帧，`curve sample` 取出某一帧的角度，再交给 `part rotate`。采样不写像素，也不代替这四条。还没有烘焙成格子。上面四条仍然管还没有变成部件的身体和扫描行。矩形 `hflip` / `rotate` 不搬部件。
 
-*When the gun is already a part on its own layer, one `part rotate`, `part translate`, or `part flip` poses it. The four rules above still cover a body that is not a part. Rectangle `hflip` and `rotate` do not move parts.*
+*When the gun is already a part on its own layer, one `part rotate`, `part translate`, or `part flip` poses it. A raise that spans frames is a `curve set` on rotation, then `curve sample`, then `part rotate` with that angle. Sampling does not write pixels and does not replace the four rules. There is no bake to cells yet. Those rules still cover a body that is not a part. Rectangle `hflip` and `rotate` do not move parts.*
 
 ## Recipes
 
@@ -355,7 +356,7 @@ pixelforge scene --project soldier.json
 
 只改 `frame`（缺省当前帧）的像素。部件列表仍是整份文档一份，所以这一下的原点描述的是你刚转过的那一帧，其它帧的像素不动。枪和别的墨水不要挂在同一层：变换搬走的是这一层上全部非 0 格。有选区时，这些格和落点必须都在选区内，否则 `SelectionProtected`，一格都不写。落出画布是 `PartOffCanvas`。
 
-不做自由仿射、亚像素合成、骨骼界面、脚本、关键帧曲线、约束或烘焙。
+不做自由仿射、亚像素合成、骨骼界面、脚本、约束或烘焙。关键帧只采样，不把采样写进格子。见「部件曲线」。
 
 *A part transform moves the linked layer's ink and the origin and anchors in one undo step. It remaps indices and does not invent colors. The pivot is the center of the origin cell, or of `--anchor`. An unattached shoulder only moves its origin.*
 
@@ -363,7 +364,7 @@ pixelforge scene --project soldier.json
 
 *`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index and reports `dropped`. Read `grid` and `degreesCenti`.*
 
-*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, curve, constraint, or bake.*
+*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, constraint, or bake. A keyframe curve samples a pose and does not write cells. See Part curves.*
 
 ```bash
 pixelforge part translate --project soldier.json --name gun --dx 2 --dy 0
@@ -376,6 +377,56 @@ pixelforge part flip --horizontal --project soldier.json --name gun --anchor gri
 { "tool": "translatePart", "params": { "name": "gun", "dx": 2, "dy": 0, "reportDirty": true } }
 { "tool": "rotatePart", "params": { "name": "gun", "degrees": 90, "anchor": "grip" } }
 { "tool": "flipPart", "params": { "name": "gun", "direction": "horizontal", "anchor": "grip" } }
+```
+
+### 部件曲线 Part curves
+
+曲线记的是相对静止姿势的变换参数，时间轴是帧下标，和标签、`setFrameDelay` 同一条轴。不读 `delayMs`，也不另起时钟。`curve sample` 的 `--frame` 可以是小数：`2` 是第 2 帧上的关键帧，`2.5` 是第 2 帧到第 3 帧的中点（按帧下标，不按毫秒加权）。采样不写像素，也不调用 `part rotate`。把采样交给 `part rotate` / `part translate` / `part flip` 时，要从静止姿势施加；已经转过的那一帧再施加一次会叠加上去。这一版不烘焙。
+
+通道是 `rotation`（顺时针角度，和 `part rotate` 一样收到 `(-180, 180]` 再量化到 0.01°）、`translateX`、`translateY`（整格，采样结果可以是小数，交给 `part translate` 之前要自己取整）、`flipHorizontal`、`flipVertical`（`0` 或 `1`）。一个部件的一个通道一条曲线。
+
+关键帧上的 `ease` 是离开这一帧、走向下一帧的方式。最后一帧的 `ease` 先存着，后面再加关键帧才用到。`t` 是这一段里的帧下标比例，`u` 是混合权重，值是 `left + (right - left) * u`：
+
+- `linear`：`u = t`
+- `easeInOut`：`u = t² (3 − 2t)`（Hermite smoothstep）。`t = 1/2` 时 `u = 1/2`，中点和线性相同。`t = 1/4` 时 `u = 5/32`
+- `hold`：`u = 0`，一直停在左关键帧，直到下一帧的下标，那一帧才取右关键帧。翻转通道只能 `hold`
+
+旋转按存下来的百分之一度做线性混合，不走 ±180° 的短弧。关键帧区间外面夹住端点。正好落在关键帧上就返回那一帧，不混合。
+
+插帧、删帧会在同一步撤销里挪关键帧下标，和标签一样。删掉某一帧上的关键帧；曲线空了就去掉。改名会带着曲线走。删掉部件或 `resize` 把原点裁出画布时，它的曲线一起去掉。没有曲线时工程文件不写 `curves`。版本仍是 1。未知字段仍然拒绝。
+
+*A curve stores transform parameters relative to the rest pose. The timeline is the frame index, the same axis as tags and `setFrameDelay`. It does not read `delayMs` and it does not start another clock. `curve sample --frame` may be fractional: `2` is the key on frame 2, and `2.5` is halfway from frame 2 to frame 3 in index space, not weighted by milliseconds. Sampling does not write pixels and does not call `part rotate`. Apply a sample with `part rotate`, `part translate`, or `part flip` from the rest pose. Applying it again on a frame that was already transformed stacks. This does not bake.*
+
+*Channels are `rotation` (clockwise degrees, wrapped into `(-180, 180]` and quantized to 0.01° like `part rotate`), `translateX`, `translateY` (whole cells; a sample may be fractional, so round it before `part translate`), and `flipHorizontal`, `flipVertical` (`0` or `1`). One curve per part per channel.*
+
+*The `ease` on a key is how that key leaves toward the next one. The last key's ease is stored and used only after a later key exists. `t` is the frame-index fraction of the span and `u` is the blend weight. The value is `left + (right - left) * u`.*
+
+- *`linear`: `u = t`*
+- *`easeInOut`: `u = t² (3 − 2t)` (Hermite smoothstep). At `t = 1/2`, `u = 1/2`, so the midpoint matches linear. At `t = 1/4`, `u = 5/32`*
+- *`hold`: `u = 0` until the next key's frame, which returns that key. Flip channels accept `hold` only*
+
+*Rotation blends the stored centi-degrees. It does not take the short arc across ±180°. Outside the keyed span the end key is held. A sample that lands on a key returns that key.*
+
+*Inserting or deleting a frame moves key indices in that same undo step, as tags do. A key on a deleted frame is dropped, and an empty curve is dropped. Renaming a part renames its curves. Removing a part, or a `resize` that drops its origin, drops its curves. A project with no curves omits `curves`. The version stays 1. Unknown fields are still rejected.*
+
+```bash
+pixelforge curve set --project soldier.json --part gun --channel rotation --frame 0 --value 0 --ease ease-in-out
+pixelforge curve set --project soldier.json --part gun --channel rotation --frame 4 --value 90
+pixelforge curve sample --project soldier.json --part gun --channel rotation --frame 2
+pixelforge curve sample --project soldier.json --part gun --frame 1
+pixelforge curve list --project soldier.json --part gun
+pixelforge curve remove --project soldier.json --part gun --channel rotation --frame 0
+```
+
+第 0 帧到第 4 帧的中点是 `--frame 2`。`easeInOut` 在这里和线性一样，都是 45°。`--frame 1` 是这段的四分点：线性是 22.5°，`easeInOut` 是 14.0625°。CLI 也接受 `--ease ease-in-out`。`--channel` 也可以写 `translate-x`。采样结果里的 `interpolation` 是 `key`、`clamp`、`linear`、`easeInOut` 或 `hold`。
+
+*The midpoint of frame 0 and frame 4 is `--frame 2`. `easeInOut` matches linear there: 45°. `--frame 1` is the quarter point: linear is 22.5°, `easeInOut` is 14.0625°. The CLI also accepts `--ease ease-in-out` and `--channel translate-x`. `interpolation` is `key`, `clamp`, `linear`, `easeInOut`, or `hold`.*
+
+```json
+{ "tool": "setCurveKey", "params": { "part": "gun", "channel": "rotation", "frame": 0, "value": 0, "ease": "easeInOut" } }
+{ "tool": "setCurveKey", "params": { "part": "gun", "channel": "rotation", "frame": 4, "value": 90 } }
+{ "tool": "sampleCurve", "params": { "part": "gun", "channel": "rotation", "frame": 2 } }
+{ "tool": "samplePart", "params": { "part": "gun", "frame": 2 } }
 ```
 
 ### Palette
