@@ -8,9 +8,11 @@
 //!
 //! This is the rest pose. [`crate::Document::translate_part`],
 //! [`crate::Document::rotate_part`], and [`crate::Document::flip_part`] move
-//! that pose together with the ink on the linked layer. A curve, a constraint,
-//! and a bake are not stored here. New fields, if those issues add them,
-//! should default so a version 1 file that only has parts still loads.
+//! that pose together with the ink on the linked layer. A curve is a separate
+//! timeline of parameters relative to this rest pose. It is not stored on the
+//! part. A constraint and a bake are still not stored here. New fields, if
+//! those issues add them, should default so a version 1 file that only has
+//! parts still loads.
 //! Rectangle flip and rotate still move indices only; they do not move parts.
 
 use crate::MAX_CANVAS_EDGE;

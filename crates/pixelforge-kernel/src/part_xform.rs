@@ -78,6 +78,15 @@ pub(crate) enum Motion {
     FlipVertical,
 }
 
+/// Quantized hundredths of a degree in `(-18000, 18000]`, or [`KernelError::PartAngle`].
+///
+/// The same wrap and 0.01° rule as [`classify_degrees`]. Curve keys store this
+/// integer so a sampled angle matches what [`crate::Document::rotate_part`]
+/// would quantize.
+pub(crate) fn quantize_degrees(degrees: f64) -> Result<i32, KernelError> {
+    classify_degrees(degrees).map(|class| class.centi)
+}
+
 pub(crate) fn resolve_motion(motion: Motion) -> Result<ResolvedMotion, KernelError> {
     match motion {
         Motion::Translate { dx, dy } => Ok(ResolvedMotion {

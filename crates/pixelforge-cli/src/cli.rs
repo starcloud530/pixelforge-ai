@@ -80,7 +80,9 @@ step. Rotation and flip pivot on `--anchor` or the origin cell. `--degrees`
 within 0.01° of a multiple of 90 is an exact quarter turn; any other angle
 quantizes to 0.01° and then to the nearest cell. Rectangle flip and rotate
 do not move parts. A selection must cover every ink cell and its destination
-or the part transform writes nothing. `import-aseprite --file sprite.aseprite --output hero.json`
+or the part transform writes nothing. `curve` stores keyframes of those
+parameters on frame indices and samples them. It does not write pixels.
+`import-aseprite --file sprite.aseprite --output hero.json`
 reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
 `copy-rect` and `move-rect` take optional
@@ -316,11 +318,22 @@ pub enum Command {
     /// Named parts and local anchors. Not a layer and not a bone UI.
     ///
     /// A part has a rest-pose origin on the canvas and optional layer index.
-    /// Anchors are pixel offsets from that origin. Flip and rotate do not
-    /// move them. This does not rotate, interpolate, or bake.
+    /// Anchors are pixel offsets from that origin. `part translate`,
+    /// `part rotate`, and `part flip` move the linked ink. Keyframed
+    /// parameters live under `curve`, which samples and does not bake.
     Part {
         #[command(subcommand)]
         command: PartCmd,
+    },
+    /// Keyframes for part translate, rotate, and flip. Frame indices, not a second clock.
+    ///
+    /// A key sits on an integer frame, the same axis as tags and frame delays.
+    /// `sample` may use a fractional frame. The result is the pose relative
+    /// to the rest origin. It does not write pixels. Empty curves are omitted
+    /// from the project file. Tags and delays stay.
+    Curve {
+        #[command(subcommand)]
+        command: CurveCmd,
     },
     /// Undo the last edit recorded in this process.
     ///
@@ -1120,5 +1133,79 @@ pub enum AnchorCmd {
         part: String,
         #[arg(long)]
         name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CurveCmd {
+    /// Set one key. The ease leaves this key toward the next one.
+    Set {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        part: String,
+        /// rotation, translateX, translateY, flipHorizontal, or flipVertical.
+        #[arg(long)]
+        channel: String,
+        /// Frame index, from 0. The same axis as tags.
+        #[arg(long)]
+        frame: u32,
+        /// Degrees, whole cells, or 0/1 for flip. A leading minus is a value.
+        #[arg(long, allow_hyphen_values = true)]
+        value: f64,
+        /// linear, easeInOut, or hold. Flip is hold only. Omit for the channel default.
+        #[arg(long)]
+        ease: Option<String>,
+    },
+    /// List curves. Pass `--part` to read one part. Does not change the file.
+    List {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name. Omit to list every curve.
+        #[arg(long)]
+        part: Option<String>,
+    },
+    /// Sample one channel, or every channel of a part when `--channel` is omitted.
+    ///
+    /// `--frame` may be fractional. 2 is frame 2. 2.5 is halfway to frame 3
+    /// in index space, not in delayMs. Does not write pixels.
+    Sample {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        part: String,
+        /// Channel. Omit to sample every keyed channel of the part.
+        #[arg(long)]
+        channel: Option<String>,
+        /// Frame position. A leading minus is a value.
+        #[arg(long, allow_hyphen_values = true)]
+        frame: f64,
+    },
+    /// Remove one key. The last key drops the curve.
+    Remove {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        part: String,
+        /// Channel name.
+        #[arg(long)]
+        channel: String,
+        /// Frame index of the key.
+        #[arg(long)]
+        frame: u32,
+    },
+    /// Remove every key of one part channel.
+    Clear {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        part: String,
+        /// Channel name.
+        #[arg(long)]
+        channel: String,
     },
 }
