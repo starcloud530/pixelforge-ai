@@ -10,6 +10,9 @@ description: >-
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
   270 degrees, adding or duplicating frames, undoing, running inspect, scene,
   tools, or call, or exporting a PNG sequence or sprite sheet.
+  Take the shortest edit path: duplicate a same-pose frame and edit the diff,
+  merge adjacent same-color fillRects into one taller rect, and count every
+  drawing request inside one batched call.
   Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
   pixelforge-layers, pixelforge-critique) must follow this skill's index-color
   invariants before their own workflow.
@@ -29,9 +32,9 @@ Edit indexed pixels only through the `pixelforge` CLI. The Rust kernel owns the 
 
 创建或修改 `pixelforge-project`、调色板、帧、导出，或任何一次 `pixelforge` 调用。产品路径是：外部 Agent → `pixelforge` CLI → `Document::call_tool`。网页里的一轮面板是可选演示。嵌在应用里的多轮对话（#14）不是产品。MCP 不在范围内；以后的封装只调用这支 CLI。
 
-画角色、立绘、剪影：同时读 `pixelforge-draw`。四向走加待机的精灵表：同时读 `pixelforge-sprite-4dir`。身体、装备、四肢分层：同时读 `pixelforge-layers`。只读挑错：读 `pixelforge-critique`，不要改像素。
+画角色、立绘、剪影：同时读 `pixelforge-draw`。四向走加待机的精灵表：同时读 `pixelforge-sprite-4dir`。身体、装备、四肢分层：同时读 `pixelforge-layers`。只读挑错：读 `pixelforge-critique`，不要改像素。多帧、同姿只改差、或要缩短 `fillRect` 次数时，读下面的「最少编辑路径」。
 
-*Use this skill for every project edit. Read the matching creative skill for how to stage the picture.*
+*Use this skill for every project edit. Read the matching creative skill for how to stage the picture. Read Shortest edit path before a multi-frame edit.*
 
 ## Install and run
 
@@ -115,9 +118,91 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大，再解析调色板。只为看颜色时，用这个或 `preview --scale`，不要再用外部工具放大。`export sheet` 不传 `--cols` 时列数是 `ceil(sqrt(帧数))`。`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。一行一个朝向时 `N` 是该朝向的帧数，见 `pixelforge-sprite-4dir`。`--atlas FILE` 再写一份 `pixelforge-atlas` JSON（帧矩形、`delayMs`、`columns`、标签）。不传它，结果仍只有 PNG 字段。`export` 子命令把文件写到磁盘并返回路径。`call` 里的 `exportPngSequence` / `exportSpriteSheet` 返回 base64，不写文件；`exportSpriteSheet` 的 `atlas: true` 把同一份对象放进 `result.atlas`。
 
-平涂用 `fillRect`，挖块用 `eraseRect`，挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
+平涂用 `fillRect`，挖块用 `eraseRect`，挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。撤销步数和内核操作次数不是一回事，见「最少编辑路径」。
 
-*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows.*
+*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows. One undo step is not one kernel operation; see Shortest edit path.*
+
+## 最少编辑路径
+
+同一张图，内核操作越少越好。2026-10-25 的士兵射击动画走了 1,191 次工具操作，其中 1,133 次是 `fillRect`：第 3、4、7 帧和已有帧同姿，却各自整帧重画；躯干按扫描行拆成高度为 1 的矩形；新帧先是空白，再把已经画过的身体填回去。下面四条用现有的 `duplicateFrame`、`copyRect`、`fillRect`、`eraseRect`、`diff` 把这条路径缩短。不新增内核工具。
+
+*Shortest edit path. Fewer kernel operations for the same picture. That soldier shoot made 1,191 tool calls, 1,133 of them `fillRect`. These four rules use tools that already exist.*
+
+### 同姿先复制，再改差
+
+新帧的身体已经在某一帧上，并且新帧可以紧挨在源帧后面时：`duplicateFrame` 源帧，`setActiveFrame` 选中返回的下标，只改不一样的格子。`duplicateFrame` 把拷贝插在源帧后面，返回的 `index` 才是新帧，它不选中这份拷贝。
+
+之前，帧 0 已是持枪站立。帧 1 仍是这个姿势、只抬手臂，路径却是空白帧再把身体填一遍（头、躯干、腿各一次 `fillRect`，手臂还没算）：
+
+```bash
+pixelforge call --project hero.json \
+  --request '{"tool":"addFrame"}' \
+  --request '{"tool":"setActiveFrame","params":{"index":1}}' \
+  --request '{"tool":"fillRect","params":{"x":24,"y":8,"width":16,"height":16,"colorIndex":3}}' \
+  --request '{"tool":"fillRect","params":{"x":20,"y":24,"width":24,"height":28,"colorIndex":3}}' \
+  --request '{"tool":"fillRect","params":{"x":22,"y":52,"width":20,"height":24,"colorIndex":3}}'
+```
+
+之后，复制帧 0，只擦掉旧手臂、填上抬起的手臂。身体那三块不用再填：
+
+```bash
+pixelforge call --project hero.json \
+  --request '{"tool":"duplicateFrame","params":{"index":0}}' \
+  --request '{"tool":"setActiveFrame","params":{"index":1}}' \
+  --request '{"tool":"eraseRect","params":{"x":40,"y":28,"width":12,"height":8}}' \
+  --request '{"tool":"fillRect","params":{"x":36,"y":22,"width":16,"height":6,"colorIndex":3}}'
+pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+```
+
+目标下标已经占死时（表里的第 3、4、7 帧已经在，不能再插入），用 `copyRect` 把同姿帧的身体拷进那个下标，再改差。`duplicateFrame` 会把新帧插在源帧后面并后移后续下标，填不进一个已经定死的槽。整个人都相同就拷整块外接矩形，包括里面的索引 0；只有枪或头相同就只拷那一块。
+
+```bash
+pixelforge copy-rect --project hero.json --from-frame 1 --to-frame 3 \
+  --src-x 16 --src-y 4 --width 32 --height 60 --dst-x 16 --dst-y 4
+pixelforge frame select --project hero.json --index 3
+```
+
+*`duplicateFrame` when the new frame may sit just after the source. `copyRect` with `fromFrame` / `toFrame` when that slot already exists. Then change the cells that differ. `diff` after the edit; `changed` should sit on that delta.*
+
+### 相邻同色 fillRect 合成更高的一块
+
+同一 `colorIndex`、同一 `x`、同一 `width`，下一块的 `y` 等于上一块的 `y + height`，中间没有缝，并起来仍是一块轴对齐矩形：一次 `fillRect`，高度是各块高度之和。
+
+之前，三行扫描，三次 `fillRect`：
+
+```bash
+pixelforge call --project hero.json \
+  --request '{"tool":"fillRect","params":{"x":8,"y":20,"width":12,"height":1,"colorIndex":4}}' \
+  --request '{"tool":"fillRect","params":{"x":8,"y":21,"width":12,"height":1,"colorIndex":4}}' \
+  --request '{"tool":"fillRect","params":{"x":8,"y":22,"width":12,"height":1,"colorIndex":4}}'
+```
+
+之后，一块更高的矩形，一次 `fillRect`：
+
+```bash
+pixelforge call --project hero.json \
+  --request '{"tool":"fillRect","params":{"x":8,"y":20,"width":12,"height":3,"colorIndex":4}}'
+```
+
+左右相接用同一条规则合成更宽的一块：同一 `colorIndex`、同一 `y`、同一 `height`，下一块的 `x` 等于上一块的 `x + width`。L 形、两块之间有缝、或中间要留别的索引，保持多块。没有把任意同色区域收成最少矩形的新工具；合并在调用前做。小高光留在大矩形之后，用一块小 `fillRect` 或几笔 `paint` 盖上去。
+
+*Three stacked one-pixel rows of the same index, x, and width are one `fillRect` whose height is 3. Abutting columns of the same index, y, and height are one wider rect. An L stays two rects. Merge before the call.*
+
+### 按帧差改
+
+`diff --frame A --with B`（Tool API 是 `diffFrames`）给出 `changed`、`bounds` 和 `changes`（含两边的索引）。下一帧只改这个差集里的格子：`fillRect`、`eraseRect`、`copyRect`、`moveRect`。差集外面的索引保持不动。
+
+`addFrame` 得到的是全透明帧。空帧上再把另一帧已经有的身体填一遍，差集就变成了整个人。同姿走上面的复制。画完再 `diff` 一次，确认 `changed` 落在这一笔上。
+
+*Aim the edit at `diff`. A blank frame plus a full-body refill paints every cell again.*
+
+### 一次批量 call 是多次编辑
+
+同一次 `pixelforge call` 的多个 `--request` 共用一个进程、一份撤销栈。每一个 `--request` 仍是一次 `Document::call_tool`。上面扫描行的三条 `fillRect` 放在一条命令里仍是三次 `fillRect`；合并后是一次。`beginGesture` / `endGesture` 把它们收成一步撤销，不把操作次数收成 1。
+
+先复制同姿、先把相接的同色矩形合成一块，再把剩下的绘制请求放进同一次 `call`。计数时数 `fillRect`、`eraseRect`、`paint`、`erase`、`copyRect`、`moveRect`。士兵射击那 1,133 次 `fillRect` 就是没做这两步。
+
+*A batched `call` is one process, not one edit. `beginGesture` / `endGesture` group undo only. Count each drawing request. Duplicate and merge first, then send what remains.*
 
 ## Recipes
 

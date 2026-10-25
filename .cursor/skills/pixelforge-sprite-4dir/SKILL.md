@@ -7,7 +7,9 @@ description: >-
   export sheet --cols, tagging ranges as idle_down / walk_down, writing
   --atlas JSON, copying a rectangle across frames, checking foot slide
   (脚滑) with diff, or mirroring a side view with hflip and then repairing
-  highlights. Follow the pixelforge
+  highlights. For a later frame of the same pose, duplicate it and edit
+  the diff, or copyRect into a slot that already exists; merge scanline
+  fillRects into one taller rect. Follow the pixelforge
   skill's index-color invariants first. Draw a new body with pixelforge-draw's
   silhouette, flats, and details. Do not use this for a single standing
   portrait. Separate equipment layers are pixelforge-layers. A read-only
@@ -99,18 +101,49 @@ pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --s
 
 1. 画好该朝向的 idle（新身体走剪影 → 色块 → 细节，每阶段 `preview --scale 4`）。
 2. `frame duplicate`，然后 `frame select` 到返回的下标。复制不选中新帧。
-3. `copy-rect --from-frame` 把身体拷到新帧，`move-rect` 只挪腿或手臂。不要逐格重画一整个人。
+3. 新帧来自 `frame duplicate` 时，身体已经在上面，`move-rect` 只挪腿或手臂。目标槽已经是空白、不能再插入时，才 `copy-rect --from-frame` 把身体拷进去。不要逐格重画一整个人。见「最少编辑路径」。
 4. `diff` 对 idle 和这一步 walk，看脚，再画下一帧。
+
+新列可以插在 idle 后面时，复制之后身体已经在新帧上，接着只改差，再 `diff`：
 
 ```bash
 pixelforge frame duplicate --project hero.json --index 0
 pixelforge frame select --project hero.json --index 1
-pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 1 \
-  --src-x 8 --src-y 4 --width 16 --height 28 --dst-x 8 --dst-y 4
+pixelforge move-rect --project hero.json --src-x 8 --src-y 28 --width 8 --height 12 --dst-x 10 --dst-y 30
 pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 ```
 
-`--from-frame` / `--to-frame` 不改变 `activeFrame`。跨帧 `move-rect` 会清掉整个源矩形。出界则一格都不写。
+目标槽已经是空白、下标不能再插入时，把身体拷进那个槽，不要对空帧整个人 `fillRect`：
+
+```bash
+pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 5 \
+  --src-x 8 --src-y 4 --width 16 --height 28 --dst-x 8 --dst-y 4
+```
+
+`--from-frame` / `--to-frame` 不改变 `activeFrame`。跨帧 `move-rect` 会清掉整个源矩形。出界则一格都不写。`frame duplicate` 已经把源帧像素放到新帧上，紧接着再 `copy-rect` 同一块是重复操作。
+
+## 最少编辑路径
+
+四条规则和前后对照在 `pixelforge` 的「最少编辑路径」。这张表上的短路径是：这一行的下一列从本行 idle 来，只改腿和手臂；右朝向从左朝向镜像，再把高光画回光源一侧。2026-10-25 士兵射击那种 1,133 次 `fillRect`，就是同姿重画加扫描行，不要带到走表上。
+
+帧可以紧挨在源帧后面时，`frame duplicate` 再 `frame select` 返回的下标，然后 `move-rect` 或一小块 `fill-rect` / `erase-rect`。槽位已经占死（16 帧已经铺好，第 3 列必须留在这一行）时，用 `copy-rect --from-frame --to-frame` 把 idle 的身体拷进那个槽，再改差。`duplicateFrame` 会插入一帧并后移后面的列，不能用来填一个已经定死的下标。
+
+之前，walk A 是 `frame add` 的空白，再把 idle 里已经有的头和躯干按扫描行 `fillRect`。一次 `call` 里排几十个 `--request` 仍是几十次 `fillRect`。`beginGesture` 只把它们收成一步撤销。
+
+之后，从 idle 复制，只挪小腿，再 `diff`：
+
+```bash
+pixelforge frame duplicate --project hero.json --index 0
+pixelforge frame select --project hero.json --index 1
+pixelforge move-rect --project hero.json --src-x 8 --src-y 28 --width 8 --height 12 --dst-x 10 --dst-y 30
+pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+```
+
+高度为 1、上下相接、同一 `x`、同一 `width`、同一索引的 `fillRect`，发出前合成一块更高的矩形。例如 `y=20`、`21`、`22` 三笔 `width=12`、`colorIndex=4` 合成 `y=20`、`height=3` 的一笔。左右相接则合成更宽的一笔。规则全文在 `pixelforge`。
+
+右朝向从左朝向来：`copy-rect --from-frame` 到这一行的槽，或 `duplicateFrame` 后再 `hflip`，然后只 `paint` 高光。整帧重画右侧是更长的路径。
+
+*Duplicate the idle and move the limbs when the new column can sit just after it. `copy-rect` into a slot that already exists. Merge scanline `fillRect`s before the call. A batched `call` still counts every request. Mirror the opposite facing and repaint highlights.*
 
 ## Feet
 
