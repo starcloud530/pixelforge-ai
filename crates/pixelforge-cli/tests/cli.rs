@@ -107,6 +107,7 @@ fn help_lists_the_agent_commands() {
         "rotate",
         "import-aseprite",
         "part",
+        "curve",
         "resize",
         "--from-frame",
         "--horizontal",
@@ -2585,6 +2586,149 @@ fn glyph_at(body: &Value, x: usize, y: usize) -> char {
         .chars()
         .nth(x)
         .unwrap()
+}
+
+#[test]
+fn curve_samples_a_gun_raise_beside_a_tag() {
+    let scratch = Scratch::new();
+    let project = scratch.child("gun.json");
+    let path = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new", "--width", "8", "--height", "8", "--output", path
+        ]))),
+        0
+    );
+    for _ in 0..4 {
+        assert_eq!(
+            status(&pixelforge(&arg(&["frame", "add", "--project", path]))),
+            0
+        );
+    }
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "part",
+            "add",
+            "--project",
+            path,
+            "--name",
+            "gun",
+            "--x",
+            "3",
+            "--y",
+            "3"
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "tag",
+            "add",
+            "--project",
+            path,
+            "--name",
+            "shoot",
+            "--from",
+            "0",
+            "--to",
+            "4",
+            "--loop",
+            "once"
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "delay",
+            "--project",
+            path,
+            "--index",
+            "1",
+            "--delay-ms",
+            "40"
+        ]))),
+        0
+    );
+    let raised = pixelforge(&arg(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "0",
+        "--value",
+        "0",
+        "--ease",
+        "ease-in-out",
+    ]));
+    assert_eq!(status(&raised), 0, "{}", stderr(&raised));
+    assert_eq!(json_lines(&raised)[0]["result"]["ease"], json!("easeInOut"));
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "curve",
+            "set",
+            "--project",
+            path,
+            "--part",
+            "gun",
+            "--channel",
+            "rotation",
+            "--frame",
+            "4",
+            "--value",
+            "90"
+        ]))),
+        0
+    );
+    let mid = pixelforge(&arg(&[
+        "curve",
+        "sample",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "2",
+    ]));
+    assert_eq!(status(&mid), 0, "{}", stderr(&mid));
+    assert_eq!(json_lines(&mid)[0]["result"]["value"], json!(45));
+    assert_eq!(
+        json_lines(&mid)[0]["result"]["interpolation"],
+        json!("easeInOut")
+    );
+    let quarter = pixelforge(&arg(&[
+        "curve",
+        "sample",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--frame",
+        "1",
+    ]));
+    assert_eq!(status(&quarter), 0, "{}", stderr(&quarter));
+    assert_eq!(
+        json_lines(&quarter)[0]["result"]["rotation"],
+        json!(14.0625)
+    );
+    let listed = pixelforge(&arg(&["curve", "list", "--project", path]));
+    assert_eq!(status(&listed), 0, "{}", stderr(&listed));
+    assert_eq!(
+        json_lines(&listed)[0]["result"]["curves"][0]["part"],
+        json!("gun")
+    );
+    let document = load(&project);
+    assert_eq!(document.tags()[0].name, "shoot");
+    assert_eq!(document.frame_delay(1).unwrap(), 40);
+    assert!(document.save_project().contains("\"curves\""));
+    assert!(!document.can_undo());
 }
 
 #[test]

@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::{Map, Number, Value};
 
 use crate::aseprite::AsepriteReport;
+use crate::curve::{CurveChannel, CurveSample, Ease, PartSample};
 use crate::document::{Document, QuarterTurn};
 use crate::error::KernelError;
 use crate::palette::IndexPolicy;
@@ -68,6 +69,12 @@ pub const TOOL_NAMES: &[&str] = &[
     "translatePart",
     "rotatePart",
     "flipPart",
+    "setCurveKey",
+    "removeCurveKey",
+    "clearCurve",
+    "listCurves",
+    "sampleCurve",
+    "samplePart",
     "beginGesture",
     "endGesture",
     "undo",
@@ -673,6 +680,64 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 false,
             ))
         }
+        "setCurveKey" => {
+            let (part, channel, frame, value, ease) = parse_set_curve_key(params)?;
+            let written = document
+                .set_curve_key(&part, channel, frame, value, ease)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(curve_write_value(
+                document,
+                written.index,
+                written.key_index,
+            ))
+        }
+        "removeCurveKey" => {
+            let (part, channel, frame) = parse_curve_key(params, "removeCurveKey")?;
+            let removed = document
+                .remove_curve_key(&part, channel, frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(removed.index),
+                "part": removed.part,
+                "channel": removed.channel.as_str(),
+                "frame": as_u32(removed.frame),
+                "removedCurve": removed.removed_curve,
+            }))
+        }
+        "clearCurve" => {
+            let (part, channel) = parse_curve_channel(params, "clearCurve")?;
+            let index = document
+                .clear_curve(&part, channel)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "part": part.trim(),
+                "channel": channel.as_str(),
+            }))
+        }
+        "listCurves" => {
+            let part = parse_list_curves(params)?;
+            if let Some(name) = &part {
+                document
+                    .sample_part(name, 0.0)
+                    .map_err(ToolFailure::Kernel)?;
+            }
+            Ok(curves_value(document, part.as_deref()))
+        }
+        "sampleCurve" => {
+            let (part, channel, frame) = parse_sample_curve(params)?;
+            let sample = document
+                .sample_curve(&part, channel, frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(curve_sample_value(&part.trim(), channel, frame, &sample))
+        }
+        "samplePart" => {
+            let (part, frame) = parse_sample_part(params)?;
+            let sample = document
+                .sample_part(&part, frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(part_sample_value(&sample))
+        }
         "beginGesture" => {
             parse_empty(tool, params)?;
             document.begin_gesture().map_err(ToolFailure::Kernel)?;
@@ -984,6 +1049,7 @@ fn inspect_value(document: &Document) -> Value {
         "selection": selection_json(document),
         "tags": tags_json(document),
         "parts": parts_json(document),
+        "curves": curves_json(document, None),
         "layers": layer_entries(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
@@ -1025,6 +1091,7 @@ fn scene_value(document: &Document) -> Value {
         "frames": frames,
         "tags": tags_json(document),
         "parts": parts_json(document),
+        "curves": curves_json(document, None),
     })
 }
 
@@ -1110,6 +1177,103 @@ fn parts_json(document: &Document) -> Vec<Value> {
 
 fn part_value(document: &Document, index: usize) -> Value {
     part_fields(index, &document.parts()[index])
+}
+
+fn curves_value(document: &Document, part: Option<&str>) -> Value {
+    serde_json::json!({ "curves": curves_json(document, part) })
+}
+
+fn curves_json(document: &Document, part: Option<&str>) -> Vec<Value> {
+    let part = part.map(str::trim);
+    document
+        .curves()
+        .iter()
+        .enumerate()
+        .filter(|(_, curve)| part.is_none_or(|name| curve.part == name))
+        .map(|(index, curve)| curve_fields(index, curve))
+        .collect()
+}
+
+fn curve_write_value(document: &Document, index: usize, key_index: usize) -> Value {
+    let curve = &document.curves()[index];
+    let key = &curve.keys[key_index];
+    serde_json::json!({
+        "index": as_u32(index),
+        "keyIndex": as_u32(key_index),
+        "part": curve.part,
+        "channel": curve.channel.as_str(),
+        "frame": as_u32(key.frame),
+        "value": json_finite(curve.channel.decode(key.value)),
+        "ease": key.ease.as_str(),
+    })
+}
+
+fn curve_fields(index: usize, curve: &crate::curve::Curve) -> Value {
+    serde_json::json!({
+        "index": as_u32(index),
+        "part": curve.part,
+        "channel": curve.channel.as_str(),
+        "keys": curve
+            .keys
+            .iter()
+            .map(|key| {
+                serde_json::json!({
+                    "frame": as_u32(key.frame),
+                    "value": json_finite(curve.channel.decode(key.value)),
+                    "ease": key.ease.as_str(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn curve_sample_value(
+    part: &str,
+    channel: CurveChannel,
+    frame: f64,
+    sample: &CurveSample,
+) -> Value {
+    serde_json::json!({
+        "part": part,
+        "channel": channel.as_str(),
+        "frame": json_finite(frame),
+        "value": json_finite(sample.value),
+        "interpolation": sample.hit.as_str(),
+        "leftFrame": as_u32(sample.left_frame),
+        "rightFrame": sample.right_frame.map(as_u32),
+    })
+}
+
+fn part_sample_value(sample: &PartSample) -> Value {
+    let mut map = Map::new();
+    map.insert("part".to_string(), Value::String(sample.part.clone()));
+    map.insert("frame".to_string(), json_finite(sample.frame));
+    if let Some(value) = sample.rotation {
+        map.insert("rotation".to_string(), json_finite(value));
+    }
+    if let Some(value) = sample.translate_x {
+        map.insert("translateX".to_string(), json_finite(value));
+    }
+    if let Some(value) = sample.translate_y {
+        map.insert("translateY".to_string(), json_finite(value));
+    }
+    if let Some(value) = sample.flip_horizontal {
+        map.insert("flipHorizontal".to_string(), json_finite(value));
+    }
+    if let Some(value) = sample.flip_vertical {
+        map.insert("flipVertical".to_string(), json_finite(value));
+    }
+    Value::Object(map)
+}
+
+fn json_finite(value: f64) -> Value {
+    if value.is_finite() && value.fract() == 0.0 && value.abs() <= i64::MAX as f64 {
+        Value::Number(Number::from(value as i64))
+    } else {
+        Number::from_f64(value)
+            .map(Value::Number)
+            .unwrap_or(Value::Null)
+    }
 }
 
 fn part_fields(index: usize, part: &crate::part::Part) -> Value {
@@ -1790,6 +1954,105 @@ fn parse_flip_part(
     let anchor = optional_string("flipPart", &map, "anchor")?;
     let frame = optional_frame("flipPart", &map, "frame")?;
     Ok((name, vertical, anchor, frame))
+}
+
+fn parse_set_curve_key(
+    params: Value,
+) -> Result<(String, CurveChannel, usize, f64, Option<Ease>), ToolFailure> {
+    let map = expect_object("setCurveKey", params)?;
+    reject_params(
+        "setCurveKey",
+        &map,
+        &["part", "channel", "frame", "value", "ease"],
+    )?;
+    let part = require_string("setCurveKey", &map, "part")?;
+    let channel = parse_channel(
+        "setCurveKey",
+        &require_string("setCurveKey", &map, "channel")?,
+    )?;
+    let frame = require_frame("setCurveKey", &map, "frame")?;
+    let value = require_finite("setCurveKey", &map, "value")?;
+    let ease = match optional_string("setCurveKey", &map, "ease")? {
+        None => None,
+        Some(text) => Some(parse_ease("setCurveKey", &text)?),
+    };
+    Ok((part, channel, frame, value, ease))
+}
+
+fn parse_curve_key(
+    params: Value,
+    tool: &str,
+) -> Result<(String, CurveChannel, usize), ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["part", "channel", "frame"])?;
+    let part = require_string(tool, &map, "part")?;
+    let channel = parse_channel(tool, &require_string(tool, &map, "channel")?)?;
+    let frame = require_frame(tool, &map, "frame")?;
+    Ok((part, channel, frame))
+}
+
+fn parse_curve_channel(params: Value, tool: &str) -> Result<(String, CurveChannel), ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["part", "channel"])?;
+    let part = require_string(tool, &map, "part")?;
+    let channel = parse_channel(tool, &require_string(tool, &map, "channel")?)?;
+    Ok((part, channel))
+}
+
+fn parse_list_curves(params: Value) -> Result<Option<String>, ToolFailure> {
+    let map = expect_object("listCurves", params)?;
+    reject_params("listCurves", &map, &["part"])?;
+    optional_string("listCurves", &map, "part")
+}
+
+fn parse_sample_curve(params: Value) -> Result<(String, CurveChannel, f64), ToolFailure> {
+    let map = expect_object("sampleCurve", params)?;
+    reject_params("sampleCurve", &map, &["part", "channel", "frame"])?;
+    let part = require_string("sampleCurve", &map, "part")?;
+    let channel = parse_channel(
+        "sampleCurve",
+        &require_string("sampleCurve", &map, "channel")?,
+    )?;
+    let frame = require_finite("sampleCurve", &map, "frame")?;
+    Ok((part, channel, frame))
+}
+
+fn parse_sample_part(params: Value) -> Result<(String, f64), ToolFailure> {
+    let map = expect_object("samplePart", params)?;
+    reject_params("samplePart", &map, &["part", "frame"])?;
+    let part = require_string("samplePart", &map, "part")?;
+    let frame = require_finite("samplePart", &map, "frame")?;
+    Ok((part, frame))
+}
+
+fn parse_channel(tool: &str, text: &str) -> Result<CurveChannel, ToolFailure> {
+    CurveChannel::parse(text).ok_or_else(|| {
+        invalid_params(
+            tool,
+            "channel must be rotation, translateX, translateY, flipHorizontal, or flipVertical",
+        )
+    })
+}
+
+fn parse_ease(tool: &str, text: &str) -> Result<Ease, ToolFailure> {
+    Ease::parse(text).ok_or_else(|| invalid_params(tool, "ease must be linear, easeInOut, or hold"))
+}
+
+fn require_finite(tool: &str, map: &Map<String, Value>, key: &str) -> Result<f64, ToolFailure> {
+    match map.get(key) {
+        None => Err(invalid_params(tool, &format!("missing {key}"))),
+        Some(Value::Number(number)) => match number.as_f64() {
+            Some(value) if value.is_finite() => Ok(value),
+            _ => Err(invalid_params(
+                tool,
+                &format!("{key} must be a finite number"),
+            )),
+        },
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be a finite number"),
+        )),
+    }
 }
 
 fn parse_remove_anchor(params: Value) -> Result<(String, String), ToolFailure> {

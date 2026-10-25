@@ -1,8 +1,8 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! layers, per-frame delay, named animation tags, and named parts with
-//! anchors. Paint, erase, rectangle fill, rectangle erase,
+//! layers, per-frame delay, named animation tags, named parts with
+//! anchors, and keyframed part-transform curves. Paint, erase, rectangle fill, rectangle erase,
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
 //! indices on the active layer, never raw RGB. Preview, diff, and PNG export
 //! composite the stack: index 0 is transparent and any other index covers the
@@ -29,6 +29,7 @@
 
 mod aseprite;
 mod color;
+mod curve;
 mod document;
 mod error;
 mod export;
@@ -47,6 +48,10 @@ mod tool_api;
 
 pub use aseprite::AsepriteReport;
 pub use color::Rgba;
+pub use curve::{
+    Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
+    SampleHit,
+};
 pub use document::{Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};
 pub use export::{sprite_sheet_layout, SpriteSheetLayout};

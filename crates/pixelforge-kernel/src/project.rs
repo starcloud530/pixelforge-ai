@@ -6,7 +6,7 @@
 //! palette lock, every frame's indices and delay, the active frame, and, when
 //! the document is more than the original single layer, the layer stack, and,
 //! when any are set, named animation tags, and, when any are set, named parts
-//! with anchors.
+//! with anchors, and, when any are set, part-parameter curves.
 //! The undo stack and the playback clock are not part of the file, so a loaded
 //! document undoes back to the opened pixels and is not playing. A frame
 //! written before delays existed omits `delayMs` and loads as
@@ -18,11 +18,14 @@
 //! in that older shape. A file written before animation tags existed omits
 //! `tags` and loads with none. An empty tag list is still saved that way. A file
 //! written before parts existed omits `parts` and loads with none. An empty
-//! part list is still saved that way. A missing `selection` loads as no mask. The rectangle
+//! part list is still saved that way. A file written before part curves existed
+//! omits `curves` and loads with none. An empty curve list is still saved that
+//! way. A missing `selection` loads as no mask. The rectangle
 //! is written only while one is set. The undo stack is still omitted.
 
 use serde::{Deserialize, Serialize};
 
+use crate::curve::{Curve, CurveChannel, CurveKey, Ease};
 use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
@@ -82,6 +85,9 @@ struct ProjectFile {
     /// Named parts. Missing when the file has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     parts: Vec<PartFile>,
+    /// Part-parameter curves. Missing when the file has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    curves: Vec<CurveFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -124,6 +130,55 @@ struct AnchorFile {
     name: String,
     x: i64,
     y: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CurveFile {
+    part: String,
+    channel: String,
+    keys: Vec<CurveKeyFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CurveKeyFile {
+    frame: u64,
+    value: JsonNumber,
+    /// Missing means the channel default: `linear`, or `hold` for flip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ease: Option<String>,
+}
+
+/// A finite JSON number. Whole values are written as integers.
+#[derive(Debug, Clone, Copy)]
+struct JsonNumber(f64);
+
+impl Serialize for JsonNumber {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if self.0.is_finite() && self.0.fract() == 0.0 && self.0.abs() <= i64::MAX as f64 {
+            serializer.serialize_i64(self.0 as i64)
+        } else {
+            serializer.serialize_f64(self.0)
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for JsonNumber {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = f64::deserialize(deserializer)?;
+        if value.is_finite() {
+            Ok(Self(value))
+        } else {
+            Err(serde::de::Error::custom("curve value must be finite"))
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -196,6 +251,7 @@ impl Document {
                 .collect(),
             tags: self.stored_tags(),
             parts: self.stored_parts(),
+            curves: self.stored_curves(),
         };
         let mut json = serde_json::to_string_pretty(&file)
             .expect("project fields are JSON numbers, strings, and arrays");
@@ -284,6 +340,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let selection = selection_from_file(file.selection, width, height)?;
     let tags = tags_from_file(file.tags, frames.len())?;
     let parts = parts_from_file(file.parts, width, height, names.len())?;
+    let curves = curves_from_file(file.curves, &parts, frames.len())?;
     Ok(Document::from_stored(
         width,
         height,
@@ -297,7 +354,66 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         selection,
         tags,
         parts,
+        curves,
     ))
+}
+
+fn curves_from_file(
+    files: Vec<CurveFile>,
+    parts: &[Part],
+    frame_count: usize,
+) -> Result<Vec<Curve>, KernelError> {
+    let mut curves: Vec<Curve> = Vec::with_capacity(files.len());
+    for (index, file) in files.into_iter().enumerate() {
+        let part = normalize_part_name(&file.part)
+            .map_err(|()| invalid(ProjectFileError::CurvePart { index }))?;
+        if !parts.iter().any(|existing| existing.name == part) {
+            return Err(invalid(ProjectFileError::CurvePart { index }));
+        }
+        let channel = CurveChannel::parse(&file.channel)
+            .ok_or_else(|| invalid(ProjectFileError::CurveChannel { index }))?;
+        if curves
+            .iter()
+            .any(|curve| curve.part == part && curve.channel == channel)
+        {
+            return Err(invalid(ProjectFileError::CurveDuplicate { index }));
+        }
+        if file.keys.is_empty() {
+            return Err(invalid(ProjectFileError::CurveKey { index }));
+        }
+        let mut keys = Vec::with_capacity(file.keys.len());
+        let mut previous: Option<usize> = None;
+        for key in file.keys {
+            let frame = usize::try_from(key.frame)
+                .map_err(|_| invalid(ProjectFileError::CurveKey { index }))?;
+            if frame >= frame_count || previous.is_some_and(|prev| frame <= prev) {
+                return Err(invalid(ProjectFileError::CurveKey { index }));
+            }
+            previous = Some(frame);
+            let ease = match key.ease {
+                None => channel.default_ease(),
+                Some(text) => Ease::parse(&text)
+                    .ok_or_else(|| invalid(ProjectFileError::CurveEase { index }))?,
+            };
+            if !channel.allows(ease) {
+                return Err(invalid(ProjectFileError::CurveEase { index }));
+            }
+            let stored = channel
+                .store(key.value.0)
+                .map_err(|_| invalid(ProjectFileError::CurveValue { index }))?;
+            keys.push(CurveKey {
+                frame,
+                value: stored,
+                ease,
+            });
+        }
+        curves.push(Curve {
+            part,
+            channel,
+            keys,
+        });
+    }
+    Ok(curves)
 }
 
 fn parts_from_file(
@@ -463,6 +579,29 @@ impl Document {
                         name: anchor.name.clone(),
                         x: i64::from(anchor.x),
                         y: i64::from(anchor.y),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
+    fn stored_curves(&self) -> Vec<CurveFile> {
+        self.curves()
+            .iter()
+            .map(|curve| CurveFile {
+                part: curve.part.clone(),
+                channel: curve.channel.as_str().to_string(),
+                keys: curve
+                    .keys
+                    .iter()
+                    .map(|key| CurveKeyFile {
+                        frame: u64::try_from(key.frame).expect("frame index fits in u64"),
+                        value: JsonNumber(curve.channel.decode(key.value)),
+                        ease: if key.ease == curve.channel.default_ease() {
+                            None
+                        } else {
+                            Some(key.ease.as_str().to_string())
+                        },
                     })
                     .collect(),
             })

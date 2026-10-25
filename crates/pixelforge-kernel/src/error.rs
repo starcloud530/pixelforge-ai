@@ -85,6 +85,19 @@ pub enum KernelError {
     ///
     /// `x` and `y` are the cell that would not fit. The call writes nothing.
     PartOffCanvas { x: i32, y: i32 },
+    /// A curve value is not valid for its channel.
+    ///
+    /// Rotation uses the same finite bound as a part angle. Translate is a
+    /// whole cell in `i32`. Flip is `0` or `1`.
+    CurveValue,
+    /// This channel does not allow that ease. Flip channels accept `hold` only.
+    CurveEase,
+    /// This part has no curve on that channel.
+    CurveMissing,
+    /// This curve has no key on that frame.
+    CurveKeyMissing,
+    /// A sample position is not a finite frame index.
+    CurveFrame,
     /// A move would write or clear a cell outside the rectangular selection.
     ///
     /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
@@ -203,6 +216,18 @@ pub enum ProjectFileError {
     AnchorDuplicate { part: usize, index: usize },
     /// An anchor's local coordinate is outside `-MAX_CANVAS_EDGE..=MAX_CANVAS_EDGE`.
     AnchorCoord { part: usize, index: usize },
+    /// A curve's part name is empty or does not match a part in the file.
+    CurvePart { index: usize },
+    /// A curve's `channel` is not a known parameter.
+    CurveChannel { index: usize },
+    /// Two curves in the file share a part and a channel. `index` is the later one.
+    CurveDuplicate { index: usize },
+    /// A curve has no keys, a key frame is outside the frame list, or two keys share a frame.
+    CurveKey { index: usize },
+    /// A key's `ease` is unknown, or a flip channel is not `hold`.
+    CurveEase { index: usize },
+    /// A key's `value` is not valid for that channel.
+    CurveValue { index: usize },
 }
 
 impl KernelError {
@@ -239,6 +264,11 @@ impl KernelError {
             Self::AnchorCoord { .. } => "AnchorCoord",
             Self::PartAngle => "PartAngle",
             Self::PartOffCanvas { .. } => "PartOffCanvas",
+            Self::CurveValue => "CurveValue",
+            Self::CurveEase => "CurveEase",
+            Self::CurveMissing => "CurveMissing",
+            Self::CurveKeyMissing => "CurveKeyMissing",
+            Self::CurveFrame => "CurveFrame",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -355,6 +385,11 @@ impl fmt::Display for KernelError {
                     "part transform would place a cell at {x},{y} outside the canvas"
                 )
             }
+            Self::CurveValue => write!(f, "curve value is not valid for this channel"),
+            Self::CurveEase => write!(f, "this channel does not allow that ease"),
+            Self::CurveMissing => write!(f, "this part has no curve for that channel"),
+            Self::CurveKeyMissing => write!(f, "this curve has no key on that frame"),
+            Self::CurveFrame => write!(f, "sample frame must be a finite number"),
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
@@ -499,6 +534,27 @@ impl fmt::Display for ProjectFileError {
                 f,
                 "part {part} anchor {index} is outside -{MAX_CANVAS_EDGE}..={MAX_CANVAS_EDGE}"
             ),
+            Self::CurvePart { index } => {
+                write!(f, "curve {index} does not name a part in this file")
+            }
+            Self::CurveChannel { index } => write!(
+                f,
+                "curve {index} channel must be rotation, translateX, translateY, flipHorizontal, or flipVertical"
+            ),
+            Self::CurveDuplicate { index } => {
+                write!(f, "curve {index} repeats a part and channel")
+            }
+            Self::CurveKey { index } => write!(
+                f,
+                "curve {index} keys must be a non-empty increasing frame list inside the timeline"
+            ),
+            Self::CurveEase { index } => write!(
+                f,
+                "curve {index} ease must be linear, easeInOut, or hold, and flip is hold only"
+            ),
+            Self::CurveValue { index } => {
+                write!(f, "curve {index} value is not valid for its channel")
+            }
         }
     }
 }
