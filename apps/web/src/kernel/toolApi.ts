@@ -56,6 +56,7 @@ export const TOOL_NAMES = [
   "removeConstraint",
   "listConstraints",
   "solveConstraints",
+  "bake",
   "beginGesture",
   "endGesture",
   "undo",

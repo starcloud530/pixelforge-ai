@@ -16,7 +16,7 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。其它创作 skill 先遵守这里。 |
+| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
 | `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢 | body / gear / limbs。合成预览、`--layer`、`layer flatten`。 |
@@ -211,9 +211,9 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 
 ### 部件与锚点 Parts and anchors
 
-部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。多帧上的抬枪用 `curve`，采样不写像素。手跟握持、枪托贴肩、脚底固定用 `constraint solve`，它才写这一帧。士兵示例在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」、「部件变换」、「部件曲线」和「约束」。
+部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。多帧上的抬枪用 `curve`，采样不写像素。手跟握持、枪托贴肩、脚底固定用 `constraint solve`，它写这一帧。整段帧用 `bake`。士兵示例在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」、「部件变换」、「部件曲线」、「约束」和「烘焙」，外部脚本是 [examples/soldier-raise-gun.py](../examples/soldier-raise-gun.py)。
 
-*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Rectangle flip and rotate do not move anchors. `part translate`, `part rotate`, and `part flip` move that layer's ink together with the origin and anchors. Quarter turns are an exact integer map. Any other angle quantizes to 0.01° and then to the nearest cell, around the origin or the `--anchor` cell. A raise across frames uses `curve`. Sampling does not write pixels. A hand, a butt, and a planted foot use `constraint solve`, which writes that one frame. The soldier commands are in the pixelforge skill.*
+*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Rectangle flip and rotate do not move anchors. `part translate`, `part rotate`, and `part flip` move that layer's ink together with the origin and anchors. Quarter turns are an exact integer map. Any other angle quantizes to 0.01° and then to the nearest cell, around the origin or the `--anchor` cell. A raise across frames uses `curve`. Sampling does not write pixels. A hand, a butt, and a planted foot use `constraint solve`, which writes that one frame. `bake` writes the span. The soldier commands are in the pixelforge skill, and the external script is `examples/soldier-raise-gun.py`.*
 
 ```bash
 pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
@@ -240,6 +240,16 @@ pixelforge constraint solve --project soldier.json --frame 4 --apply
 `follow` 让手掌落到枪的 `grip`。`stick` 存成 `attach`，把枪托锚点贴到肩的 `joint`。`pin` 把脚的 `sole` 钉在画布格上。`solve` 不带 `--apply` 只打印报告。带 `--frame` 时先采样曲线再解约束；不带 `--frame` 时用 `part rotate` 已经写下的姿势。环、第二条驱动、缺锚点、出画布都报错并且不写。没有约束时工程文件不写 `constraints`。求解规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「约束」。
 
 *A `follow` puts the palm on the gun's `grip`. `stick` is stored as `attach` and puts the butt anchor on the shoulder `joint`. A `pin` plants the foot's `sole` on a canvas cell. `solve` without `--apply` prints the report. With `--frame` it samples curves and then solves. Without `--frame` it uses the pose `part rotate` already wrote. A cycle, a second driver, a missing anchor, or a cell off the canvas is an error and writes nothing. A project with no constraints omits `constraints`. The solve rules are in the pixelforge skill.*
+
+```bash
+pixelforge bake --project soldier.json --from 0 --to 11 --fps 12
+pixelforge bake --project soldier.json --part gun --part hand --layer 1
+pixelforge bake --project soldier.json --from 4 --to 4 --curves-only
+```
+
+`bake` 在 `--from` 到 `--to` 的闭区间上，从 `--source`（缺省第 0 帧）的静止墨水采样曲线并解约束，写成普通像素帧。源帧的像素不改。`--fps` 把区间里每一帧的 `delayMs` 设成 `round(1000/fps)`，12 是 83。`--part` 和 `--layer` 可重复。`--curves-only` 不解约束。曲线、约束和存着的原点都留下。像素或时长有变化才是一步撤销。先 `frame duplicate` 静止帧，身体那一层才会留在已有帧上。没有内置脚本。规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「烘焙」。
+
+*`bake` samples curves and solves constraints from the rest ink on `--source` (frame 0 by default) across the inclusive `--from`..`--to` range, and writes ordinary pixel frames. The source frame's pixels stay. `--fps` sets `delayMs` on every frame in the range to `round(1000/fps)`; 12 is 83. Repeat `--part` and `--layer`. `--curves-only` skips constraints. Curves, constraints, and the stored origins stay. A change to pixels or delays is one undo step. Duplicate the rest frame first so a body layer remains on frames that already exist. There is no script runtime. The rules are in the pixelforge skill.*
 
 握持点 `(2, 2)` 的画布格是 `(26, 14)`。肩和肘用同样的命令，可以不写 `--layer`。
 

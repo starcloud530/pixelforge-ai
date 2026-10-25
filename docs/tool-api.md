@@ -111,6 +111,8 @@
 | `ConstraintCycle` | 约束自己指向自己，或几条约束绕成环。一格都不写 |
 | `ConstraintConflict` | 同一个部件被两条约束驱动。一格都不写 |
 | `ConstraintLayer` | 同一层上有两个会动的部件。给每个会动的部件单独一层 |
+| `BakeRange` | `bake` 的 `from` 大于 `to`，`from` 大于现有帧数，或 `to` 大于等于 4096 |
+| `BakeFps` | `bake` 的 `fps` 不是大于 0 的有限数 |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
@@ -135,17 +137,17 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、以及姿势没有变化的 `solveConstraints`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 或 `solveConstraints` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, or `solveConstraints` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, `solveConstraints`, or `bake` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -548,7 +550,7 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 部件**不是**层，也不是另一块像素缓冲。层仍然是每一帧共用的绘制栈。一个部件可以用 `layer` 指向像素所在的那一层（枪在 `gear` 上），也可以不挂层（肩、肘只是一个点）。多个部件可以指向同一层。`layer` 不切换 `activeLayer`。
 
-原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，绕它旋转时不必把每一格 `fillRect` 再画一遍。部件记录本身不存旋转角。参数曲线在 `curves`。约束在 `constraints`。烘焙不进文件。
+原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，绕它旋转时不必把每一格 `fillRect` 再画一遍。部件记录本身不存旋转角。参数曲线在 `curves`。约束在 `constraints`。`bake` 写下的是像素和 `delayMs`，文件里没有 `bake` 字段。版本仍是 1。
 
 矩形 `flipHorizontal` / `flipVertical` / `rotate` 只搬索引，不搬部件，也不搬锚点。部件自己的平移、旋转、翻转见 `translatePart`、`rotatePart`、`flipPart`：它们改这一帧挂接层上的索引，并在同一步撤销里改原点和锚点。`resizeCanvas` 把原点按同一偏移挪走；原点会离开新画布时，这个部件连同锚点一起去掉，和选区在同一撤销步里。锚点的本地偏移不变。
 
@@ -558,7 +560,7 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 *A part is not a layer and not a second pixel buffer. The layer stack stays the paint stack. `layer` names the paint layer whose pixels belong to the part, and does not select that layer. Omit it for a rig point such as a shoulder. Several parts may name one layer.*
 
-*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The part record does not store a rotation angle. Parameter curves live in `curves`. Constraints live in `constraints`. A bake is not stored.*
+*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The part record does not store a rotation angle. Parameter curves live in `curves`. Constraints live in `constraints`. `bake` writes pixels and `delayMs`. The file has no `bake` field and stays version 1.*
 
 *Rectangle `flipHorizontal`, `flipVertical`, and `rotate` move indices only. They do not move parts or anchors. `translatePart`, `rotatePart`, and `flipPart` move the linked layer's indices on one frame and update the origin and anchors in that same undo step. `resizeCanvas` translates each origin by the same offset and drops a part, in that same undo step, when the origin would leave the new canvas. Local anchor offsets stay put.*
 
@@ -653,7 +655,7 @@ CLI：`pixelforge part translate --name gun --dx 2 --dy -1`。`--frame` 指定�
 
 只改 `frame`（缺省为当前帧）上挂接层的索引，并改这一份原点与锚点。锚点先变成画布坐标再映射，然后重新写成相对新原点的本地格，这样握持点在整数变换里仍停在原来的画布格上。本地结果超出 `-256..=256` 时是 `AnchorCoord`，一格都不写。落点出画布是 `PartOffCanvas`。选区规则与 `translatePart` 相同。量化成 0° 时不进撤销栈。
 
-不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧采样见「部件曲线」，它不写像素。约束是显式的 `solveConstraints`，见「约束」。烘焙（#58）不在这里。
+不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧采样见「部件曲线」，它不写像素。约束是显式的 `solveConstraints`，见「约束」。整段帧见「烘焙」。
 
 CLI：`pixelforge part rotate --name gun --degrees 90 --anchor grip`。
 
@@ -677,7 +679,7 @@ CLI：`pixelforge part flip --horizontal --name gun --anchor grip`。必须恰�
 
 ### 部件曲线 Part curves
 
-曲线是部件变换参数在帧下标上的轨道，和标签、`delayMs` 共用这一条时间轴。采样不读 `delayMs`，也不推动播放时钟。`frame` 为整数时是某一帧；为小数时落在两帧之间。`2` 是第 2 帧，`2.5` 是第 2 帧到第 3 帧的中点（按帧下标，不按毫秒）。结果是相对静止姿势的参数。它不写像素，也不调用 `rotatePart` / `translatePart` / `flipPart`。外部代码或以后的烘焙从静止姿势施加这些数；已经变换过的帧再施加一次会叠加上去。
+曲线是部件变换参数在帧下标上的轨道，和标签、`delayMs` 共用这一条时间轴。采样不读 `delayMs`，也不推动播放时钟。`frame` 为整数时是某一帧；为小数时落在两帧之间。`2` 是第 2 帧，`2.5` 是第 2 帧到第 3 帧的中点（按帧下标，不按毫秒）。结果是相对静止姿势的参数。它不写像素，也不调用 `rotatePart` / `translatePart` / `flipPart`。`bake` 从静止姿势读这些采样并搬走墨水。已经变换过的帧再用 `rotatePart` 施加一次会叠加上去。
 
 一个部件的一个通道一条曲线。通道：
 
@@ -697,7 +699,7 @@ CLI：`pixelforge part flip --horizontal --name gun --anchor grip`。必须恰�
 
 插帧、删帧在同一步撤销里挪关键帧下标。删掉的那一帧上的关键帧被去掉；曲线空了就去掉。部件改名会带着曲线走。删掉部件，或 `resizeCanvas` 把原点裁出画布，曲线一起去掉。工程文件版本仍是 1。没有曲线时不写 `curves`。缺这个字段的旧文件按没有曲线读入。未知字段仍然拒绝。文件里的 `ease` 缺省时不写。
 
-*A curve is a track of part-transform parameters on the frame index, the same axis as tags and `delayMs`. Sampling does not read `delayMs` and does not move the playback clock. An integer `frame` is that frame. A fractional `frame` falls between frames: `2` is frame 2, and `2.5` is halfway from frame 2 to frame 3 in index space, not weighted by milliseconds. The number is the pose relative to the rest origin. It does not write pixels and it does not call `rotatePart`, `translatePart`, or `flipPart`. Later code, or a later bake, applies it from the rest pose. Applying it again on a frame that was already transformed stacks.*
+*A curve is a track of part-transform parameters on the frame index, the same axis as tags and `delayMs`. Sampling does not read `delayMs` and does not move the playback clock. An integer `frame` is that frame. A fractional `frame` falls between frames: `2` is frame 2, and `2.5` is halfway from frame 2 to frame 3 in index space, not weighted by milliseconds. The number is the pose relative to the rest origin. It does not write pixels and it does not call `rotatePart`, `translatePart`, or `flipPart`. `bake` reads the sample and warps rest ink. Applying the sample again with `rotatePart` on a frame that was already transformed stacks.*
 
 *One curve per part per channel. The ease on a key is how that key leaves toward the next one. The last key's ease is stored and used only after a later key exists. `t = (frame - left) / (right - left)` and the sample is `left + (right - left) * u`.*
 
@@ -793,7 +795,7 @@ Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 只接�
 
 求解顺序等被驱动的目标先完成。互不依赖的保持文件顺序。自指或环是 `ConstraintCycle`。同一部件两条驱动是 `ConstraintConflict`。添加时就会拒绝，名单不变。两个会动的部件共用一层是 `ConstraintLayer`。一个会动的部件可以和同层不动的部件共存，该层每一个非 0 格跟着走。
 
-`apply` 缺省 false：做完检查，返回报告，不进撤销栈。`apply` true：写到 `pixelFrame`（缺省当前帧）。挂接层非 0 墨水按「旋转 / 翻转 + 一次平移」搬走，`ink` 为 `moved`。没挂层只改原点，`ink` 为 `metadata`。没有位移是 `unchanged`。部件或像素有变化才是一步撤销。再调用一次叠在存下的姿势上。不新建帧，不沿时间轴逐帧写。
+`apply` 缺省 false：做完检查，返回报告，不进撤销栈。`apply` true：写到 `pixelFrame`（缺省当前帧）。挂接层非 0 墨水按「旋转 / 翻转 + 一次平移」搬走，`ink` 为 `moved`。没挂层只改原点，`ink` 为 `metadata`。没有位移是 `unchanged`。部件或像素有变化才是一步撤销。再调用一次叠在存下的姿势上。不新建帧，不沿时间轴逐帧写。整段帧是 `bake`。
 
 失败整次不写。删锚点不删约束，下次求解是 `AnchorMissing`。原点或最终墨水出画布是 `PartOffCanvas`。改名改写 `part` 和 `target`。删部件丢掉提到它的约束。`resizeCanvas` 平移钉点，钉点出画布或部件被裁掉时丢掉该约束。未知字段拒绝。读入时锚点可以暂时不在，求解时再查。
 
@@ -803,7 +805,7 @@ Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 只接�
 
 *`solveConstraints` is explicit. With `frame`, each part's curves are sampled from the stored pose, then constraints run. Channel order is rotation, horizontal flip, vertical flip around the stored origin, then whole-cell translation. Fractional translation snaps to the nearest cell, ties away from zero. Omit `frame` and curves are not read. Solve order waits for a driven target. Independent constraints keep file order. A cycle is `ConstraintCycle`. A second driver is `ConstraintConflict` and is refused at add time. Two posed parts on one layer are `ConstraintLayer`. One moving part may share a layer with a stationary part; every non-zero cell on that layer moves.*
 
-*`apply` defaults to false and returns the report without undo. `apply` true writes `pixelFrame` or the active frame. Linked ink moves and `ink` is `moved`. An unattached part is `metadata`. No motion is `unchanged`. A change is one undo step. A later call stacks. The call does not create frames and does not walk the timeline.*
+*`apply` defaults to false and returns the report without undo. `apply` true writes `pixelFrame` or the active frame. Linked ink moves and `ink` is `moved`. An unattached part is `metadata`. No motion is `unchanged`. A change is one undo step. A later call stacks. The call does not create frames and does not walk the timeline. A span of frames is `bake`.*
 
 *A failure writes nothing. Removing an anchor leaves the constraint; the next solve is `AnchorMissing`. An origin or final ink cell off the canvas is `PartOffCanvas`. Rename rewrites `part` and `target`. Removing a part drops constraints that name it. `resizeCanvas` shifts pin cells and drops a constraint whose pin or part leaves the canvas. Unknown fields are rejected. Load does not require the anchor to still exist.*
 
@@ -862,6 +864,57 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 错误：`CurveFrame`、`CurveValue`、`AnchorMissing`、`PartMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintFields`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`FrameIndex`。`frame` 不是有限数或 `apply` 不是布尔时是 `InvalidParams`。
 
 *Solve order, cycles, a missing anchor, and a cell off the canvas are errors. The call writes nothing in those cases. `listConstraints` is read-only. `solveConstraints` with `apply` false is read-only. `apply` true is one undo step when the pose changes.*
+
+### `bake`
+
+`params` 全是可选的：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `from` | 闭区间第一帧。缺省 0。可以等于现有帧数，表示只追加 |
+| `to` | 闭区间最后一帧。缺省最后一帧。超过现有帧数则追加。必须小于 4096 |
+| `source` | 静止墨水所在帧。缺省 0。这一帧的像素不改 |
+| `fps` | 大于 0 的有限数。区间里每一帧（含源帧）的 `delayMs` 变成 `round(1000/fps)`。12 是 83 |
+| `parts` | 只摆这些部件。省略则摆每一个。空数组是 `InvalidParams` |
+| `layers` | 只写这些层。省略则写会动的挂接层；给了 `parts` 又省略 `layers` 时，写这些部件挂着的层 |
+| `constraints` | 缺省 true。false 只采样曲线，不解约束 |
+
+每一非源帧都从源帧的墨水摆姿势，不从该帧已经有的像素接着摆，所以再烤一次不叠加。通道顺序与 `solveConstraints` 带 `frame` 时相同。存着的原点不改。曲线和约束不删。报告里的 `x`、`y` 是摆好的原点。
+
+已有帧只替换要写的层，其它层保持原样。先复制静止帧，没挂部件的身体才会留在这些帧上。追加的帧先整帧复制源帧，再盖上摆好的层。`from` 大于现有帧数是 `BakeRange`。
+
+`parts` 给定时，只摆名单里的部件，从动部件只跟同样被选中的目标。`layers` 再把写入收成交集。两个都省略时，只写这一帧里有位移的挂接层。同一层上两个会动、且这一层会被写入的部件是 `ConstraintLayer`。挂接层上每一个非 0 格都搬走。
+
+选区必须盖住搬走的源格和落点；追加帧上新写入的非 0 格也必须在选区内。否则 `SelectionProtected`，一格都不写。出画布、缺锚点、环、第二条驱动同样整次不写。
+
+像素或时长有变化才是一步撤销。源帧只可能改时长。当前帧不因这次调用而改变。工程文件仍是 version 1，没有 `bake` 字段。
+
+`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `from`, `to`, `source` | 实际使用的区间和源帧 |
+| `fps` | 传入的帧率，省略时是 `null` |
+| `delayMs` | 写进区间的时长，没给 `fps` 时是 `null` |
+| `constraints` | 这次是否求解 |
+| `appended` | 新追加的帧数 |
+| `wrote` | 像素或时长是否真的变了 |
+| `dropped` | 各帧最近邻碰撞丢掉的格数之和 |
+| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 为空。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件 |
+
+CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun --part hand --layer 0`。`pixelforge bake --curves-only`。`pixelforge bake --source 0 --from 1 --to 4`。
+
+错误：`BakeRange`、`BakeFps`、`FrameDelay`、`FrameIndex`、`LayerIndex`、`PartName`、`PartMissing`、`CurveValue`、`AnchorMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`。`fps` 不是有限数、`constraints` 不是布尔、`parts` 或 `layers` 是空数组或类型不对时是 `InvalidParams`。
+
+*Every optional field may be omitted. Each non-source frame is posed from the source frame's ink, not from pixels already on that frame, so a second bake does not stack. Channel order matches `solveConstraints` with `frame`. Stored origins stay. Curves and constraints stay. Reported `x` and `y` are the posed origin.*
+
+*An existing frame replaces only the layers being written. Duplicate the rest frame first when a body with no part should remain. An appended frame copies every source layer, then overwrites the posed layers. `from` past the frame count is `BakeRange`.*
+
+*A `parts` list poses only those parts, and a follower tracks a target only when that target is included. `layers` intersects that write set. With neither filter, only a layer that moves on that frame is written. Two moving parts on a layer that will be written are `ConstraintLayer`. Every non-zero cell on a written linked layer moves.*
+
+*A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it too. Otherwise the call is `SelectionProtected` and writes nothing. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
+
+*A change to pixels or delays is one undo step. The source frame can change its delay only. The active frame stays. The project stays version 1 and has no `bake` field. `ink` is `moved` or `unchanged`. An unattached part, or a layer that was not written, is `unchanged`, because the origin is not stored.*
 
 ### `beginGesture` / `endGesture`
 
