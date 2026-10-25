@@ -55,7 +55,7 @@ pub use curve::{
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
     SampleHit,
 };
-pub use document::{Document, QuarterTurn};
+pub use document::{BakeFrame, BakeOptions, BakeReport, Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};
 pub use export::{sprite_sheet_layout, SpriteSheetLayout};
 pub use frame::Frame;
@@ -97,6 +97,12 @@ pub const MIN_FRAME_DELAY_MS: u32 = 1;
 
 /// Longest delay [`Document::set_frame_delay`] accepts.
 pub const MAX_FRAME_DELAY_MS: u32 = 65_535;
+
+/// Largest frame count [`Document::bake`] will leave behind.
+///
+/// `to` is an inclusive index, so it must be below this. The cap stops a
+/// request from appending billions of frames.
+pub const MAX_BAKE_FRAMES: usize = 4096;
 
 /// Scale for [`Document::scrub`] and [`Document::frame_at_ratio`].
 /// `0` is the start of the first frame and this value is the end of the last.

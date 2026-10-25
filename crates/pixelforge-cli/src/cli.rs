@@ -85,7 +85,8 @@ parameters on frame indices and samples them. It does not write pixels.
 `constraint` stores a follow, attach, or pin. `constraint solve` is the
 step that tracks them: pass `--frame` to sample curves first, and `--apply`
 to write one pixel frame. Omit `--apply` and the file stays as it was.
-Solving does not walk the timeline.
+Solving does not walk the timeline. `bake` does: it samples that pose onto
+each frame in a range and leaves the curves in place.
 `import-aseprite --file sprite.aseprite --output hero.json`
 reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
@@ -324,8 +325,9 @@ pub enum Command {
     /// A part has a rest-pose origin on the canvas and optional layer index.
     /// Anchors are pixel offsets from that origin. `part translate`,
     /// `part rotate`, and `part flip` move the linked ink. Keyframed
-    /// parameters live under `curve`, which samples and does not bake.
-    /// `constraint solve` tracks a hand, a butt, or a planted foot.
+    /// parameters live under `curve`, which samples and does not write pixels.
+    /// `bake` writes those samples across a frame range. `constraint solve`
+    /// tracks a hand, a butt, or a planted foot on one frame.
     Part {
         #[command(subcommand)]
         command: PartCmd,
@@ -346,11 +348,18 @@ pub enum Command {
     /// pose, or a curve pose when `--frame` is set, then translates each
     /// driven part so the named points meet. `--apply` writes that pose
     /// onto one pixel frame. Omit it and the file is unchanged. A second
-    /// solve stacks on the stored pose. This does not bake the timeline.
+    /// solve stacks on the stored pose. `bake` walks the timeline instead.
     Constraint {
         #[command(subcommand)]
         command: ConstraintCmd,
     },
+    /// Sample curves and constraints into editable pixel frames.
+    ///
+    /// The source frame (default 0) stays the rest pose and is not rewritten.
+    /// Other frames in `--from`..=`--to` get that pose. `--fps` sets each
+    /// frame's delay to round(1000/fps) milliseconds. Curves and constraints
+    /// stay. One bake is one undo step. There is no script runtime.
+    Bake(BakeArgs),
     /// Undo the last edit recorded in this process.
     ///
     /// A freshly opened file has an empty stack, and the file does not store
@@ -1150,6 +1159,34 @@ pub enum AnchorCmd {
         #[arg(long)]
         name: String,
     },
+}
+
+#[derive(Args)]
+pub struct BakeArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// First frame index, inclusive. Default 0.
+    #[arg(long)]
+    pub from: Option<u32>,
+    /// Last frame index, inclusive. Default is the last existing frame.
+    /// Past the end appends posed frames.
+    #[arg(long)]
+    pub to: Option<u32>,
+    /// Rest-pose frame. Default 0. This frame's pixels are not rewritten.
+    #[arg(long)]
+    pub source: Option<u32>,
+    /// Playback rate. Sets delayMs to round(1000/fps). A leading minus is a value.
+    #[arg(long, allow_hyphen_values = true)]
+    pub fps: Option<f64>,
+    /// Pose only this part. Repeat for more than one. Omit to pose every part.
+    #[arg(long = "part")]
+    pub parts: Vec<String>,
+    /// Write only this layer. Repeat for more than one.
+    #[arg(long = "layer")]
+    pub layers: Vec<u32>,
+    /// Sample curves and do not solve constraints.
+    #[arg(long)]
+    pub curves_only: bool,
 }
 
 #[derive(Subcommand)]

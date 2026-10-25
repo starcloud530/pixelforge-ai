@@ -4,8 +4,9 @@
 //! the same axis as animation tags and `setFrameDelay`. Sampling takes a frame
 //! position that may fall between those indices. It does not read `delayMs`
 //! and it does not write pixels. The number is the pose relative to the part's
-//! rest origin, so a later bake can pass it to `rotatePart`, `translatePart`,
-//! or `flipPart` starting from that rest pose.
+//! rest origin. [`crate::Document::bake`] reads that sample and warps rest ink.
+//! It does not call `rotatePart`. Applying the sample again with `rotatePart`
+//! on a frame that was already transformed stacks.
 //!
 //! The ease on a key is how the value leaves that key toward the next one.
 //! With `t` in `[0, 1]` along the frame-index span:

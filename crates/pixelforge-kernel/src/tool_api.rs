@@ -18,7 +18,7 @@ use serde_json::{Map, Number, Value};
 use crate::aseprite::AsepriteReport;
 use crate::constraint::{Constraint, ConstraintKind, SolveReport};
 use crate::curve::{CurveChannel, CurveSample, Ease, PartSample};
-use crate::document::{Document, QuarterTurn};
+use crate::document::{BakeOptions, Document, QuarterTurn};
 use crate::error::KernelError;
 use crate::palette::IndexPolicy;
 use crate::palette_file::PaletteImportMode;
@@ -80,6 +80,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "removeConstraint",
     "listConstraints",
     "solveConstraints",
+    "bake",
     "beginGesture",
     "endGesture",
     "undo",
@@ -780,6 +781,11 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 .map_err(ToolFailure::Kernel)?;
             Ok(solve_value(&report))
         }
+        "bake" => {
+            let options = parse_bake(params)?;
+            let report = document.bake(options).map_err(ToolFailure::Kernel)?;
+            Ok(bake_value(&report))
+        }
         "beginGesture" => {
             parse_empty(tool, params)?;
             document.begin_gesture().map_err(ToolFailure::Kernel)?;
@@ -1266,6 +1272,61 @@ fn constraint_fields(index: usize, constraint: &Constraint) -> Value {
         "targetAnchor": constraint.target_anchor,
         "x": constraint.x,
         "y": constraint.y,
+    })
+}
+
+fn bake_value(report: &crate::document::BakeReport) -> Value {
+    serde_json::json!({
+        "from": as_u32(report.from),
+        "to": as_u32(report.to),
+        "source": as_u32(report.source),
+        "fps": match report.fps {
+            None => Value::Null,
+            Some(fps) => json_finite(fps),
+        },
+        "delayMs": report.delay_ms,
+        "constraints": report.constraints,
+        "appended": as_u32(report.appended),
+        "wrote": report.wrote,
+        "dropped": report.dropped,
+        "frames": report
+            .frames
+            .iter()
+            .map(|frame| {
+                serde_json::json!({
+                    "index": as_u32(frame.index),
+                    "rest": frame.rest,
+                    "delayMs": frame.delay_ms,
+                    "dropped": frame.dropped,
+                    "layers": frame.layers.iter().copied().map(as_u32).collect::<Vec<_>>(),
+                    "parts": frame.parts.iter().map(solved_part_value).collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn solved_part_value(part: &crate::constraint::SolvedPart) -> Value {
+    serde_json::json!({
+        "name": part.name,
+        "x": part.x,
+        "y": part.y,
+        "layer": part.layer.map(as_u32),
+        "ink": part.ink,
+        "dropped": part.dropped,
+        "anchors": part
+            .anchors
+            .iter()
+            .map(|anchor| {
+                serde_json::json!({
+                    "name": anchor.name,
+                    "x": anchor.x,
+                    "y": anchor.y,
+                    "canvasX": anchor.canvas_x,
+                    "canvasY": anchor.canvas_y,
+                })
+            })
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -2220,6 +2281,117 @@ fn parse_solve_constraints(
     let apply = optional_bool("solveConstraints", &map, "apply")?;
     let pixel_frame = optional_frame("solveConstraints", &map, "pixelFrame")?;
     Ok((frame, apply, pixel_frame))
+}
+
+fn parse_bake(params: Value) -> Result<BakeOptions, ToolFailure> {
+    let map = expect_object("bake", params)?;
+    reject_params(
+        "bake",
+        &map,
+        &[
+            "from",
+            "to",
+            "source",
+            "fps",
+            "parts",
+            "layers",
+            "constraints",
+        ],
+    )?;
+    let from = optional_frame("bake", &map, "from")?;
+    let to = optional_frame("bake", &map, "to")?;
+    let source = optional_frame("bake", &map, "source")?;
+    let fps = optional_finite("bake", &map, "fps")?;
+    let parts = optional_string_list("bake", &map, "parts")?;
+    let layers = optional_index_list("bake", &map, "layers")?;
+    let constraints = match map.get("constraints") {
+        None => true,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => {
+            return Err(invalid_params("bake", "constraints must be a boolean"));
+        }
+    };
+    Ok(BakeOptions {
+        from,
+        to,
+        source,
+        fps,
+        parts,
+        layers,
+        constraints,
+    })
+}
+
+fn optional_string_list(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<Vec<String>>, ToolFailure> {
+    match map.get(key) {
+        None => Ok(None),
+        Some(Value::Array(items)) => {
+            if items.is_empty() {
+                return Err(invalid_params(
+                    tool,
+                    &format!("{key} must list at least one name"),
+                ));
+            }
+            let mut names = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(text) = item.as_str() else {
+                    return Err(invalid_params(
+                        tool,
+                        &format!("{key} must be an array of strings"),
+                    ));
+                };
+                names.push(text.to_string());
+            }
+            Ok(Some(names))
+        }
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be an array of strings"),
+        )),
+    }
+}
+
+fn optional_index_list(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<Vec<usize>>, ToolFailure> {
+    match map.get(key) {
+        None => Ok(None),
+        Some(Value::Array(items)) => {
+            if items.is_empty() {
+                return Err(invalid_params(
+                    tool,
+                    &format!("{key} must list at least one index"),
+                ));
+            }
+            let mut indexes = Vec::with_capacity(items.len());
+            for item in items {
+                let Some(value) = item.as_u64() else {
+                    return Err(invalid_params(
+                        tool,
+                        &format!("{key} must be an array of integers from 0 to {U32_MAX}"),
+                    ));
+                };
+                if value > U32_MAX {
+                    return Err(invalid_params(
+                        tool,
+                        &format!("{key} must be an array of integers from 0 to {U32_MAX}"),
+                    ));
+                }
+                indexes.push(usize::try_from(value).expect("u32 fits in usize"));
+            }
+            Ok(Some(indexes))
+        }
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be an array of integers from 0 to {U32_MAX}"),
+        )),
+    }
 }
 
 fn parse_constraint_kind(tool: &str, text: &str) -> Result<ConstraintKind, ToolFailure> {

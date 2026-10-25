@@ -109,6 +109,7 @@ fn help_lists_the_agent_commands() {
         "part",
         "curve",
         "constraint",
+        "bake",
         "resize",
         "--from-frame",
         "--horizontal",
@@ -508,6 +509,8 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"translatePart"));
     assert!(names.contains(&"rotatePart"));
     assert!(names.contains(&"flipPart"));
+    assert!(names.contains(&"solveConstraints"));
+    assert!(names.contains(&"bake"));
     assert!(names.contains(&"undo"));
 }
 
@@ -3186,4 +3189,205 @@ fn constraints_track_a_raised_gun_a_butt_and_a_planted_foot() {
     assert_eq!(status(&cycle), 1, "{}", stderr(&cycle));
     assert!(stderr(&cycle).contains("ConstraintConflict"));
     assert_eq!(load(&project).constraints().len(), 3);
+}
+
+#[test]
+fn bake_curves_only_is_one_undo_and_a_part_filter_sets_delay() {
+    let scratch = Scratch::new();
+    let project = scratch.child("gun.json");
+    let path = project.to_str().unwrap();
+    let ok = |args: &[&str]| {
+        let output = pixelforge(&arg(args));
+        assert_eq!(status(&output), 0, "{args:?}\n{}", stderr(&output));
+        json_lines(&output)[0]["result"].clone()
+    };
+    ok(&["new", "--width", "16", "--height", "16", "--output", path]);
+    for (x, y, color) in [(4, 4, 1), (2, 4, 2), (6, 4, 3)] {
+        ok(&[
+            "paint",
+            "--project",
+            path,
+            "--x",
+            &x.to_string(),
+            "--y",
+            &y.to_string(),
+            "--color-index",
+            &color.to_string(),
+        ]);
+    }
+    ok(&[
+        "part",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--layer",
+        "0",
+        "--x",
+        "4",
+        "--y",
+        "4",
+    ]);
+    for _ in 0..4 {
+        ok(&["frame", "add", "--project", path]);
+    }
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "0",
+        "--value",
+        "0",
+    ]);
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "4",
+        "--value",
+        "90",
+    ]);
+
+    let baked = pixelforge(&arg(&[
+        "call",
+        "--project",
+        path,
+        "--request",
+        r#"{"tool":"bake","params":{"from":4,"to":4,"constraints":false}}"#,
+        "--request",
+        r#"{"tool":"undo"}"#,
+    ]));
+    assert_eq!(status(&baked), 0, "{}", stderr(&baked));
+    let lines = json_lines(&baked);
+    assert_eq!(lines[0]["result"]["wrote"], json!(true));
+    assert_eq!(lines[0]["result"]["constraints"], json!(false));
+    assert_eq!(lines[1]["result"]["canUndo"], json!(false));
+    let undone = load(&project);
+    assert_eq!(index_at(&undone, 4, 0, 4, 4), 0);
+    assert_eq!(undone.frame_delay(0).unwrap(), 100);
+    assert_eq!(undone.parts()[0].x, 4);
+    assert_eq!(undone.curves().len(), 1);
+
+    let timed = ok(&[
+        "bake",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--from",
+        "0",
+        "--to",
+        "4",
+        "--fps",
+        "12",
+    ]);
+    assert_eq!(timed["delayMs"], json!(83));
+    assert_eq!(timed["constraints"], json!(true));
+    assert_eq!(timed["frames"][0]["rest"], json!(true));
+    assert_eq!(timed["frames"][4]["parts"][0]["x"], json!(4));
+    assert_eq!(timed["frames"][4]["parts"][0]["y"], json!(4));
+    let document = load(&project);
+    assert_eq!(document.frame_delay(0).unwrap(), 83);
+    assert_eq!(document.frame_delay(4).unwrap(), 83);
+    assert_eq!(index_at(&document, 0, 0, 4, 4), 1);
+    assert_eq!(index_at(&document, 4, 0, 4, 6), 3);
+    assert_eq!(index_at(&document, 4, 0, 4, 2), 2);
+    assert_eq!(document.parts()[0].x, 4);
+
+    ok(&["frame", "select", "--project", path, "--index", "4"]);
+    ok(&[
+        "paint",
+        "--project",
+        path,
+        "--x",
+        "4",
+        "--y",
+        "6",
+        "--color-index",
+        "7",
+    ]);
+    ok(&[
+        "tag",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "raise_gun",
+        "--from",
+        "0",
+        "--to",
+        "4",
+    ]);
+    let painted = load(&project);
+    assert_eq!(index_at(&painted, 4, 0, 4, 6), 7);
+    assert_eq!(painted.tags()[0].name, "raise_gun");
+    let value: Value = serde_json::from_str(&fs::read_to_string(&project).unwrap()).unwrap();
+    assert_eq!(value["version"], json!(1));
+    assert!(value.get("bake").is_none());
+}
+
+#[test]
+fn soldier_raise_gun_script_bakes_editable_frames() {
+    let scratch = Scratch::new();
+    let project = scratch.child("soldier.json");
+    let script =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/soldier-raise-gun.py");
+    let output = Command::new("python3")
+        .arg(&script)
+        .arg(&project)
+        .env("PIXELFORGE", env!("CARGO_BIN_EXE_pixelforge"))
+        .output()
+        .expect("python3");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = load(&project);
+    assert_eq!(document.frame_count(), 12);
+    assert_eq!(document.frame_delay(0).unwrap(), 83);
+    assert_eq!(document.frame_delay(11).unwrap(), 83);
+    assert_eq!(index_at(&document, 0, 0, 4, 4), 1);
+    assert_eq!(index_at(&document, 11, 0, 2, 6), 1);
+    assert_eq!(index_at(&document, 11, 0, 2, 4), 2);
+    assert_eq!(index_at(&document, 11, 0, 2, 8), 3);
+    assert_eq!(index_at(&document, 11, 1, 2, 8), 7);
+    assert_eq!(index_at(&document, 11, 2, 4, 11), 5);
+    assert_eq!(index_at(&document, 11, 3, 8, 8), 6);
+    assert_ne!(
+        document.layer_pixels(6, 0).unwrap(),
+        document.layer_pixels(0, 0).unwrap()
+    );
+    let gun = document
+        .parts()
+        .iter()
+        .find(|part| part.name == "gun")
+        .unwrap();
+    assert_eq!((gun.x, gun.y), (4, 4));
+    assert_eq!(document.curves().len(), 1);
+    assert_eq!(document.constraints().len(), 3);
+    assert_eq!(document.tags()[0].name, "raise_gun");
+    let value: Value = serde_json::from_str(&fs::read_to_string(&project).unwrap()).unwrap();
+    assert_eq!(value["version"], json!(1));
+    assert!(value.get("bake").is_none());
+}
+
+fn index_at(document: &Document, frame: usize, layer: usize, x: u16, y: u16) -> u8 {
+    let width = usize::from(document.width());
+    document.layer_pixels(frame, layer).unwrap()[usize::from(y) * width + usize::from(x)]
 }

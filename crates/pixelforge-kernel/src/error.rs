@@ -116,6 +116,16 @@ pub enum KernelError {
     /// Two posed parts share a linked layer, so the solver will not move that
     /// layer twice. The call writes nothing.
     ConstraintLayer { layer: usize },
+    /// A bake range is empty, starts past the frame list, or ends at or after
+    /// [`crate::MAX_BAKE_FRAMES`].
+    ///
+    /// `from` and `to` are inclusive. `len` is the frame count before the bake.
+    /// `from == len` is allowed and only appends. `from > len` would leave a gap.
+    BakeRange { from: usize, to: usize, len: usize },
+    /// `fps` is not a finite number greater than 0.
+    ///
+    /// A rate that rounds outside the delay range is [`Self::FrameDelay`].
+    BakeFps,
     /// A move would write or clear a cell outside the rectangular selection.
     ///
     /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
@@ -312,6 +322,8 @@ impl KernelError {
             Self::ConstraintCycle { .. } => "ConstraintCycle",
             Self::ConstraintConflict { .. } => "ConstraintConflict",
             Self::ConstraintLayer { .. } => "ConstraintLayer",
+            Self::BakeRange { .. } => "BakeRange",
+            Self::BakeFps => "BakeFps",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -453,6 +465,12 @@ impl fmt::Display for KernelError {
                 f,
                 "layer {layer} has more than one posed part; give each moving part its own layer"
             ),
+            Self::BakeRange { from, to, len } => write!(
+                f,
+                "bake frames {from}..={to} must have from <= to, from <= {len}, and to < {}",
+                crate::MAX_BAKE_FRAMES
+            ),
+            Self::BakeFps => write!(f, "bake fps must be a finite number greater than 0"),
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),

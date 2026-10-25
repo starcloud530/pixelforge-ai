@@ -5,8 +5,8 @@
 //! that samples an optional curve pose, then translates driven parts so the
 //! named points meet. Linked-layer ink moves with that translation the same
 //! way [`crate::Document::translate_part`] moves it. An unattached part only
-//! moves its origin. This is not a bake: one call poses one pixel frame and
-//! does not walk the timeline.
+//! moves its origin. One call poses one pixel frame. [`crate::Document::bake`]
+//! walks the timeline by sampling the same pose and writing each frame.
 
 use crate::curve::{sample_keys, Curve, CurveChannel, PartSample};
 use crate::error::KernelError;

@@ -10,8 +10,9 @@
 //! [`crate::Document::rotate_part`], and [`crate::Document::flip_part`] move
 //! that pose together with the ink on the linked layer. A curve is a separate
 //! timeline of parameters relative to this rest pose. It is not stored on the
-//! part. Constraints live on the document, not on the part. A bake is still
-//! not stored. New fields should default so a version 1 file that only has
+//! part. Constraints live on the document, not on the part. Bake writes pixel
+//! frames and delays. It is not a stored field, and the part list stays the
+//! rest pose. New fields should default so a version 1 file that only has
 //! parts still loads.
 //! Rectangle flip and rotate still move indices only; they do not move parts.
 
