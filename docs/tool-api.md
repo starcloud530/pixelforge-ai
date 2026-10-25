@@ -104,13 +104,20 @@
 | `CurveMissing` | 这个部件没有该通道的曲线 |
 | `CurveKeyMissing` | 这条曲线在该帧上没有关键帧 |
 | `CurveFrame` | 采样位置不是有限数 |
+| `ConstraintName` | 约束名是空的、只有空白、含控制字符，或超过 64 个字符 |
+| `ConstraintExists` | 已经有同名约束 |
+| `ConstraintMissing` | 没有这个名字的约束 |
+| `ConstraintFields` | 字段和 `follow`、`attach`、`pin` 对不上。`follow` / `attach` 要目标和目标锚点，不能带钉点。`attach` 还要自己的锚点。`pin` 要画布上的 `x` 和 `y`，不能带目标 |
+| `ConstraintCycle` | 约束自己指向自己，或几条约束绕成环。一格都不写 |
+| `ConstraintConflict` | 同一个部件被两条约束驱动。一格都不写 |
+| `ConstraintLayer` | 同一层上有两个会动的部件。给每个会动的部件单独一层 |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
 | `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。部件变换时，挂接层上有非 0 格或其落点不在选区内。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
-| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，某个 `parts` 项的名字、原点、层、锚点不合法，或某个 `curves` 项的部件、通道、关键帧、缓动、数值不合法时，也是这个码 |
+| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，某个 `parts` 项的名字、原点、层、锚点不合法，某个 `curves` 项的部件、通道、关键帧、缓动、数值不合法，或某个 `constraints` 项的名字、种类、部件、锚点名、钉点、环或重复驱动不合法时，也是这个码 |
 | `AsepriteFile` | `.aseprite` 字节截断、魔数不对、压缩 cel 解不开，或层 / cel 结构读不完 |
 | `AsepriteSize` | 画布边长不在 `1..=256` |
 | `AsepriteColorMode` | 颜色深度不是索引 8 位 |
@@ -128,17 +135,17 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、以及姿势没有变化的 `solveConstraints`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart` 或 `flipPart` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 或 `solveConstraints` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, and `samplePart`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, or curve-key edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, or `flipPart` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, or `solveConstraints` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -167,6 +174,7 @@
 | `tags` | `{ "index", "name", "from", "to", "loop" }` 数组，按添加顺序。没有标签时是 `[]`。见「动画标签」 |
 | `parts` | `{ "index", "name", "x", "y", "layer", "anchors" }` 数组，按添加顺序。没有部件时是 `[]`。见「部件与锚点」 |
 | `curves` | `{ "index", "part", "channel", "keys" }` 数组，按添加顺序。没有曲线时是 `[]`。见「部件曲线」 |
+| `constraints` | `{ "index", "name", "kind", "part", "anchor", "target", "targetAnchor", "x", "y" }` 数组，按添加顺序。没有约束时是 `[]`。见「约束」 |
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
@@ -199,6 +207,7 @@
 | `tags` | 与 `inspect` 相同。没有标签时是 `[]` |
 | `parts` | 与 `inspect` 相同。没有部件时是 `[]` |
 | `curves` | 与 `inspect` 相同。没有曲线时是 `[]` |
+| `constraints` | 与 `inspect` 相同。没有约束时是 `[]` |
 
 `visible` 恒为 `true`。`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层，不按 alpha 混合。
 
@@ -539,7 +548,7 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 部件**不是**层，也不是另一块像素缓冲。层仍然是每一帧共用的绘制栈。一个部件可以用 `layer` 指向像素所在的那一层（枪在 `gear` 上），也可以不挂层（肩、肘只是一个点）。多个部件可以指向同一层。`layer` 不切换 `activeLayer`。
 
-原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，绕它旋转时不必把每一格 `fillRect` 再画一遍。工程文件不另存旋转角、曲线、约束或烘焙。
+原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，绕它旋转时不必把每一格 `fillRect` 再画一遍。部件记录本身不存旋转角。参数曲线在 `curves`。约束在 `constraints`。烘焙不进文件。
 
 矩形 `flipHorizontal` / `flipVertical` / `rotate` 只搬索引，不搬部件，也不搬锚点。部件自己的平移、旋转、翻转见 `translatePart`、`rotatePart`、`flipPart`：它们改这一帧挂接层上的索引，并在同一步撤销里改原点和锚点。`resizeCanvas` 把原点按同一偏移挪走；原点会离开新画布时，这个部件连同锚点一起去掉，和选区在同一撤销步里。锚点的本地偏移不变。
 
@@ -549,7 +558,7 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 *A part is not a layer and not a second pixel buffer. The layer stack stays the paint stack. `layer` names the paint layer whose pixels belong to the part, and does not select that layer. Omit it for a rig point such as a shoulder. Several parts may name one layer.*
 
-*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The part record does not store a rotation angle. Parameter curves live in `curves`, not on the part. The file does not store a constraint or a bake.*
+*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The part record does not store a rotation angle. Parameter curves live in `curves`. Constraints live in `constraints`. A bake is not stored.*
 
 *Rectangle `flipHorizontal`, `flipVertical`, and `rotate` move indices only. They do not move parts or anchors. `translatePart`, `rotatePart`, and `flipPart` move the linked layer's indices on one frame and update the origin and anchors in that same undo step. `resizeCanvas` translates each origin by the same offset and drops a part, in that same undo step, when the origin would leave the new canvas. Local anchor offsets stay put.*
 
@@ -644,7 +653,7 @@ CLI：`pixelforge part translate --name gun --dx 2 --dy -1`。`--frame` 指定�
 
 只改 `frame`（缺省为当前帧）上挂接层的索引，并改这一份原点与锚点。锚点先变成画布坐标再映射，然后重新写成相对新原点的本地格，这样握持点在整数变换里仍停在原来的画布格上。本地结果超出 `-256..=256` 时是 `AnchorCoord`，一格都不写。落点出画布是 `PartOffCanvas`。选区规则与 `translatePart` 相同。量化成 0° 时不进撤销栈。
 
-不做自由仿射、亚像素合成、骨骼界面或脚本。关键帧采样见「部件曲线」，它不写像素。约束（#57）和烘焙（#58）不在这里。
+不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧采样见「部件曲线」，它不写像素。约束是显式的 `solveConstraints`，见「约束」。烘焙（#58）不在这里。
 
 CLI：`pixelforge part rotate --name gun --degrees 90 --anchor grip`。
 
@@ -764,7 +773,95 @@ CLI：`pixelforge curve sample --part gun --frame 2`。不写 `--channel` 就是
 
 错误：`PartName`、`PartMissing`、`CurveFrame`。
 
-*Keyframe tracks sample part-transform parameters. They do not write pixels. `easeInOut` is Hermite smoothstep. Its midpoint matches linear. Flip holds. Apply the sample from the rest pose.*
+*Keyframe tracks sample part-transform parameters. They do not write pixels. `easeInOut` is Hermite smoothstep. Its midpoint matches linear. Flip holds. Apply the sample from the rest pose, or pass the frame to `solveConstraints`.*
+
+### 约束 Constraints
+
+约束写在工程文件的 `constraints` 里。没有约束时省略。旧文件没有该字段时按空列表读入。版本仍是 1。它是元数据：名字、种类、从动部件，以及目标锚点或钉点。像素仍在层上。
+
+三种：
+
+| `kind` | 做什么 | 字段 |
+| --- | --- | --- |
+| `follow` | 平移 `part`，使 `anchor`（省略则原点）落到 `target` 的 `targetAnchor` | 要 `target`、`targetAnchor`。不能有 `x`、`y` |
+| `attach` | 同上，两边锚点都要。枪托贴肩 | 要 `anchor`、`target`、`targetAnchor`。不能有 `x`、`y` |
+| `pin` | 平移 `part`，使 `anchor`（省略则原点）落到画布格 `(x, y)` | 要 `x`、`y`，都在画布内。不能有 `target`、`targetAnchor` |
+
+Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 只接受 `follow`、`attach`、`pin`。
+
+`rotatePart` 和 `setCurveKey` 不求解。求解是 `solveConstraints`。`frame` 给出时，先从**当前存着的姿势**采样该部件的曲线，再解约束。通道顺序：绕存着的原点旋转、水平翻转、垂直翻转，然后整格平移。平移小数取最近格，一半远离 0。曲线枢轴是原点。省略 `frame` 则不读曲线。
+
+求解顺序等被驱动的目标先完成。互不依赖的保持文件顺序。自指或环是 `ConstraintCycle`。同一部件两条驱动是 `ConstraintConflict`。添加时就会拒绝，名单不变。两个会动的部件共用一层是 `ConstraintLayer`。一个会动的部件可以和同层不动的部件共存，该层每一个非 0 格跟着走。
+
+`apply` 缺省 false：做完检查，返回报告，不进撤销栈。`apply` true：写到 `pixelFrame`（缺省当前帧）。挂接层非 0 墨水按「旋转 / 翻转 + 一次平移」搬走，`ink` 为 `moved`。没挂层只改原点，`ink` 为 `metadata`。没有位移是 `unchanged`。部件或像素有变化才是一步撤销。再调用一次叠在存下的姿势上。不新建帧，不沿时间轴逐帧写。
+
+失败整次不写。删锚点不删约束，下次求解是 `AnchorMissing`。原点或最终墨水出画布是 `PartOffCanvas`。改名改写 `part` 和 `target`。删部件丢掉提到它的约束。`resizeCanvas` 平移钉点，钉点出画布或部件被裁掉时丢掉该约束。未知字段拒绝。读入时锚点可以暂时不在，求解时再查。
+
+*`constraints` is omitted when empty. An older file loads with none. The version stays 1. A constraint is metadata. Pixels stay on layers.*
+
+*`follow` tracks `targetAnchor` with an optional follower anchor. `attach` requires both anchors. `pin` stores a canvas cell. `stick` is accepted by the tool and stored as `attach`. The file spelling is `follow`, `attach`, or `pin`.*
+
+*`solveConstraints` is explicit. With `frame`, each part's curves are sampled from the stored pose, then constraints run. Channel order is rotation, horizontal flip, vertical flip around the stored origin, then whole-cell translation. Fractional translation snaps to the nearest cell, ties away from zero. Omit `frame` and curves are not read. Solve order waits for a driven target. Independent constraints keep file order. A cycle is `ConstraintCycle`. A second driver is `ConstraintConflict` and is refused at add time. Two posed parts on one layer are `ConstraintLayer`. One moving part may share a layer with a stationary part; every non-zero cell on that layer moves.*
+
+*`apply` defaults to false and returns the report without undo. `apply` true writes `pixelFrame` or the active frame. Linked ink moves and `ink` is `moved`. An unattached part is `metadata`. No motion is `unchanged`. A change is one undo step. A later call stacks. The call does not create frames and does not walk the timeline.*
+
+*A failure writes nothing. Removing an anchor leaves the constraint; the next solve is `AnchorMissing`. An origin or final ink cell off the canvas is `PartOffCanvas`. Rename rewrites `part` and `target`. Removing a part drops constraints that name it. `resizeCanvas` shifts pin cells and drops a constraint whose pin or part leaves the canvas. Unknown fields are rejected. Load does not require the anchor to still exist.*
+
+### `addConstraint`
+
+`params`：`name`、`kind`（`follow`、`attach`、`stick`、`pin`）、`part`。按种类再给 `anchor`、`target`、`targetAnchor`、`x`、`y`。
+
+不移动像素。环或第二条驱动会被拒绝，名单不变。钉点出画布是 `PartOffCanvas`。一步撤销。
+
+`result`：`index`、`name`、`kind`（`stick` 写成 `attach`）、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`。用不到的字段是 `null`。
+
+CLI：`pixelforge constraint add --name hand-grip --kind follow --part hand --anchor palm --target gun --target-anchor grip`。
+
+`pixelforge constraint add --name butt-shoulder --kind stick --part gun --anchor butt --target shoulder --target-anchor joint`。
+
+`pixelforge constraint add --name plant-foot --kind pin --part foot --anchor sole --x 4 --y 11`。
+
+错误：`ConstraintName`、`ConstraintExists`、`ConstraintFields`、`ConstraintCycle`、`ConstraintConflict`、`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`、`PartOffCanvas`。`kind` 不是那四个字符串时是 `InvalidParams`。
+
+### `removeConstraint`
+
+`params`：`name`。部件和像素不动。
+
+`result`：`{ "index", "name" }`。`name` 是去掉空白后的名字。
+
+CLI：`pixelforge constraint remove --name hand-grip`。
+
+错误：`ConstraintName`、`ConstraintMissing`。
+
+### `listConstraints`
+
+参数：无。只读。
+
+`result`：`{ "constraints": [ ... ] }`。每一项与 `inspect` 的 `constraints` 相同。没有约束时是 `[]`。
+
+CLI：`pixelforge constraint list`。
+
+### `solveConstraints`
+
+`params`：可选 `frame`（有限数，可以是小数）、`apply`（布尔，缺省 false）、`pixelFrame`。
+
+`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `frame` | 传入的曲线帧，省略时是 `null` |
+| `pixelFrame` | 写入的像素帧 |
+| `apply`, `wrote` | 是否要求写入；这一次是否真的改了部件或像素 |
+| `dropped` | 各层最近邻碰撞丢掉的格数之和。直角、平移为 0 |
+| `order` | 求解顺序上的约束名 |
+| `constraints` | 按文件下标。含 `dx`、`dy`（这一条约束加上的整格，不含曲线平移）、`satisfied`、`from`、`to` |
+| `parts` | 解完的姿势。`anchors` 里有本地格和 `canvasX`、`canvasY`。`ink` 是 `unchanged`、`metadata` 或 `moved` |
+
+CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint solve --apply` 用存下的姿势写入当前帧。`pixelforge constraint solve --frame 4 --apply --pixel-frame 0` 先采样再写入第 0 帧。
+
+错误：`CurveFrame`、`CurveValue`、`AnchorMissing`、`PartMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintFields`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`FrameIndex`。`frame` 不是有限数或 `apply` 不是布尔时是 `InvalidParams`。
+
+*Solve order, cycles, a missing anchor, and a cell off the canvas are errors. The call writes nothing in those cases. `listConstraints` is read-only. `solveConstraints` with `apply` false is read-only. `apply` true is one undo step when the pose changes.*
 
 ### `beginGesture` / `endGesture`
 

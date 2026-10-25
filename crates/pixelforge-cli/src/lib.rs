@@ -25,9 +25,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    AnchorCmd, BlitRectArgs, Cli, Command, CurveCmd, EraseRectArgs, ExportCmd, FillRectArgs,
-    FlipArgs, FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd, PartCmd, ProjectArgs,
-    ReplaceIndexArgs, ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
+    AnchorCmd, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EraseRectArgs, ExportCmd,
+    FillRectArgs, FlipArgs, FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd, PartCmd,
+    ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -109,6 +109,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Layer { command } => cmd_layer(command),
         Command::Part { command } => cmd_part(command),
         Command::Curve { command } => cmd_curve(command),
+        Command::Constraint { command } => cmd_constraint(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
@@ -991,6 +992,67 @@ fn cmd_curve(command: CurveCmd) -> i32 {
                 }),
             )],
         ),
+    }
+}
+
+fn cmd_constraint(command: ConstraintCmd) -> i32 {
+    match command {
+        ConstraintCmd::Add {
+            doc,
+            name,
+            kind,
+            part,
+            anchor,
+            target,
+            target_anchor,
+            x,
+            y,
+        } => {
+            let mut params = json!({
+                "name": name,
+                "kind": kind,
+                "part": part,
+            });
+            if let Some(anchor) = anchor {
+                params["anchor"] = json!(anchor);
+            }
+            if let Some(target) = target {
+                params["target"] = json!(target);
+            }
+            if let Some(target_anchor) = target_anchor {
+                params["targetAnchor"] = json!(target_anchor);
+            }
+            if let Some(x) = x {
+                params["x"] = json!(x);
+            }
+            if let Some(y) = y {
+                params["y"] = json!(y);
+            }
+            apply(&doc, vec![request("addConstraint", params)])
+        }
+        ConstraintCmd::List { doc } => apply(&doc, vec![request("listConstraints", json!({}))]),
+        ConstraintCmd::Remove { doc, name } => apply(
+            &doc,
+            vec![request("removeConstraint", json!({ "name": name }))],
+        ),
+        ConstraintCmd::Solve {
+            doc,
+            frame,
+            apply: write,
+            pixel_frame,
+        } => {
+            let mut params = json!({});
+            if let Some(frame) = frame {
+                params["frame"] = json!(frame);
+            }
+            if write {
+                params["apply"] = json!(true);
+            }
+            if let Some(pixel_frame) = pixel_frame {
+                params["pixelFrame"] = json!(pixel_frame);
+            }
+            apply(&doc, vec![request("solveConstraints", params)])
+        }
     }
 }
 

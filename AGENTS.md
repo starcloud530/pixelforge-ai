@@ -6,7 +6,7 @@ Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Rea
 
 | Skill | When |
 | --- | --- |
-| `pixelforge` | 用 pixelforge, 改工程, CLI, palette, parts, anchors, transforms, keyframe curves, export. Index-color invariants, exit codes, `inspect` / `tools` / `call`. Shortest edit path: duplicate a pose and edit the diff, merge fillRects, count each request in a batched call. |
+| `pixelforge` | 用 pixelforge, 改工程, CLI, palette, parts, anchors, transforms, keyframe curves, constraints, export. Index-color invariants, exit codes, `inspect` / `tools` / `call`. Shortest edit path: duplicate a pose and edit the diff, merge fillRects, count each request in a batched call. |
 | `pixelforge-draw` | 从零画角色, 立绘, 剪影. Silhouette, then flats, then details. `preview --scale` after each stage. |
 | `pixelforge-sprite-4dir` | 四向走 + 闲. Rows are facings, columns are idle plus walk. `export sheet --cols`, tags named `idle_down` / `walk_down`, `--atlas` JSON, `diff` for foot slide, fix highlights after `hflip`. Duplicate a column and edit the diff. |
 | `pixelforge-layers` | body / gear / limbs. Composite preview, draw with `--layer`, `layer flatten`. |

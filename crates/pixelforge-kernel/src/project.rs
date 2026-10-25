@@ -6,7 +6,8 @@
 //! palette lock, every frame's indices and delay, the active frame, and, when
 //! the document is more than the original single layer, the layer stack, and,
 //! when any are set, named animation tags, and, when any are set, named parts
-//! with anchors, and, when any are set, part-parameter curves.
+//! with anchors, and, when any are set, part-parameter curves, and, when any
+//! are set, follow, attach, and pin constraints.
 //! The undo stack and the playback clock are not part of the file, so a loaded
 //! document undoes back to the opened pixels and is not playing. A frame
 //! written before delays existed omits `delayMs` and loads as
@@ -20,11 +21,14 @@
 //! written before parts existed omits `parts` and loads with none. An empty
 //! part list is still saved that way. A file written before part curves existed
 //! omits `curves` and loads with none. An empty curve list is still saved that
-//! way. A missing `selection` loads as no mask. The rectangle
+//! way. A file written before constraints existed omits `constraints` and loads
+//! with none. An empty constraint list is still saved that way. A missing
+//! `selection` loads as no mask. The rectangle
 //! is written only while one is set. The undo stack is still omitted.
 
 use serde::{Deserialize, Serialize};
 
+use crate::constraint::{solve_order, Constraint, ConstraintKind};
 use crate::curve::{Curve, CurveChannel, CurveKey, Ease};
 use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
@@ -88,6 +92,9 @@ struct ProjectFile {
     /// Part-parameter curves. Missing when the file has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     curves: Vec<CurveFile>,
+    /// Follow, attach, and pin constraints. Missing when the file has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    constraints: Vec<ConstraintFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -138,6 +145,29 @@ struct CurveFile {
     part: String,
     channel: String,
     keys: Vec<CurveKeyFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConstraintFile {
+    name: String,
+    kind: String,
+    part: String,
+    /// Missing when the constraint tracks the part origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    anchor: Option<String>,
+    /// Missing on a pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<String>,
+    /// Missing on a pin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target_anchor: Option<String>,
+    /// Pin column. Missing on follow and attach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    x: Option<i64>,
+    /// Pin row. Missing on follow and attach.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    y: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -252,6 +282,7 @@ impl Document {
             tags: self.stored_tags(),
             parts: self.stored_parts(),
             curves: self.stored_curves(),
+            constraints: self.stored_constraints(),
         };
         let mut json = serde_json::to_string_pretty(&file)
             .expect("project fields are JSON numbers, strings, and arrays");
@@ -341,6 +372,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let tags = tags_from_file(file.tags, frames.len())?;
     let parts = parts_from_file(file.parts, width, height, names.len())?;
     let curves = curves_from_file(file.curves, &parts, frames.len())?;
+    let constraints = constraints_from_file(file.constraints, &parts, width, height)?;
     Ok(Document::from_stored(
         width,
         height,
@@ -355,7 +387,125 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         tags,
         parts,
         curves,
+        constraints,
     ))
+}
+
+fn constraints_from_file(
+    files: Vec<ConstraintFile>,
+    parts: &[Part],
+    width: u16,
+    height: u16,
+) -> Result<Vec<Constraint>, KernelError> {
+    let mut constraints = Vec::with_capacity(files.len());
+    for (index, file) in files.into_iter().enumerate() {
+        let name = normalize_part_name(&file.name)
+            .map_err(|()| invalid(ProjectFileError::ConstraintName { index }))?;
+        if constraints
+            .iter()
+            .any(|existing: &Constraint| existing.name == name)
+        {
+            return Err(invalid(ProjectFileError::ConstraintDuplicate { index }));
+        }
+        let kind = ConstraintKind::parse_stored(&file.kind)
+            .ok_or_else(|| invalid(ProjectFileError::ConstraintKind { index }))?;
+        let part = normalize_part_name(&file.part)
+            .map_err(|()| invalid(ProjectFileError::ConstraintPart { index }))?;
+        if !parts.iter().any(|existing| existing.name == part) {
+            return Err(invalid(ProjectFileError::ConstraintPart { index }));
+        }
+        let anchor = optional_constraint_anchor(index, file.anchor)?;
+        let target = match file.target {
+            None => None,
+            Some(target) => {
+                let target = normalize_part_name(&target)
+                    .map_err(|()| invalid(ProjectFileError::ConstraintPart { index }))?;
+                if !parts.iter().any(|existing| existing.name == target) {
+                    return Err(invalid(ProjectFileError::ConstraintPart { index }));
+                }
+                Some(target)
+            }
+        };
+        let target_anchor = optional_constraint_anchor(index, file.target_anchor)?;
+        let pin = match (file.x, file.y) {
+            (None, None) => None,
+            (Some(x), Some(y)) => {
+                let x = u16::try_from(x)
+                    .map_err(|_| invalid(ProjectFileError::ConstraintPin { index }))?;
+                let y = u16::try_from(y)
+                    .map_err(|_| invalid(ProjectFileError::ConstraintPin { index }))?;
+                if x >= width || y >= height {
+                    return Err(invalid(ProjectFileError::ConstraintPin { index }));
+                }
+                Some((x, y))
+            }
+            _ => return Err(invalid(ProjectFileError::ConstraintFields { index })),
+        };
+        match kind {
+            ConstraintKind::Follow => {
+                if pin.is_some() || target.is_none() || target_anchor.is_none() {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+            }
+            ConstraintKind::Attach => {
+                if pin.is_some() || anchor.is_none() || target.is_none() || target_anchor.is_none()
+                {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+            }
+            ConstraintKind::Pin => {
+                if pin.is_none() || target.is_some() || target_anchor.is_some() {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+            }
+        }
+        let (x, y) = match pin {
+            None => (None, None),
+            Some((x, y)) => (Some(x), Some(y)),
+        };
+        constraints.push(Constraint {
+            name,
+            kind,
+            part,
+            anchor,
+            target,
+            target_anchor,
+            x,
+            y,
+        });
+    }
+    match solve_order(&constraints) {
+        Ok(_) => Ok(constraints),
+        Err(KernelError::ConstraintConflict { part }) => {
+            let index = constraints
+                .iter()
+                .rposition(|constraint| constraint.part == part)
+                .expect("the conflicting part is in the list");
+            Err(invalid(ProjectFileError::ConstraintConflict { index }))
+        }
+        Err(KernelError::ConstraintCycle { name }) => {
+            let index = constraints
+                .iter()
+                .position(|constraint| constraint.name == name)
+                .expect("the cycle names a constraint in the list");
+            Err(invalid(ProjectFileError::ConstraintCycle { index }))
+        }
+        Err(_) => Err(invalid(ProjectFileError::Malformed)),
+    }
+}
+
+fn optional_constraint_anchor(
+    index: usize,
+    name: Option<String>,
+) -> Result<Option<String>, KernelError> {
+    match name {
+        None => Ok(None),
+        Some(name) => {
+            Ok(Some(normalize_part_name(&name).map_err(|()| {
+                invalid(ProjectFileError::ConstraintAnchor { index })
+            })?))
+        }
+    }
 }
 
 fn curves_from_file(
@@ -581,6 +731,22 @@ impl Document {
                         y: i64::from(anchor.y),
                     })
                     .collect(),
+            })
+            .collect()
+    }
+
+    fn stored_constraints(&self) -> Vec<ConstraintFile> {
+        self.constraints()
+            .iter()
+            .map(|constraint| ConstraintFile {
+                name: constraint.name.clone(),
+                kind: constraint.kind.as_str().to_string(),
+                part: constraint.part.clone(),
+                anchor: constraint.anchor.clone(),
+                target: constraint.target.clone(),
+                target_anchor: constraint.target_anchor.clone(),
+                x: constraint.x.map(i64::from),
+                y: constraint.y.map(i64::from),
             })
             .collect()
     }

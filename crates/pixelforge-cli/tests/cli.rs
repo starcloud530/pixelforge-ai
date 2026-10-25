@@ -108,6 +108,7 @@ fn help_lists_the_agent_commands() {
         "import-aseprite",
         "part",
         "curve",
+        "constraint",
         "resize",
         "--from-frame",
         "--horizontal",
@@ -2862,4 +2863,327 @@ fn part_transforms_move_the_gun_on_the_grid() {
         json_lines(&flipped)[0]["result"]["sampling"],
         json!("exact")
     );
+}
+
+#[test]
+fn constraints_track_a_raised_gun_a_butt_and_a_planted_foot() {
+    let scratch = Scratch::new();
+    let project = scratch.child("soldier.json");
+    let path = project.to_str().unwrap();
+    let ok = |args: &[&str]| {
+        let output = pixelforge(&arg(args));
+        assert_eq!(status(&output), 0, "{args:?}\n{}", stderr(&output));
+        json_lines(&output)[0]["result"].clone()
+    };
+    ok(&["new", "--width", "16", "--height", "16", "--output", path]);
+    ok(&["layer", "add", "--project", path, "--name", "hand"]);
+    ok(&["layer", "add", "--project", path, "--name", "foot"]);
+    for (layer, x, y, color) in [
+        (0, 4, 4, 1),
+        (0, 2, 4, 2),
+        (0, 6, 4, 3),
+        (1, 6, 4, 4),
+        (2, 3, 11, 5),
+    ] {
+        ok(&[
+            "paint",
+            "--project",
+            path,
+            "--layer",
+            &layer.to_string(),
+            "--x",
+            &x.to_string(),
+            "--y",
+            &y.to_string(),
+            "--color-index",
+            &color.to_string(),
+        ]);
+    }
+    ok(&[
+        "part",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "shoulder",
+        "--x",
+        "2",
+        "--y",
+        "4",
+    ]);
+    ok(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "shoulder",
+        "--name",
+        "joint",
+        "--x",
+        "0",
+        "--y",
+        "0",
+    ]);
+    ok(&[
+        "part",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--layer",
+        "0",
+        "--x",
+        "4",
+        "--y",
+        "4",
+    ]);
+    ok(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--name",
+        "butt",
+        "--x",
+        "-2",
+        "--y",
+        "0",
+    ]);
+    ok(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--name",
+        "grip",
+        "--x",
+        "2",
+        "--y",
+        "0",
+    ]);
+    ok(&[
+        "part",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "hand",
+        "--layer",
+        "1",
+        "--x",
+        "6",
+        "--y",
+        "4",
+    ]);
+    ok(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "hand",
+        "--name",
+        "palm",
+        "--x",
+        "0",
+        "--y",
+        "0",
+    ]);
+    ok(&[
+        "part",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "foot",
+        "--layer",
+        "2",
+        "--x",
+        "3",
+        "--y",
+        "10",
+    ]);
+    ok(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "foot",
+        "--name",
+        "sole",
+        "--x",
+        "0",
+        "--y",
+        "1",
+    ]);
+    for _ in 0..4 {
+        ok(&["frame", "add", "--project", path]);
+    }
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "0",
+        "--value",
+        "0",
+    ]);
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "4",
+        "--value",
+        "90",
+    ]);
+    let follow = ok(&[
+        "constraint",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "hand-grip",
+        "--kind",
+        "follow",
+        "--part",
+        "hand",
+        "--anchor",
+        "palm",
+        "--target",
+        "gun",
+        "--target-anchor",
+        "grip",
+    ]);
+    assert_eq!(follow["kind"], json!("follow"));
+    let stuck = ok(&[
+        "constraint",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "butt-shoulder",
+        "--kind",
+        "stick",
+        "--part",
+        "gun",
+        "--anchor",
+        "butt",
+        "--target",
+        "shoulder",
+        "--target-anchor",
+        "joint",
+    ]);
+    assert_eq!(stuck["kind"], json!("attach"));
+    ok(&[
+        "constraint",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "plant-foot",
+        "--kind",
+        "pin",
+        "--part",
+        "foot",
+        "--anchor",
+        "sole",
+        "--x",
+        "4",
+        "--y",
+        "11",
+    ]);
+    let listed = ok(&["constraint", "list", "--project", path]);
+    assert_eq!(listed["constraints"].as_array().unwrap().len(), 3);
+
+    let dry = ok(&["constraint", "solve", "--project", path, "--frame", "4"]);
+    assert_eq!(dry["wrote"], json!(false));
+    assert_eq!(
+        dry["order"],
+        json!(["butt-shoulder", "hand-grip", "plant-foot"])
+    );
+    assert_eq!(dry["constraints"][0]["dx"], json!(-4));
+    assert_eq!(dry["constraints"][1]["dy"], json!(2));
+    assert_eq!(dry["parts"][3]["x"], json!(4));
+    assert_eq!(load(&project).parts()[1].x, 4);
+
+    ok(&[
+        "part",
+        "rotate",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--degrees",
+        "90",
+    ]);
+    assert_eq!(load(&project).parts()[2].x, 6);
+    let solved = ok(&["constraint", "solve", "--project", path, "--apply"]);
+    assert_eq!(solved["wrote"], json!(true));
+    assert_eq!(solved["frame"], Value::Null);
+    let document = load(&project);
+    let gun = document
+        .parts()
+        .iter()
+        .find(|part| part.name == "gun")
+        .unwrap();
+    let hand = document
+        .parts()
+        .iter()
+        .find(|part| part.name == "hand")
+        .unwrap();
+    let foot = document
+        .parts()
+        .iter()
+        .find(|part| part.name == "foot")
+        .unwrap();
+    assert_eq!((gun.x, gun.y), (2, 6));
+    assert_eq!(gun.anchor_canvas("butt"), Some((2, 4)));
+    assert_eq!(gun.anchor_canvas("grip"), Some((2, 8)));
+    assert_eq!((hand.x, hand.y), (2, 8));
+    assert_eq!((foot.x, foot.y), (4, 10));
+    assert!(document.save_project().contains("\"attach\""));
+    assert!(!document.save_project().contains("stick"));
+
+    let cycle = pixelforge(&arg(&[
+        "constraint",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "wrist-elbow",
+        "--kind",
+        "follow",
+        "--part",
+        "hand",
+        "--target",
+        "gun",
+        "--target-anchor",
+        "grip",
+    ]));
+    assert_eq!(status(&cycle), 1, "{}", stderr(&cycle));
+    assert!(stderr(&cycle).contains("ConstraintConflict"));
+    assert_eq!(load(&project).constraints().len(), 3);
 }
