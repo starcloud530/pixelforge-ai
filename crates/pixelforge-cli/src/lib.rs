@@ -846,6 +846,68 @@ fn cmd_part(command: PartCmd) -> i32 {
                 )],
             ),
         },
+        PartCmd::Translate {
+            doc,
+            name,
+            dx,
+            dy,
+            frame,
+            dirty,
+        } => {
+            let mut params = json!({ "name": name, "dx": dx, "dy": dy });
+            if let Some(frame) = frame {
+                params["frame"] = json!(frame);
+            }
+            apply(
+                &doc,
+                vec![request("translatePart", with_dirty(params, dirty))],
+            )
+        }
+        PartCmd::Rotate {
+            doc,
+            name,
+            degrees,
+            anchor,
+            frame,
+            dirty,
+        } => {
+            let mut params = json!({ "name": name, "degrees": degrees });
+            if let Some(anchor) = anchor {
+                params["anchor"] = json!(anchor);
+            }
+            if let Some(frame) = frame {
+                params["frame"] = json!(frame);
+            }
+            apply(&doc, vec![request("rotatePart", with_dirty(params, dirty))])
+        }
+        PartCmd::Flip {
+            doc,
+            name,
+            horizontal,
+            vertical,
+            anchor,
+            frame,
+            dirty,
+        } => {
+            let direction = match (horizontal, vertical) {
+                (true, false) => "horizontal",
+                (false, true) => "vertical",
+                _ => {
+                    return emit(CliFailure::new(
+                        "Cli",
+                        "part flip needs exactly one of --horizontal or --vertical",
+                    ))
+                }
+            };
+            let mut params = json!({ "name": name, "direction": direction });
+            if let Some(anchor) = anchor {
+                params["anchor"] = json!(anchor);
+            }
+            if let Some(frame) = frame {
+                params["frame"] = json!(frame);
+            }
+            apply(&doc, vec![request("flipPart", with_dirty(params, dirty))])
+        }
     }
 }
 

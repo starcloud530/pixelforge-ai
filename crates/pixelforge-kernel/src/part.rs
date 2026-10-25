@@ -6,10 +6,12 @@
 //! part's local pixel grid. Local `(0, 0)` is the origin cell. Canvas position
 //! of an anchor at rest is `origin + local`.
 //!
-//! This is the rest pose later issues can transform. A rotation, a curve, a
-//! constraint, and a bake are not stored here. New fields, if those issues
-//! add them, should default so a version 1 file that only has parts still
-//! loads. Flip and rotate move indices only; they do not move parts.
+//! This is the rest pose. [`crate::Document::translate_part`],
+//! [`crate::Document::rotate_part`], and [`crate::Document::flip_part`] move
+//! that pose together with the ink on the linked layer. A curve, a constraint,
+//! and a bake are not stored here. New fields, if those issues add them,
+//! should default so a version 1 file that only has parts still loads.
+//! Rectangle flip and rotate still move indices only; they do not move parts.
 
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_PART_NAME_CHARS;

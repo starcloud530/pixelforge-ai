@@ -65,6 +65,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "removePart",
     "setAnchor",
     "removeAnchor",
+    "translatePart",
+    "rotatePart",
+    "flipPart",
     "beginGesture",
     "endGesture",
     "undo",
@@ -624,6 +627,51 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "index": as_u32(anchor_index),
                 "name": name.trim(),
             }))
+        }
+        "translatePart" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (name, dx, dy, frame) = parse_translate_part(params)?;
+            let frame = frame.unwrap_or(document.active_frame());
+            let before = part_dirty_snap(document, report, &name, frame)?;
+            let pose = document
+                .translate_part(&name, dx, dy, frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                part_pose_value(document, &pose),
+                document,
+                before,
+                false,
+            ))
+        }
+        "rotatePart" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (name, degrees, anchor, frame) = parse_rotate_part(params)?;
+            let frame = frame.unwrap_or(document.active_frame());
+            let before = part_dirty_snap(document, report, &name, frame)?;
+            let pose = document
+                .rotate_part(&name, degrees, anchor.as_deref(), frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                part_pose_value(document, &pose),
+                document,
+                before,
+                false,
+            ))
+        }
+        "flipPart" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (name, vertical, anchor, frame) = parse_flip_part(params)?;
+            let frame = frame.unwrap_or(document.active_frame());
+            let before = part_dirty_snap(document, report, &name, frame)?;
+            let pose = document
+                .flip_part(&name, vertical, anchor.as_deref(), frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                part_pose_value(document, &pose),
+                document,
+                before,
+                false,
+            ))
         }
         "beginGesture" => {
             parse_empty(tool, params)?;
@@ -1643,6 +1691,107 @@ fn parse_set_anchor(params: Value) -> Result<(String, String, i32, i32), ToolFai
     Ok((part, name, x, y))
 }
 
+fn part_pose_value(document: &Document, pose: &crate::part_xform::PartPose) -> Value {
+    let mut value = part_value(document, pose.index);
+    let Some(dest) = value.as_object_mut() else {
+        return value;
+    };
+    dest.insert("frame".to_string(), serde_json::json!(as_u32(pose.frame)));
+    dest.insert(
+        "pivot".to_string(),
+        serde_json::json!({
+            "x": pose.pivot_x,
+            "y": pose.pivot_y,
+            "anchor": pose.pivot_anchor,
+        }),
+    );
+    dest.insert("alignment".to_string(), serde_json::json!(pose.alignment));
+    dest.insert("sampling".to_string(), serde_json::json!(pose.sampling));
+    if let Some(grid) = pose.grid {
+        dest.insert("grid".to_string(), serde_json::json!(grid));
+    }
+    if let Some(centi) = pose.degrees_centi {
+        dest.insert("degreesCenti".to_string(), serde_json::json!(centi));
+    }
+    if let Some(dx) = pose.dx {
+        dest.insert("dx".to_string(), serde_json::json!(dx));
+    }
+    if let Some(dy) = pose.dy {
+        dest.insert("dy".to_string(), serde_json::json!(dy));
+    }
+    if let Some(direction) = pose.direction {
+        dest.insert("direction".to_string(), serde_json::json!(direction));
+    }
+    dest.insert("dropped".to_string(), serde_json::json!(pose.dropped));
+    value
+}
+
+fn part_dirty_snap(
+    document: &Document,
+    report: bool,
+    name: &str,
+    frame: usize,
+) -> Result<Option<Vec<LayerSnap>>, ToolFailure> {
+    if !report {
+        return Ok(None);
+    }
+    let Some(part) = document
+        .parts()
+        .iter()
+        .find(|part| part.name == name.trim())
+    else {
+        return Ok(Some(Vec::new()));
+    };
+    let Some(layer) = part.layer else {
+        return Ok(Some(Vec::new()));
+    };
+    snaps_if(document, true, &[frame], Some(layer))
+}
+
+fn parse_translate_part(params: Value) -> Result<(String, i32, i32, Option<usize>), ToolFailure> {
+    let map = expect_object("translatePart", params)?;
+    reject_params("translatePart", &map, &["name", "dx", "dy", "frame"])?;
+    let name = require_string("translatePart", &map, "name")?;
+    let dx = require_i32("translatePart", &map, "dx")?;
+    let dy = require_i32("translatePart", &map, "dy")?;
+    let frame = optional_frame("translatePart", &map, "frame")?;
+    Ok((name, dx, dy, frame))
+}
+
+fn parse_rotate_part(
+    params: Value,
+) -> Result<(String, f64, Option<String>, Option<usize>), ToolFailure> {
+    let map = expect_object("rotatePart", params)?;
+    reject_params("rotatePart", &map, &["name", "degrees", "anchor", "frame"])?;
+    let name = require_string("rotatePart", &map, "name")?;
+    let degrees = require_degrees("rotatePart", &map, "degrees")?;
+    let anchor = optional_string("rotatePart", &map, "anchor")?;
+    let frame = optional_frame("rotatePart", &map, "frame")?;
+    Ok((name, degrees, anchor, frame))
+}
+
+fn parse_flip_part(
+    params: Value,
+) -> Result<(String, bool, Option<String>, Option<usize>), ToolFailure> {
+    let map = expect_object("flipPart", params)?;
+    reject_params("flipPart", &map, &["name", "direction", "anchor", "frame"])?;
+    let name = require_string("flipPart", &map, "name")?;
+    let direction = require_string("flipPart", &map, "direction")?;
+    let vertical = match direction.as_str() {
+        "horizontal" => false,
+        "vertical" => true,
+        _ => {
+            return Err(invalid_params(
+                "flipPart",
+                "direction must be horizontal or vertical",
+            ))
+        }
+    };
+    let anchor = optional_string("flipPart", &map, "anchor")?;
+    let frame = optional_frame("flipPart", &map, "frame")?;
+    Ok((name, vertical, anchor, frame))
+}
+
 fn parse_remove_anchor(params: Value) -> Result<(String, String), ToolFailure> {
     let map = expect_object("removeAnchor", params)?;
     reject_params("removeAnchor", &map, &["part", "name"])?;
@@ -2226,6 +2375,34 @@ fn require_string(tool: &str, map: &Map<String, Value>, key: &str) -> Result<Str
         None => Err(invalid_params(tool, &format!("missing {key}"))),
         Some(Value::String(value)) => Ok(value.clone()),
         Some(_) => Err(invalid_params(tool, &format!("{key} must be a string"))),
+    }
+}
+
+fn optional_string(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<String>, ToolFailure> {
+    if map.get(key).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(require_string(tool, map, key)?))
+}
+
+fn require_degrees(tool: &str, map: &Map<String, Value>, key: &str) -> Result<f64, ToolFailure> {
+    match map.get(key) {
+        None => Err(invalid_params(tool, &format!("missing {key}"))),
+        Some(Value::Number(number)) => match number.as_f64() {
+            Some(value) if value.is_finite() => Ok(value),
+            _ => Err(invalid_params(
+                tool,
+                "degrees must be a finite number from -1000000 to 1000000",
+            )),
+        },
+        Some(_) => Err(invalid_params(
+            tool,
+            "degrees must be a finite number from -1000000 to 1000000",
+        )),
     }
 }
 

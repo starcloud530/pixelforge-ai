@@ -97,10 +97,12 @@
 | `AnchorName` | 锚点名是空的、只有空白、含控制字符，或超过 64 个字符 |
 | `AnchorMissing` | 这个部件上没有这个名字的锚点 |
 | `AnchorCoord` | 锚点的本地 `x` 或 `y` 不在 `-256..=256` |
+| `PartAngle` | 部件角度不是有限数，或绝对值大于 1000000 |
+| `PartOffCanvas` | 部件变换会把原点或某个非 0 格放到画布外。一格都不写 |
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
-| `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。整次调用不写 |
+| `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。部件变换时，挂接层上有非 0 格或其落点不在选区内。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
 | `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，或某个 `parts` 项的名字、原点、层、锚点不合法时，也是这个码 |
@@ -121,17 +123,17 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转，以及不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
-`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
+`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate` 或 `resizeCanvas` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart` 或 `flipPart` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, and `listParts`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, or anchor edit that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, and `listParts`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, or part translate / rotate / flip that does not change the current value, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
-*`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, and `resizeCanvas` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
+*`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, or `resizeCanvas` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, or `flipPart` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -201,7 +203,7 @@ CLI：`pixelforge scene --project hero.json`。
 
 ### 脏区 Dirty region
 
-`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
+`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
 
 `true` 时，在这个工具原有的 `result` 字段上再加：
 
@@ -235,6 +237,7 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 | `flipHorizontal`、`flipVertical`、`rotate` | 目标格和它读到的源格必须都在选区内，才写入这一格 |
 | `replaceIndex` | 只替换选区内的格子 |
 | `moveRect` | 源矩形和目标矩形必须都整块在选区内，否则 `SelectionProtected`，一格都不写 |
+| `translatePart`、`rotatePart`、`flipPart` | 挂接层上每一个非 0 格和它的落点都必须在选区内，否则 `SelectionProtected`，一格都不写。没有挂接层时不看选区 |
 
 `remapPalette`、`applyPng`、调色板编辑、帧结构、层结构、`flattenLayers` 不看选区。只想改头盔的索引时用 `replaceIndex`，不要用整画布重映射。`resizeCanvas` 不按选区裁像素；选区跟着同一个偏移平移，平移后不能整块留在新画布上就在同一步撤销里清掉。
 
@@ -250,7 +253,7 @@ CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge re
 
 *One rectangle in canvas coordinates applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the rectangle.*
 
-*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the rectangle, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection.*
+*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the rectangle, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection. `translatePart`, `rotatePart`, and `flipPart` do the same when any ink cell on the linked layer, or the cell it would land on, lies outside the selection.*
 
 *`remapPalette`, `applyPng`, palette edits, frame structure, layer structure, and `flattenLayers` ignore the selection. `resizeCanvas` translates the rectangle by the same offset and clears it, in that same undo step, when the translated rectangle would leave the new canvas.*
 
@@ -529,9 +532,9 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 部件**不是**层，也不是另一块像素缓冲。层仍然是每一帧共用的绘制栈。一个部件可以用 `layer` 指向像素所在的那一层（枪在 `gear` 上），也可以不挂层（肩、肘只是一个点）。多个部件可以指向同一层。`layer` 不切换 `activeLayer`。
 
-原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，以后绕它旋转时不必把每一格 `fillRect` 再画一遍。这一版不存储旋转、曲线、约束或烘焙。
+原点 `x`、`y` 是画布上的一格，也是这个部件本地坐标的 `(0, 0)`。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`，不是画布坐标。静止时，锚点的画布位置是原点加上这个偏移。握持点因此可以记在枪上，绕它旋转时不必把每一格 `fillRect` 再画一遍。工程文件不另存旋转角、曲线、约束或烘焙。
 
-翻转和旋转只搬索引，不搬部件，也不搬锚点。`resizeCanvas` 把原点按同一偏移挪走；原点会离开新画布时，这个部件连同锚点一起去掉，和选区在同一撤销步里。锚点的本地偏移不变。
+矩形 `flipHorizontal` / `flipVertical` / `rotate` 只搬索引，不搬部件，也不搬锚点。部件自己的平移、旋转、翻转见 `translatePart`、`rotatePart`、`flipPart`：它们改这一帧挂接层上的索引，并在同一步撤销里改原点和锚点。`resizeCanvas` 把原点按同一偏移挪走；原点会离开新画布时，这个部件连同锚点一起去掉，和选区在同一撤销步里。锚点的本地偏移不变。
 
 插一层时，挂在该下标或更上面的部件，`layer` 加一。删一层时，挂在那一层上的部件保留名字和锚点，只是去掉 `layer`；更上面的部件下标减一。重排层时，`layer` 跟着那一层走。`flattenLayers` 把已经挂了层的部件改指到层 0，没挂层的不动。这些调整和层操作在同一步撤销里。
 
@@ -539,9 +542,9 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 *A part is not a layer and not a second pixel buffer. The layer stack stays the paint stack. `layer` names the paint layer whose pixels belong to the part, and does not select that layer. Omit it for a rig point such as a shoulder. Several parts may name one layer.*
 
-*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. This version does not store a rotation, a curve, a constraint, or a bake.*
+*`x` and `y` on the part are the canvas cell that is local `(0, 0)`. Anchor `x` and `y` are pixel offsets from that cell, in `-256..=256`, not canvas coordinates. At rest, the canvas cell of an anchor is the origin plus that offset. A grip can sit on a gun so a later rotation can turn around it. The file does not store a rotation angle, a curve, a constraint, or a bake.*
 
-*Flip and rotate move indices only. They do not move parts or anchors. `resizeCanvas` translates each origin by the same offset and drops a part, in that same undo step, when the origin would leave the new canvas. Local anchor offsets stay put.*
+*Rectangle `flipHorizontal`, `flipVertical`, and `rotate` move indices only. They do not move parts or anchors. `translatePart`, `rotatePart`, and `flipPart` move the linked layer's indices on one frame and update the origin and anchors in that same undo step. `resizeCanvas` translates each origin by the same offset and drops a part, in that same undo step, when the origin would leave the new canvas. Local anchor offsets stay put.*
 
 *Inserting a layer shifts attachments at or above that index. Deleting a layer clears the attachment of a part that named it and shifts later attachments down. The part and its anchors stay. Reordering follows the layer. `flattenLayers` retargets every attached part to layer 0 and leaves an unattached part alone. The layer edit and the part adjustment are one undo step.*
 
@@ -602,6 +605,59 @@ CLI：`pixelforge part anchor set --part gun --name grip --x 2 --y 2`。
 CLI：`pixelforge part anchor remove --part gun --name grip`。
 
 错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`。
+
+### `translatePart`
+
+`params`：`name`、`dx`、`dy`（整数，可负）。可选 `frame`、`reportDirty`。
+
+把部件原点平移 `(dx, dy)` 格。锚点的本地坐标不变，所以握持点的画布位置跟着原点走。挂了层时，这一帧该层上每一个非 0 索引按同样的位移搬走，源格清成 0；没挂层时只改元数据。不改调色板，不发明新索引。不切换 `activeFrame` 或 `activeLayer`。别的帧的像素不动，部件列表仍是整份文档一份。其它部件的原点不动；和它挂在同一层上的墨水会一起被搬走，所以枪应独占一层。
+
+位移为 0 时不进撤销栈。原点或任一非 0 格的落点出画布时是 `PartOffCanvas`，一格都不写。有选区时，每个非 0 格和它的落点都必须在选区内，否则 `SelectionProtected`。
+
+`result`：改完之后的部件对象，外加 `frame`、`dx`、`dy`、`alignment`（`translate`）、`sampling`（`exact`）、`dropped`（平移恒为 0）、`pivot`（`{x, y, anchor}`，平移时 `anchor` 为 `null`，`x,y` 是平移前的原点）。
+
+CLI：`pixelforge part translate --name gun --dx 2 --dy -1`。`--frame` 指定帧。`--dirty` 即 `reportDirty: true`。
+
+错误：`PartName`、`PartMissing`、`FrameIndex`、`PartOffCanvas`、`SelectionProtected`、`LayerIndex`。`dx` 或 `dy` 不是整数时是 `InvalidParams`。
+
+### `rotatePart`
+
+`params`：`name`、`degrees`（有限数，绝对值不超过 1000000）。可选 `anchor`、`frame`、`reportDirty`。
+
+绕枢轴顺时针转。`anchor` 给出时，枢轴是这个锚点当前的画布格；省略时枢轴是部件原点格。枢轴是这一格的中心（`alignment` 为 `center-on-anchor` 或 `center-on-origin`）。屏幕坐标 `y` 向下。
+
+角度规则：
+
+1. 先对 360° 取模，收进 `(-180, 180]`。`-180` 收成 `180`。
+2. 再量化到最近的 0.01°。正好差一半（第三位小数是 5 且后面没有更多小数）时远离 0。例如 `90.004` 和 `89.995` 收成 `90.00`，`90.005` 收成 `90.01`，`20` 和 `20.004` 都是 `20.00`，`20.005` 是 `20.01`，`0.004` 是 `0`，`0.005` 是 `0.01`。
+3. 量化后是 90° 的整数倍时，`grid` 为 `quarter`，`sampling` 为 `exact`：用整数映射，不插值。90° 顺时针把相对枢轴的 `(dx, dy)` 送到 `(-dy, dx)`。成功的 90° 再转三次回到原样；`90` 再接 `-90` 也回到原样。`degreesCenti` 为 `0`、`9000`、`18000` 或 `-9000`。
+4. 其它角度 `grid` 为 `nearest`，`sampling` 为 `nearest`。每个非 0 格用它的格心绕枢轴格心旋转，再落到最近的格。正好落在两格正中（相对枢轴的坐标是 `n+0.5`）时远离枢轴；和半整数相差小于 `1e-9` 的值先当成那个半整数，免得级数误差翻掉平局。正弦和余弦是内核里的泰勒级数，不是系统 `libm`。`degreesCenti` 是量化后的百分之一度。
+
+两个非 0 格量化到同一格时，行优先较后的那一格留下，较早的索引丢掉，源格仍清成 0。`dropped` 是丢掉的格数。精确的直角、平移和翻转不会重叠，`dropped` 为 0。非直角可以留下空洞：没有墨水落上去、又不是被搬走的源格，就保持原索引。
+
+只改 `frame`（缺省为当前帧）上挂接层的索引，并改这一份原点与锚点。锚点先变成画布坐标再映射，然后重新写成相对新原点的本地格，这样握持点在整数变换里仍停在原来的画布格上。本地结果超出 `-256..=256` 时是 `AnchorCoord`，一格都不写。落点出画布是 `PartOffCanvas`。选区规则与 `translatePart` 相同。量化成 0° 时不进撤销栈。
+
+不做自由仿射、亚像素合成、骨骼界面、脚本、曲线（#56）、约束（#57）或烘焙（#58）。
+
+CLI：`pixelforge part rotate --name gun --degrees 90 --anchor grip`。
+
+错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`、`AnchorCoord`、`PartAngle`、`PartOffCanvas`、`SelectionProtected`、`FrameIndex`、`LayerIndex`。`degrees` 不是有限数时是 `InvalidParams`。
+
+### `flipPart`
+
+`params`：`name`、`direction`（`horizontal` 或 `vertical`）。可选 `anchor`、`frame`、`reportDirty`。
+
+绕枢轴做镜像。水平和 `flipHorizontal` 一样只搬索引、不改颜色：格 `x` 收到 `2 * pivotX - x`，`y` 不变。垂直则 `y` 收到 `2 * pivotY - y`。枢轴格自己不动。这是绕**一格的中心**，不是矩形 `flipHorizontal` 那种绕矩形中心（宽为偶数时中心在两格之间）。因此整帧 `hflip` 一般不等于绕原点的 `flipPart`。矩形翻转仍然不搬部件。
+
+`sampling` 为 `exact`，`alignment` 同旋转。同一方向再翻一次，墨水还在画布上时回到原样。选区、出界、单帧、一步撤销，与 `translatePart` 相同。结果和原来一样时不进撤销栈。
+
+`result` 另有 `direction`。
+
+CLI：`pixelforge part flip --horizontal --name gun --anchor grip`。必须恰好写 `--horizontal` 或 `--vertical` 之一，否则退出码 `2`。
+
+错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`、`AnchorCoord`、`PartOffCanvas`、`SelectionProtected`、`FrameIndex`、`LayerIndex`。`direction` 不是那两个字符串时是 `InvalidParams`。
+
+*Translate, rotate, and flip a part on the indexed grid. The pivot is the center of the origin cell, or of a named anchor. Quarter turns, flips, and translates are exact integer maps. Any other angle quantizes to 0.01° (ties away from zero) and then each ink cell center snaps to the nearest cell (ties away from the pivot). Indices move; colors are not invented. One frame's linked layer moves with the origin and anchors in one undo step. Rectangle flip and rotate still leave parts where they are.*
 
 ### `beginGesture` / `endGesture`
 

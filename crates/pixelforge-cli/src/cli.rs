@@ -45,13 +45,17 @@ Examples:
   pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
   pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
   pixelforge part anchor set --project soldier.json --part gun --name grip --x 2 --y 2
+  pixelforge part translate --project soldier.json --name gun --dx 2 --dy 0
+  pixelforge part rotate --project soldier.json --name gun --degrees 90 --anchor grip
+  pixelforge part flip --horizontal --project soldier.json --name gun --anchor grip
   pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4 --atlas hero-sheet.json
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, palette hash, frame delays) and does not dump pixels. `visible` is
 always true and `opacity` is null: the kernel has no hide flag and no
 per-layer opacity. `--dirty` on paint, erase, fill-rect, erase-rect,
-copy-rect, move-rect, flip, hflip, vflip, rotate, and resize adds `changed`, `dirty`, and
+copy-rect, move-rect, flip, hflip, vflip, rotate, resize, and
+part translate / rotate / flip adds `changed`, `dirty`, and
 `regions`. Omit it and those fields stay absent. `preview` JSON also has
 `ink`, `bounds`, `indices`, and `pixels`. `diff` JSON also has `bounds`,
 `kinds`, and `changes`.
@@ -70,7 +74,13 @@ onion blend, all from the composite unless `--layer` is set. `flip
 indices clockwise. 90 and 270 need a square rectangle; the canvas size
 stays. All three write the active layer, or `--layer`, and do not recolor.
 A stored selection writes a cell only when that cell and the cell it reads
-are both inside. `import-aseprite --file sprite.aseprite --output hero.json`
+are both inside. `part translate`, `part rotate`, and `part flip` move that
+part's origin, its anchors, and the ink on its linked layer in one undo
+step. Rotation and flip pivot on `--anchor` or the origin cell. `--degrees`
+within 0.01° of a multiple of 90 is an exact quarter turn; any other angle
+quantizes to 0.01° and then to the nearest cell. Rectangle flip and rotate
+do not move parts. A selection must cover every ink cell and its destination
+or the part transform writes nothing. `import-aseprite --file sprite.aseprite --output hero.json`
 reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
 `copy-rect` and `move-rect` take optional
@@ -1016,6 +1026,69 @@ pub enum PartCmd {
     Anchor {
         #[command(subcommand)]
         command: AnchorCmd,
+    },
+    /// Move a part by whole cells. Local anchors stay. Linked ink moves with the origin.
+    Translate {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        name: String,
+        /// Cells to add to x. A leading minus is a value.
+        #[arg(long, allow_hyphen_values = true)]
+        dx: i32,
+        /// Cells to add to y. A leading minus is a value.
+        #[arg(long, allow_hyphen_values = true)]
+        dy: i32,
+        /// Frame whose linked layer moves. Defaults to the active frame. Does not select it.
+        #[arg(long)]
+        frame: Option<u32>,
+        /// Add changed count and dirty bbox to the JSON result.
+        #[arg(long)]
+        dirty: bool,
+    },
+    /// Turn a part clockwise around its origin, or around `--anchor`.
+    Rotate {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        name: String,
+        /// Clockwise degrees. Near-multiples of 90 are exact. Other angles snap to 0.01°.
+        #[arg(long, allow_hyphen_values = true)]
+        degrees: f64,
+        /// Pivot anchor. Omit to pivot on the part origin.
+        #[arg(long)]
+        anchor: Option<String>,
+        /// Frame whose linked layer turns. Defaults to the active frame. Does not select it.
+        #[arg(long)]
+        frame: Option<u32>,
+        /// Add changed count and dirty bbox to the JSON result.
+        #[arg(long)]
+        dirty: bool,
+    },
+    /// Mirror a part around its origin, or around `--anchor`.
+    Flip {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        name: String,
+        /// Mirror left to right. Pass exactly one direction.
+        #[arg(long)]
+        horizontal: bool,
+        /// Mirror top to bottom. Pass exactly one direction.
+        #[arg(long)]
+        vertical: bool,
+        /// Pivot anchor. Omit to pivot on the part origin.
+        #[arg(long)]
+        anchor: Option<String>,
+        /// Frame whose linked layer mirrors. Defaults to the active frame. Does not select it.
+        #[arg(long)]
+        frame: Option<u32>,
+        /// Add changed count and dirty bbox to the JSON result.
+        #[arg(long)]
+        dirty: bool,
     },
 }
 
