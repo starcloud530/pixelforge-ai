@@ -22,7 +22,7 @@ export interface ChatTool {
 }
 
 interface SchemaProperty {
-  type: "integer" | "boolean" | "string";
+  type: "integer" | "number" | "boolean" | "string";
   description: string;
   minimum?: number;
   maximum?: number;
@@ -348,6 +348,56 @@ const BY_NAME = {
       name: { type: "string", description: "Anchor name to remove." },
     },
     ["part", "name"],
+  ),
+  translatePart: tool(
+    "translatePart",
+    "Move a part by whole cells. Local anchors stay. Non-zero indices on the linked layer of one frame move with the origin, in one undo step. An unattached part only moves metadata. Does not invent colors. A selection must cover every ink cell and its destination.",
+    {
+      name: { type: "string", description: "Part name." },
+      dx: int("Cells added to x. May be negative.", -2147483648, 2147483647),
+      dy: int("Cells added to y. May be negative.", -2147483648, 2147483647),
+      frame: int("Frame to edit. Omit for the active frame. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["name", "dx", "dy"],
+  ),
+  rotatePart: tool(
+    "rotatePart",
+    "Rotate a part clockwise around its origin, or around a named anchor cell center. A multiple of 90 within 0.01 degree is an exact reversible quarter turn. Any other angle quantizes to 0.01 degree, then each ink cell snaps to the nearest cell. One frame and the part metadata, one undo step. Does not invent colors.",
+    {
+      name: { type: "string", description: "Part name." },
+      degrees: {
+        type: "number",
+        description:
+          "Clockwise degrees, finite, absolute value at most 1000000. 90.004 snaps to 90. 90.005 stays off the quarter-turn path.",
+      },
+      anchor: {
+        type: "string",
+        description: "Pivot anchor. Omit to pivot on the part origin.",
+      },
+      frame: int("Frame to edit. Omit for the active frame. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["name", "degrees"],
+  ),
+  flipPart: tool(
+    "flipPart",
+    "Mirror a part through its origin cell or a named anchor cell. direction is horizontal or vertical. Indices move and colors stay. Same direction twice restores a part that stayed on the canvas. Rectangle flipHorizontal does not move parts. One undo step.",
+    {
+      name: { type: "string", description: "Part name." },
+      direction: {
+        type: "string",
+        description: "horizontal or vertical.",
+        enum: ["horizontal", "vertical"],
+      },
+      anchor: {
+        type: "string",
+        description: "Pivot anchor. Omit to pivot on the part origin.",
+      },
+      frame: int("Frame to edit. Omit for the active frame. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["name", "direction"],
   ),
   beginGesture: tool(
     "beginGesture",

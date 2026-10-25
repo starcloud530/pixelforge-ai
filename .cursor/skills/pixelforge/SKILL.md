@@ -8,7 +8,8 @@ description: >-
   a rectangle, editing the palette, locking, quantizing, or remapping it,
   crushing a PNG onto the palette, importing an indexed .aseprite file,
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
-  270 degrees, adding or duplicating frames, naming parts and anchors, undoing,
+  270 degrees, naming parts and anchors, translating, rotating, or flipping a
+  named part on the pixel grid, adding or duplicating frames, undoing,
   running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
@@ -97,13 +98,13 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `paletteHash` 是 FNV-1a 64 位，16 位小写十六进制。初值 `14695981039346656037`，乘数 `1099511628211`，按索引把每一项的 `r`、`g`、`b`、`a` 送进去。颜色和顺序不变，哈希就不变。`inspect` 的 `result.paletteHash` 是同一个值。
 
-`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。`importAseprite` 不接受这个字段。
+`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。`importAseprite` 不接受这个字段。
 
 `preview` 除了 `rows`，还有 `ink`（非 0 格数）、`bounds`、`indices`（每个索引用了几次）、`pixels`（这一张视图的索引，行优先）。字形 `*` 把 62 及以上折成同一个字符，读索引用 `pixels`。
 
 `diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。
 
-*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
+*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools and on part translate, rotate, and flip; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
 
 ## Pictures, sheets, and canvas commands
 
@@ -204,6 +205,10 @@ pixelforge call --project hero.json \
 先复制同姿、先把相接的同色矩形合成一块，再把剩下的绘制请求放进同一次 `call`。计数时数 `fillRect`、`eraseRect`、`paint`、`erase`、`copyRect`、`moveRect`。士兵射击那 1,133 次 `fillRect` 就是没做这两步。
 
 *A batched `call` is one process, not one edit. `beginGesture` / `endGesture` group undo only. Count each drawing request. Duplicate and merge first, then send what remains.*
+
+枪已经是挂在自己那一层上的部件时，抬枪、挪枪、镜像用 `part rotate` / `part translate` / `part flip` 一次调用，不要把枪的格子再 `fillRect` 一遍。上面四条仍然管还没有变成部件的身体和扫描行。矩形 `hflip` / `rotate` 不搬部件。
+
+*When the gun is already a part on its own layer, one `part rotate`, `part translate`, or `part flip` poses it. The four rules above still cover a body that is not a part. Rectangle `hflip` and `rotate` do not move parts.*
 
 ## Recipes
 
@@ -316,9 +321,9 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 
 ### 士兵的枪和握持点 Gun and grip
 
-部件不是层。枪的像素画在 `gear` 上，部件只记下原点和锚点，这样以后绕握持点转枪时不用把每一格 `fillRect` 再画一遍。肩和肘可以不挂层，只是身体上的点。本地 `(0, 0)` 是 `part add` 的 `x,y`。握持点 `(2, 2)` 的画布格是 `(26, 14)`。这一步不旋转。
+部件不是层。枪的像素画在 `gear` 上，部件记下原点和锚点。肩和肘可以不挂层，只是身体上的点。本地 `(0, 0)` 是 `part add` 的 `x,y`。握持点 `(2, 2)` 的画布格是 `(26, 14)`。抬枪用 `part rotate`，不要再把每一格 `fillRect` 一遍。
 
-*A part is not a layer. The gun pixels stay on `gear`. The part stores the origin and the anchors, so a later turn around the grip does not refill every cell. A shoulder or an elbow can stay unattached. Local `(0, 0)` is the `x,y` of `part add`. Grip `(2, 2)` is canvas cell `(26, 14)`. This step does not rotate.*
+*A part is not a layer. The gun pixels stay on `gear`. The part stores the origin and the anchors. A shoulder or an elbow can stay unattached. Local `(0, 0)` is the `x,y` of `part add`. Grip `(2, 2)` is canvas cell `(26, 14)`. Raise the gun with `part rotate` instead of refilling every cell.*
 
 ```bash
 pixelforge new --width 48 --height 32 --output soldier.json
@@ -336,9 +341,42 @@ pixelforge part list --project soldier.json
 pixelforge scene --project soldier.json
 ```
 
-`part list` 和 `scene` 的 `parts` 都能读到枪和 `grip`。没有部件时工程文件不写 `parts`。`hflip` / `vflip` / `rotate` 之后锚点还在原来的本地格上，要跟着像素走时用 `part set` 改原点。
+`part list` 和 `scene` 的 `parts` 都能读到枪和 `grip`。没有部件时工程文件不写 `parts`。矩形 `hflip` / `vflip` / `rotate` 不搬部件。要让枪和握持点一起动，用下面的部件变换。
 
-*Both `part list` and `scene` return the gun and `grip`. A project with no parts omits `parts`. After `hflip`, `vflip`, or `rotate`, the anchor is still the same local cell. Move the origin with `part set` when the pixels moved and the rest pose should follow.*
+*Both `part list` and `scene` return the gun and `grip`. A project with no parts omits `parts`. Rectangle `hflip`, `vflip`, and `rotate` leave the part where it is. Use a part transform when the gun and the grip should move together.*
+
+### 部件变换 Part transform
+
+`part translate`、`part rotate`、`part flip` 把挂接层上的非 0 索引和原点、锚点放进同一步撤销。只搬已有索引，不发明颜色。枢轴是原点格，或 `--anchor` 指名的那一格的中心。没挂层的肩、肘只改原点。
+
+平移是整格位移，锚点的本地坐标不变。翻转是绕枢轴格的镜像：`x` 收到 `2 * pivotX - x`（垂直则是 `y`）。这和矩形 `hflip` 不是同一个枢轴：矩形翻转绕矩形中心，宽为偶数时中心在两格之间，而且不改部件。
+
+旋转的 `--degrees` 可以不是 90。先收到 `(-180, 180]`，再量化到 0.01°，一半时远离 0。量化后是 90° 的倍数就是精确直角，四次 90° 回到原样。其它角度把每个墨水格的中心转到最近的格，一半时远离枢轴。两个格落到同一格时，行优先较后的索引留下，`dropped` 记下丢掉的格数。`result.grid` 是 `quarter` 或 `nearest`，`result.degreesCenti` 是量化后的百分之一度。
+
+只改 `frame`（缺省当前帧）的像素。部件列表仍是整份文档一份，所以这一下的原点描述的是你刚转过的那一帧，其它帧的像素不动。枪和别的墨水不要挂在同一层：变换搬走的是这一层上全部非 0 格。有选区时，这些格和落点必须都在选区内，否则 `SelectionProtected`，一格都不写。落出画布是 `PartOffCanvas`。
+
+不做自由仿射、亚像素合成、骨骼界面、脚本、关键帧曲线、约束或烘焙。
+
+*A part transform moves the linked layer's ink and the origin and anchors in one undo step. It remaps indices and does not invent colors. The pivot is the center of the origin cell, or of `--anchor`. An unattached shoulder only moves its origin.*
+
+*Translate is a whole-cell shift; local anchors stay. Flip mirrors through the pivot cell. Rectangle `hflip` uses the rectangle center and does not move the part.*
+
+*`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index and reports `dropped`. Read `grid` and `degreesCenti`.*
+
+*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, curve, constraint, or bake.*
+
+```bash
+pixelforge part translate --project soldier.json --name gun --dx 2 --dy 0
+pixelforge part rotate --project soldier.json --name gun --degrees 90 --anchor grip
+pixelforge part rotate --project soldier.json --name gun --degrees 20.5 --anchor grip
+pixelforge part flip --horizontal --project soldier.json --name gun --anchor grip
+```
+
+```json
+{ "tool": "translatePart", "params": { "name": "gun", "dx": 2, "dy": 0, "reportDirty": true } }
+{ "tool": "rotatePart", "params": { "name": "gun", "degrees": 90, "anchor": "grip" } }
+{ "tool": "flipPart", "params": { "name": "gun", "direction": "horizontal", "anchor": "grip" } }
+```
 
 ### Palette
 

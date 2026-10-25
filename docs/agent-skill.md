@@ -16,7 +16,7 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
+| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
 | `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢 | body / gear / limbs。合成预览、`--layer`、`layer flatten`。 |
@@ -211,14 +211,15 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 
 ### 部件与锚点 Parts and anchors
 
-部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。翻转和旋转不搬锚点。这一步不旋转、不插值、不烘焙。士兵示例的完整命令在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」。
+部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。不插值、不烘焙。士兵示例在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」和「部件变换」。
 
-*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Flip and rotate do not move anchors. This step does not rotate, interpolate, or bake. The soldier commands are in the pixelforge skill.*
+*A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Rectangle flip and rotate do not move anchors. `part translate`, `part rotate`, and `part flip` move that layer's ink together with the origin and anchors. Quarter turns are an exact integer map. Any other angle quantizes to 0.01° and then to the nearest cell, around the origin or the `--anchor` cell. This step does not interpolate or bake. The soldier commands are in the pixelforge skill.*
 
 ```bash
 pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
 pixelforge part anchor set --project soldier.json --part gun --name grip --x 2 --y 2
 pixelforge part list --project soldier.json
+pixelforge part rotate --project soldier.json --name gun --degrees 90 --anchor grip
 ```
 
 握持点 `(2, 2)` 的画布格是 `(26, 14)`。肩和肘用同样的命令，可以不写 `--layer`。
