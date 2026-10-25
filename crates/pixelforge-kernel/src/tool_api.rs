@@ -21,6 +21,7 @@ use crate::error::KernelError;
 use crate::palette::IndexPolicy;
 use crate::palette_file::PaletteImportMode;
 use crate::palette_map::{ColorMerge, DroppedColor, MapReport};
+use crate::part::{LayerAttach, PartUpdate};
 use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
 use crate::tag::{LoopMode, TagUpdate};
 use crate::MAX_CANVAS_EDGE;
@@ -58,6 +59,12 @@ pub const TOOL_NAMES: &[&str] = &[
     "addTag",
     "setTag",
     "removeTag",
+    "listParts",
+    "addPart",
+    "setPart",
+    "removePart",
+    "setAnchor",
+    "removeAnchor",
     "beginGesture",
     "endGesture",
     "undo",
@@ -573,6 +580,51 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "name": name.trim(),
             }))
         }
+        "listParts" => {
+            parse_empty(tool, params)?;
+            Ok(parts_value(document))
+        }
+        "addPart" => {
+            let (name, x, y, layer) = parse_add_part(params)?;
+            let index = document
+                .add_part(&name, x, y, layer)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(part_value(document, index))
+        }
+        "setPart" => {
+            let (name, update) = parse_set_part(params)?;
+            let index = document
+                .set_part(&name, update)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(part_value(document, index))
+        }
+        "removePart" => {
+            let name = parse_remove_part(params)?;
+            let index = document.remove_part(&name).map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "name": name.trim(),
+            }))
+        }
+        "setAnchor" => {
+            let (part, name, x, y) = parse_set_anchor(params)?;
+            let (part_index, anchor_index) = document
+                .set_anchor(&part, &name, x, y)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(anchor_value(document, part_index, anchor_index))
+        }
+        "removeAnchor" => {
+            let (part, name) = parse_remove_anchor(params)?;
+            let (part_index, anchor_index) = document
+                .remove_anchor(&part, &name)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "part": part.trim(),
+                "partIndex": as_u32(part_index),
+                "index": as_u32(anchor_index),
+                "name": name.trim(),
+            }))
+        }
         "beginGesture" => {
             parse_empty(tool, params)?;
             document.begin_gesture().map_err(ToolFailure::Kernel)?;
@@ -883,6 +935,7 @@ fn inspect_value(document: &Document) -> Value {
         "activeLayer": document.active_layer(),
         "selection": selection_json(document),
         "tags": tags_json(document),
+        "parts": parts_json(document),
         "layers": layer_entries(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
@@ -923,6 +976,7 @@ fn scene_value(document: &Document) -> Value {
         "delayMs": delay_ms,
         "frames": frames,
         "tags": tags_json(document),
+        "parts": parts_json(document),
     })
 }
 
@@ -991,6 +1045,59 @@ fn tags_json(document: &Document) -> Vec<Value> {
 fn tag_value(document: &Document, index: usize) -> Value {
     let tag = &document.tags()[index];
     tag_fields(index, &tag.name, tag.from, tag.to, tag.loop_mode)
+}
+
+fn parts_value(document: &Document) -> Value {
+    serde_json::json!({ "parts": parts_json(document) })
+}
+
+fn parts_json(document: &Document) -> Vec<Value> {
+    document
+        .parts()
+        .iter()
+        .enumerate()
+        .map(|(index, part)| part_fields(index, part))
+        .collect()
+}
+
+fn part_value(document: &Document, index: usize) -> Value {
+    part_fields(index, &document.parts()[index])
+}
+
+fn part_fields(index: usize, part: &crate::part::Part) -> Value {
+    serde_json::json!({
+        "index": as_u32(index),
+        "name": part.name,
+        "x": part.x,
+        "y": part.y,
+        "layer": part.layer.map(as_u32),
+        "anchors": part
+            .anchors
+            .iter()
+            .enumerate()
+            .map(|(anchor_index, anchor)| {
+                serde_json::json!({
+                    "index": as_u32(anchor_index),
+                    "name": anchor.name,
+                    "x": anchor.x,
+                    "y": anchor.y,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn anchor_value(document: &Document, part_index: usize, anchor_index: usize) -> Value {
+    let part = &document.parts()[part_index];
+    let anchor = &part.anchors[anchor_index];
+    serde_json::json!({
+        "part": part.name,
+        "partIndex": as_u32(part_index),
+        "index": as_u32(anchor_index),
+        "name": anchor.name,
+        "x": anchor.x,
+        "y": anchor.y,
+    })
 }
 
 fn tag_fields(index: usize, name: &str, from: usize, to: usize, loop_mode: LoopMode) -> Value {
@@ -1461,6 +1568,89 @@ fn parse_sheet(params: Value) -> Result<(u32, Option<u32>, bool), ToolFailure> {
     Ok((scale, columns, atlas))
 }
 
+fn parse_add_part(params: Value) -> Result<(String, u16, u16, Option<usize>), ToolFailure> {
+    let map = expect_object("addPart", params)?;
+    reject_params("addPart", &map, &["name", "x", "y", "layer"])?;
+    let name = require_string("addPart", &map, "name")?;
+    let x = require_u16("addPart", &map, "x")?;
+    let y = require_u16("addPart", &map, "y")?;
+    let layer = optional_frame("addPart", &map, "layer")?;
+    Ok((name, x, y, layer))
+}
+
+fn parse_set_part(params: Value) -> Result<(String, PartUpdate), ToolFailure> {
+    let map = expect_object("setPart", params)?;
+    reject_params(
+        "setPart",
+        &map,
+        &["name", "x", "y", "layer", "clearLayer", "rename"],
+    )?;
+    let name = require_string("setPart", &map, "name")?;
+    let x = optional_u16("setPart", &map, "x")?;
+    let y = optional_u16("setPart", &map, "y")?;
+    let layer = optional_frame("setPart", &map, "layer")?;
+    let clear_layer = match map.get("clearLayer") {
+        None => false,
+        Some(_) => require_bool("setPart", &map, "clearLayer")?,
+    };
+    if clear_layer && layer.is_some() {
+        return Err(invalid_params(
+            "setPart",
+            "pass layer or clearLayer, not both",
+        ));
+    }
+    let rename = match map.get("rename") {
+        None => None,
+        Some(_) => Some(require_string("setPart", &map, "rename")?),
+    };
+    if x.is_none() && y.is_none() && layer.is_none() && !clear_layer && rename.is_none() {
+        return Err(invalid_params(
+            "setPart",
+            "pass x, y, layer, clearLayer, or rename",
+        ));
+    }
+    let attach = if clear_layer {
+        LayerAttach::Clear
+    } else if let Some(layer) = layer {
+        LayerAttach::Index(layer)
+    } else {
+        LayerAttach::Keep
+    };
+    Ok((
+        name,
+        PartUpdate {
+            x,
+            y,
+            layer: attach,
+            rename,
+        },
+    ))
+}
+
+fn parse_remove_part(params: Value) -> Result<String, ToolFailure> {
+    let map = expect_object("removePart", params)?;
+    reject_params("removePart", &map, &["name"])?;
+    require_string("removePart", &map, "name")
+}
+
+fn parse_set_anchor(params: Value) -> Result<(String, String, i32, i32), ToolFailure> {
+    let map = expect_object("setAnchor", params)?;
+    reject_params("setAnchor", &map, &["part", "name", "x", "y"])?;
+    let part = require_string("setAnchor", &map, "part")?;
+    let name = require_string("setAnchor", &map, "name")?;
+    let x = require_i32("setAnchor", &map, "x")?;
+    let y = require_i32("setAnchor", &map, "y")?;
+    Ok((part, name, x, y))
+}
+
+fn parse_remove_anchor(params: Value) -> Result<(String, String), ToolFailure> {
+    let map = expect_object("removeAnchor", params)?;
+    reject_params("removeAnchor", &map, &["part", "name"])?;
+    let part = require_string("removeAnchor", &map, "part")?;
+    let name = require_string("removeAnchor", &map, "name")?;
+    Ok((part, name))
+}
+
 fn parse_add_tag(params: Value) -> Result<(String, usize, usize, LoopMode), ToolFailure> {
     let map = expect_object("addTag", params)?;
     reject_params("addTag", &map, &["name", "from", "to", "loop"])?;
@@ -1884,6 +2074,36 @@ fn require_u8(tool: &str, map: &Map<String, Value>, key: &str) -> Result<u8, Too
 
 fn require_u16(tool: &str, map: &Map<String, Value>, key: &str) -> Result<u16, ToolFailure> {
     require_u16_at_least(tool, map, key, 0)
+}
+
+fn optional_u16(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<u16>, ToolFailure> {
+    if map.get(key).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(require_u16(tool, map, key)?))
+}
+
+fn require_i32(tool: &str, map: &Map<String, Value>, key: &str) -> Result<i32, ToolFailure> {
+    match map.get(key) {
+        None => Err(invalid_params(tool, &format!("missing {key}"))),
+        Some(Value::Number(number)) => match number.as_i64() {
+            Some(value) if i64::from(i32::MIN) <= value && value <= i64::from(i32::MAX) => {
+                Ok(i32::try_from(value).expect("value was bounded by i32"))
+            }
+            _ => Err(invalid_params(
+                tool,
+                &format!("{key} must be an integer from {} to {}", i32::MIN, i32::MAX),
+            )),
+        },
+        Some(_) => Err(invalid_params(
+            tool,
+            &format!("{key} must be an integer from {} to {}", i32::MIN, i32::MAX),
+        )),
+    }
 }
 
 fn require_u16_at_least(

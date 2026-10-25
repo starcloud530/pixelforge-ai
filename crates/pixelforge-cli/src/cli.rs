@@ -43,6 +43,8 @@ Examples:
       --request '{\"tool\":\"endGesture\"}'
   pixelforge export png --project hero.json --out-dir ./frames --scale 2
   pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
+  pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
+  pixelforge part anchor set --project soldier.json --part gun --name grip --x 2 --y 2
   pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4 --atlas hero-sheet.json
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
@@ -266,7 +268,8 @@ pub enum Command {
     /// Omit `--offset-x` and `--offset-y` to center the old pixels. One undo
     /// step. A size outside 1..=256 is refused and writes nothing. A stored
     /// selection moves with the same offset, or is cleared when it would leave
-    /// the new canvas.
+    /// the new canvas. A part origin moves the same way, and that part is
+    /// dropped when the origin would leave. Anchors stay in local cells.
     Resize(ResizeArgs),
     /// One rectangular mask stored in the project file.
     ///
@@ -299,6 +302,15 @@ pub enum Command {
     Layer {
         #[command(subcommand)]
         command: LayerCmd,
+    },
+    /// Named parts and local anchors. Not a layer and not a bone UI.
+    ///
+    /// A part has a rest-pose origin on the canvas and optional layer index.
+    /// Anchors are pixel offsets from that origin. Flip and rotate do not
+    /// move them. This does not rotate, interpolate, or bake.
+    Part {
+        #[command(subcommand)]
+        command: PartCmd,
     },
     /// Undo the last edit recorded in this process.
     ///
@@ -941,6 +953,98 @@ pub enum TagCmd {
     Remove {
         #[command(flatten)]
         doc: ProjectArgs,
+        #[arg(long)]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PartCmd {
+    /// Print parts and anchors. Does not change the file.
+    List {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Add a named part. The origin is the canvas cell that is local (0, 0).
+    Add {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Unique name. Trimmed. 1 to 64 characters.
+        #[arg(long)]
+        name: String,
+        /// Origin column, from 0. Must lie on the canvas.
+        #[arg(long)]
+        x: u16,
+        /// Origin row, from 0. Must lie on the canvas.
+        #[arg(long)]
+        y: u16,
+        /// Paint layer this part names. Omit to leave the part unattached.
+        #[arg(long)]
+        layer: Option<u32>,
+    },
+    /// Change a part's origin, layer, or name. Pass at least one change.
+    Set {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Current name.
+        #[arg(long)]
+        name: String,
+        /// New origin column. Omit to keep it.
+        #[arg(long)]
+        x: Option<u16>,
+        /// New origin row. Omit to keep it.
+        #[arg(long)]
+        y: Option<u16>,
+        /// Attach the part to this layer. Omit to keep the attachment.
+        #[arg(long)]
+        layer: Option<u32>,
+        /// Drop the layer attachment. The part and its anchors stay.
+        #[arg(long)]
+        clear_layer: bool,
+        /// New unique name. Omit to keep the current name.
+        #[arg(long)]
+        rename: Option<String>,
+    },
+    /// Remove a part and its anchors. Pixels stay.
+    Remove {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        #[arg(long)]
+        name: String,
+    },
+    /// Set or remove one anchor in a part's local pixel grid.
+    Anchor {
+        #[command(subcommand)]
+        command: AnchorCmd,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AnchorCmd {
+    /// Create or replace a named anchor. x and y are cells from the part origin.
+    Set {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        part: String,
+        /// Anchor name. Trimmed. 1 to 64 characters. Unique on this part.
+        #[arg(long)]
+        name: String,
+        /// Local column, from -256 to 256. A leading minus is a value.
+        #[arg(long, allow_hyphen_values = true)]
+        x: i32,
+        /// Local row, from -256 to 256. A leading minus is a value.
+        #[arg(long, allow_hyphen_values = true)]
+        y: i32,
+    },
+    /// Remove one anchor. The part stays.
+    Remove {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Part name.
+        #[arg(long)]
+        part: String,
         #[arg(long)]
         name: String,
     },

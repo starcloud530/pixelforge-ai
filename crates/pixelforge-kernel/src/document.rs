@@ -6,6 +6,11 @@ use crate::history::{Change, History};
 use crate::palette::{IndexPolicy, Palette};
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
+use crate::part::{
+    anchor_offset_i64, normalize_part_name, parts_after_flatten, parts_after_layer_insert,
+    parts_after_layer_remove, parts_after_reorder, parts_after_resize, LayerAttach, Part,
+    PartUpdate,
+};
 use crate::selection::Selection;
 use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
@@ -20,7 +25,7 @@ use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, frames, layers, delays, tags, and the undo stack.
+/// Indexed pixel document: size, palette, frames, layers, delays, tags, parts, and the undo stack.
 ///
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
@@ -55,6 +60,9 @@ pub struct Document {
     /// Named inclusive frame ranges. Empty when the file omits `tags`.
     /// Not a linked cel: each frame still owns its pixels.
     tags: Vec<Tag>,
+    /// Named parts and local anchors. Empty when the file omits `parts`.
+    /// Not a layer and not a pixel buffer.
+    parts: Vec<Part>,
     history: History,
     playback: Playback,
 }
@@ -97,6 +105,7 @@ impl Document {
             active_layer: 0,
             selection: None,
             tags: Vec::new(),
+            parts: Vec::new(),
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -1127,7 +1136,10 @@ impl Document {
         let pixels_same =
             self.width == width && self.height == height && before_pixels == after_pixels;
         let selection_same = before_selection == after_selection;
-        if pixels_same && selection_same {
+        let before_parts = self.parts.clone();
+        let after_parts = parts_after_resize(&before_parts, offset_x, offset_y, width, height);
+        let parts_same = before_parts == after_parts;
+        if pixels_same && selection_same && parts_same {
             return Ok(());
         }
         let before_width = self.width;
@@ -1153,6 +1165,13 @@ impl Document {
             changes.push(Change::Selection {
                 before: before_selection,
                 after: after_selection,
+            });
+        }
+        if !parts_same {
+            self.parts = after_parts.clone();
+            changes.push(Change::Parts {
+                before: before_parts,
+                after: after_parts,
             });
         }
         self.history.record_group(changes);
@@ -1533,18 +1552,23 @@ impl Document {
         };
         let index = self.active_layer + 1;
         let active_before = self.active_layer;
+        let before_parts = self.parts.clone();
         let blank = vec![TRANSPARENT_INDEX; self.pixel_count()];
         for frame in &mut self.frames {
             frame.insert_layer(index, blank.clone());
         }
         self.layer_names.insert(index, name.clone());
         self.active_layer = index;
-        self.history.record(Change::AddLayer {
-            index,
-            name,
-            active_before,
-            active_after: index,
-        });
+        self.parts = parts_after_layer_insert(&before_parts, index);
+        self.record_with_parts(
+            before_parts,
+            Change::AddLayer {
+                index,
+                name,
+                active_before,
+                active_after: index,
+            },
+        );
         Ok(index)
     }
 
@@ -1558,6 +1582,7 @@ impl Document {
         }
         let index = self.layer_or_err(index)?;
         let active_before = self.active_layer;
+        let before_parts = self.parts.clone();
         let name = self.layer_names.remove(index);
         let mut pixels = Vec::with_capacity(self.frames.len());
         for frame in &mut self.frames {
@@ -1570,13 +1595,17 @@ impl Document {
         } else {
             active_before
         };
-        self.history.record(Change::RemoveLayer {
-            index,
-            name,
-            pixels,
-            active_before,
-            active_after: self.active_layer,
-        });
+        self.parts = parts_after_layer_remove(&before_parts, index);
+        self.record_with_parts(
+            before_parts,
+            Change::RemoveLayer {
+                index,
+                name,
+                pixels,
+                active_before,
+                active_after: self.active_layer,
+            },
+        );
         Ok(())
     }
 
@@ -1623,15 +1652,20 @@ impl Document {
             return Ok(());
         }
         let active_before = self.active_layer;
+        let before_parts = self.parts.clone();
         self.move_layer(from, to);
         let active_after = remap_layer_index(active_before, from, to);
         self.active_layer = active_after;
-        self.history.record(Change::ReorderLayer {
-            from,
-            to,
-            active_before,
-            active_after,
-        });
+        self.parts = parts_after_reorder(&before_parts, from, to);
+        self.record_with_parts(
+            before_parts,
+            Change::ReorderLayer {
+                from,
+                to,
+                active_before,
+                active_after,
+            },
+        );
         Ok(())
     }
 
@@ -1654,18 +1688,23 @@ impl Document {
             .map(|frame| frame.layers().to_vec())
             .collect();
         let before_active = self.active_layer;
+        let before_parts = self.parts.clone();
         let after_pixels: Vec<Vec<u8>> = self.frames.iter().map(Frame::composite).collect();
         for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
             frame.set_all_layers(vec![pixels]);
         }
         self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
         self.active_layer = 0;
-        self.history.record(Change::Flatten {
-            before_names,
-            before_pixels,
-            before_active,
-            after_pixels,
-        });
+        self.parts = parts_after_flatten(&before_parts);
+        self.record_with_parts(
+            before_parts,
+            Change::Flatten {
+                before_names,
+                before_pixels,
+                before_active,
+                after_pixels,
+            },
+        );
         Ok(())
     }
 
@@ -1798,6 +1837,157 @@ impl Document {
         self.tags.remove(index);
         self.record_tags(before);
         Ok(index)
+    }
+
+    /// Named parts, in insertion order. Empty when the file has none.
+    pub fn parts(&self) -> &[Part] {
+        &self.parts
+    }
+
+    /// Appends a part. `name` is trimmed. `x` and `y` are the canvas cell that
+    /// is local `(0, 0)`. `layer` attaches the part to that paint layer, or
+    /// leaves it unattached when `None`.
+    ///
+    /// A second part with the same name is [`KernelError::PartExists`]. The
+    /// origin must lie on the canvas. One undo step. This does not write pixels.
+    pub fn add_part(
+        &mut self,
+        name: &str,
+        x: u16,
+        y: u16,
+        layer: Option<usize>,
+    ) -> Result<usize, KernelError> {
+        let name = normalize_part_name(name).map_err(|()| KernelError::PartName)?;
+        if self.parts.iter().any(|part| part.name == name) {
+            return Err(KernelError::PartExists);
+        }
+        self.check_origin(x, y)?;
+        if let Some(layer) = layer {
+            self.layer_or_err(layer)?;
+        }
+        let index = self.parts.len();
+        let before = self.parts.clone();
+        self.parts.push(Part {
+            name,
+            x,
+            y,
+            layer,
+            anchors: Vec::new(),
+        });
+        self.record_parts(before);
+        Ok(index)
+    }
+
+    /// Changes one part's origin, layer attachment, or name. Unset fields stay.
+    ///
+    /// The same resulting part is not recorded. `rename` is trimmed. One undo
+    /// step when the part changes. Returns the part's index. This does not
+    /// write pixels and does not move anchors: they stay in local cells.
+    pub fn set_part(&mut self, name: &str, update: PartUpdate) -> Result<usize, KernelError> {
+        let name = normalize_part_name(name).map_err(|()| KernelError::PartName)?;
+        let index = self.part_position(&name)?;
+        let mut next = self.parts[index].clone();
+        if let Some(x) = update.x {
+            next.x = x;
+        }
+        if let Some(y) = update.y {
+            next.y = y;
+        }
+        self.check_origin(next.x, next.y)?;
+        match update.layer {
+            LayerAttach::Keep => {}
+            LayerAttach::Clear => next.layer = None,
+            LayerAttach::Index(layer) => {
+                self.layer_or_err(layer)?;
+                next.layer = Some(layer);
+            }
+        }
+        if let Some(rename) = update.rename {
+            let rename = normalize_part_name(&rename).map_err(|()| KernelError::PartName)?;
+            if rename != next.name && self.parts.iter().any(|part| part.name == rename) {
+                return Err(KernelError::PartExists);
+            }
+            next.name = rename;
+        }
+        if next == self.parts[index] {
+            return Ok(index);
+        }
+        let before = self.parts.clone();
+        self.parts[index] = next;
+        self.record_parts(before);
+        Ok(index)
+    }
+
+    /// Removes the part with this name, including its anchors. Returns the removed index.
+    pub fn remove_part(&mut self, name: &str) -> Result<usize, KernelError> {
+        let name = normalize_part_name(name).map_err(|()| KernelError::PartName)?;
+        let index = self.part_position(&name)?;
+        let before = self.parts.clone();
+        self.parts.remove(index);
+        self.record_parts(before);
+        Ok(index)
+    }
+
+    /// Sets one named anchor in the part's local pixel grid.
+    ///
+    /// Creates the anchor when the name is new, or replaces its offset.
+    /// The same offset is not recorded. `x` and `y` are cells relative to the
+    /// part origin, in `-MAX_CANVAS_EDGE..=MAX_CANVAS_EDGE`. Returns
+    /// `(part index, anchor index)`. This does not write pixels.
+    pub fn set_anchor(
+        &mut self,
+        part: &str,
+        name: &str,
+        x: i32,
+        y: i32,
+    ) -> Result<(usize, usize), KernelError> {
+        let part_name = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        let anchor_name = normalize_part_name(name).map_err(|()| KernelError::AnchorName)?;
+        let Some((x, y)) = anchor_offset_i64(i64::from(x), i64::from(y)) else {
+            return Err(KernelError::AnchorCoord { x, y });
+        };
+        let part_index = self.part_position(&part_name)?;
+        if let Some(anchor_index) = self.parts[part_index]
+            .anchors
+            .iter()
+            .position(|anchor| anchor.name == anchor_name)
+        {
+            let current = &self.parts[part_index].anchors[anchor_index];
+            if current.x == x && current.y == y {
+                return Ok((part_index, anchor_index));
+            }
+            let before = self.parts.clone();
+            let anchor = &mut self.parts[part_index].anchors[anchor_index];
+            anchor.x = x;
+            anchor.y = y;
+            self.record_parts(before);
+            return Ok((part_index, anchor_index));
+        }
+        let before = self.parts.clone();
+        self.parts[part_index].anchors.push(crate::part::Anchor {
+            name: anchor_name,
+            x,
+            y,
+        });
+        let anchor_index = self.parts[part_index].anchors.len() - 1;
+        self.record_parts(before);
+        Ok((part_index, anchor_index))
+    }
+
+    /// Removes one anchor from a part. The part stays. Returns `(part index, anchor index)`.
+    pub fn remove_anchor(&mut self, part: &str, name: &str) -> Result<(usize, usize), KernelError> {
+        let part_name = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+        let anchor_name = normalize_part_name(name).map_err(|()| KernelError::AnchorName)?;
+        let part_index = self.part_position(&part_name)?;
+        let anchor_index = self.parts[part_index]
+            .anchors
+            .iter()
+            .position(|anchor| anchor.name == anchor_name)
+            .ok_or(KernelError::AnchorMissing)?;
+        let before = self.parts.clone();
+        self.parts[part_index].anchors.remove(anchor_index);
+        self.record_parts(before);
+        Ok((part_index, anchor_index))
     }
 
     /// True while [`Self::tick`] advances frames.
@@ -1961,6 +2151,7 @@ impl Document {
         active_layer: usize,
         selection: Option<Selection>,
         tags: Vec<Tag>,
+        parts: Vec<Part>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -1977,6 +2168,14 @@ impl Document {
             tags.iter()
                 .all(|tag| tag.from <= tag.to && tag.to < frames.len()),
             "tags were checked"
+        );
+        debug_assert!(
+            parts.iter().all(|part| {
+                part.x < width
+                    && part.y < height
+                    && part.layer.is_none_or(|layer| layer < layer_names.len())
+            }),
+            "parts were checked"
         );
         let len = pixel_len(width, height);
         debug_assert!(
@@ -1998,6 +2197,7 @@ impl Document {
             active_layer,
             selection,
             tags,
+            parts,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -2039,6 +2239,46 @@ impl Document {
                 before,
                 after: self.tags.clone(),
             });
+        }
+    }
+
+    fn record_with_parts(&mut self, before_parts: Vec<Part>, change: Change) {
+        let mut changes = vec![change];
+        if before_parts != self.parts {
+            changes.push(Change::Parts {
+                before: before_parts,
+                after: self.parts.clone(),
+            });
+        }
+        self.history.record_group(changes);
+    }
+
+    fn record_parts(&mut self, before: Vec<Part>) {
+        if before != self.parts {
+            self.history.record(Change::Parts {
+                before,
+                after: self.parts.clone(),
+            });
+        }
+    }
+
+    fn part_position(&self, name: &str) -> Result<usize, KernelError> {
+        self.parts
+            .iter()
+            .position(|part| part.name == name)
+            .ok_or(KernelError::PartMissing)
+    }
+
+    fn check_origin(&self, x: u16, y: u16) -> Result<(), KernelError> {
+        if x >= self.width || y >= self.height {
+            Err(KernelError::OutOfBounds {
+                x,
+                y,
+                width: self.width,
+                height: self.height,
+            })
+        } else {
+            Ok(())
         }
     }
 
@@ -2294,6 +2534,13 @@ impl Document {
             }
             Change::Tags { before, after } => {
                 self.tags = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
+            }
+            Change::Parts { before, after } => {
+                self.parts = if forward {
                     after.clone()
                 } else {
                     before.clone()

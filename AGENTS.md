@@ -6,7 +6,7 @@ Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Rea
 
 | Skill | When |
 | --- | --- |
-| `pixelforge` | 用 pixelforge, 改工程, CLI, palette, export. Index-color invariants, exit codes, `inspect` / `tools` / `call`. Shortest edit path: duplicate a pose and edit the diff, merge fillRects, count each request in a batched call. |
+| `pixelforge` | 用 pixelforge, 改工程, CLI, palette, parts, anchors, export. Index-color invariants, exit codes, `inspect` / `tools` / `call`. Shortest edit path: duplicate a pose and edit the diff, merge fillRects, count each request in a batched call. |
 | `pixelforge-draw` | 从零画角色, 立绘, 剪影. Silhouette, then flats, then details. `preview --scale` after each stage. |
 | `pixelforge-sprite-4dir` | 四向走 + 闲. Rows are facings, columns are idle plus walk. `export sheet --cols`, tags named `idle_down` / `walk_down`, `--atlas` JSON, `diff` for foot slide, fix highlights after `hflip`. Duplicate a column and edit the diff. |
 | `pixelforge-layers` | body / gear / limbs. Composite preview, draw with `--layer`, `layer flatten`. |
@@ -14,4 +14,4 @@ Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Rea
 
 Skills add a look-then-revise loop. They do not replace a pixel artist's judgment.
 
-The in-app AI panel is a one-turn demo. Do not build an embedded multi-turn chat (#14). Do not add an MCP server in this tree; a later wrapper would only call this CLI. Cells store palette indices. A frame can hold several layers of those indices. Draw the active layer; `preview` and `export` show the composite. Do not invent RGB past the kernel.
+The in-app AI panel is a one-turn demo. Do not build an embedded multi-turn chat (#14). Do not add an MCP server in this tree; a later wrapper would only call this CLI. Cells store palette indices. A frame can hold several layers of those indices. Draw the active layer; `preview` and `export` show the composite. Named parts and anchors are rig metadata on that grid, not a second pixel buffer and not a bone UI. Do not invent RGB past the kernel.

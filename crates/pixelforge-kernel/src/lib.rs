@@ -1,7 +1,8 @@
 //! PixelForge kernel.
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
-//! layers, per-frame delay, and named animation tags. Paint, erase, rectangle fill, rectangle erase,
+//! layers, per-frame delay, named animation tags, and named parts with
+//! anchors. Paint, erase, rectangle fill, rectangle erase,
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
 //! indices on the active layer, never raw RGB. Preview, diff, and PNG export
 //! composite the stack: index 0 is transparent and any other index covers the
@@ -36,6 +37,7 @@ mod history;
 mod palette;
 mod palette_file;
 mod palette_map;
+mod part;
 mod project;
 mod scene;
 mod selection;
@@ -50,6 +52,7 @@ pub use export::{sprite_sheet_layout, SpriteSheetLayout};
 pub use frame::Frame;
 pub use palette::{IndexPolicy, Palette};
 pub use palette_file::PaletteImportMode;
+pub use part::{Anchor, LayerAttach, Part, PartUpdate};
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
 pub use selection::Selection;
 pub use tag::{LoopMode, Tag, TagUpdate};
@@ -75,6 +78,9 @@ pub const MAX_LAYER_NAME_CHARS: usize = 64;
 
 /// Longest animation tag name, in Unicode scalar values, after trimming.
 pub const MAX_TAG_NAME_CHARS: usize = 64;
+
+/// Longest part or anchor name, in Unicode scalar values, after trimming.
+pub const MAX_PART_NAME_CHARS: usize = 64;
 
 /// Shortest delay [`Document::set_frame_delay`] accepts.
 pub const MIN_FRAME_DELAY_MS: u32 = 1;

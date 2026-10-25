@@ -25,9 +25,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FrameCmd,
-    ImportMode, LayerCmd, PaintArgs, PaletteCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs,
-    RotateArgs, SelectionCmd, TagCmd,
+    AnchorCmd, BlitRectArgs, Cli, Command, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs,
+    FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd, PartCmd, ProjectArgs, ReplaceIndexArgs,
+    ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -107,6 +107,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Frame { command } => cmd_frame(command),
         Command::Tag { command } => cmd_tag(command),
         Command::Layer { command } => cmd_layer(command),
+        Command::Part { command } => cmd_part(command),
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
@@ -774,6 +775,77 @@ fn cmd_layer(command: LayerCmd) -> i32 {
             vec![request("reorderLayer", json!({"from": from, "to": to}))],
         ),
         LayerCmd::Flatten { doc } => apply(&doc, vec![request("flattenLayers", json!({}))]),
+    }
+}
+
+fn cmd_part(command: PartCmd) -> i32 {
+    match command {
+        PartCmd::List { doc } => apply(&doc, vec![request("listParts", json!({}))]),
+        PartCmd::Add {
+            doc,
+            name,
+            x,
+            y,
+            layer,
+        } => {
+            let mut params = json!({ "name": name, "x": x, "y": y });
+            if let Some(layer) = layer {
+                params["layer"] = json!(layer);
+            }
+            apply(&doc, vec![request("addPart", params)])
+        }
+        PartCmd::Set {
+            doc,
+            name,
+            x,
+            y,
+            layer,
+            clear_layer,
+            rename,
+        } => {
+            let mut params = json!({ "name": name });
+            if let Some(x) = x {
+                params["x"] = json!(x);
+            }
+            if let Some(y) = y {
+                params["y"] = json!(y);
+            }
+            if let Some(layer) = layer {
+                params["layer"] = json!(layer);
+            }
+            if clear_layer {
+                params["clearLayer"] = json!(true);
+            }
+            if let Some(rename) = rename {
+                params["rename"] = json!(rename);
+            }
+            apply(&doc, vec![request("setPart", params)])
+        }
+        PartCmd::Remove { doc, name } => {
+            apply(&doc, vec![request("removePart", json!({ "name": name }))])
+        }
+        PartCmd::Anchor { command } => match command {
+            AnchorCmd::Set {
+                doc,
+                part,
+                name,
+                x,
+                y,
+            } => apply(
+                &doc,
+                vec![request(
+                    "setAnchor",
+                    json!({ "part": part, "name": name, "x": x, "y": y }),
+                )],
+            ),
+            AnchorCmd::Remove { doc, part, name } => apply(
+                &doc,
+                vec![request(
+                    "removeAnchor",
+                    json!({ "part": part, "name": name }),
+                )],
+            ),
+        },
     }
 }
 

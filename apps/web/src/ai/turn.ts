@@ -82,11 +82,12 @@ export const AGENT_SYSTEM_PROMPT = [
   "If you do not call beginGesture, the shell groups this whole reply into one undo step.",
   "If you do call beginGesture, do not call it twice, and the shell will not wrap another gesture around yours.",
   "A gesture left open at the end of the reply is closed so the editor is not stuck.",
-  "Read-only tools are inspect, scene, saveProject, exportPngSequence, exportSpriteSheet, previewFrame, diffFrames, and listLayers.",
+  "Read-only tools are inspect, scene, saveProject, exportPngSequence, exportSpriteSheet, previewFrame, diffFrames, listLayers, and listParts.",
   "Paint writes the active layer. Preview and export show the composite: index 0 shows the layer under it.",
   "setSelection stores one rectangle in the project. paint, fillRect, erase, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex then leave cells outside it unchanged. flipVertical and rotate write a cell only when it and the cell it reads are both inside. moveRect returns SelectionProtected unless both rectangles lie inside it. clearSelection removes the rectangle. There is no lasso.",
   "importAseprite replaces the document from indexed .aseprite bytes and clears undo. It does not write a .aseprite file. rotate degrees are 90, 180, or 270 clockwise, and 90 or 270 need a square rectangle.",
   "addTag names an inclusive frame range. loop is forward, reverse, pingpong, or once. setTag and removeTag edit that list. exportSpriteSheet with atlas true returns frame rects, delays, columns, and tags. The timeline still loops the whole document. There are no linked cels.",
+  "listParts, addPart, setPart, removePart, setAnchor, and removeAnchor name a part and its anchors. A part is not a layer and not a pixel buffer. Optional layer is the paint layer its pixels live on. x,y on the part is the rest-pose origin on the canvas. Anchor x,y are local pixel offsets from that origin. Flip and rotate do not move anchors. This does not rotate, interpolate, or bake.",
   "This is one reply. Do not wait for tool results to come back.",
 ].join("\n");
 
