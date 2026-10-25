@@ -3,12 +3,14 @@ name: pixelforge-critique
 description: >-
   Read-only critique of a PixelForge figure or sprite. Use when the user asks
   to review, critique, or check an existing frame (检查, 评审, 看起来怎么样,
-  剪影, 头身比, 色阶), including whether a preview looks finished. Report
-  defects with evidence from preview and diff. Do not paint, fill, erase, or
-  change the file. Do not answer with praise alone or with 看起来不错. Follow
-  the pixelforge skill for preview and diff. Drawing or fixing pixels is
-  pixelforge-draw or pixelforge-sprite-4dir, not this skill. This checklist
-  does not replace a pixel artist's judgment.
+  剪影, 头身比, 色阶), including whether a preview looks finished. When an
+  edit log or several frames are in scope, also flag mergeable fillRects and
+  poses redrawn instead of duplicated. Report defects with evidence from
+  preview, diff, and that log. Do not paint, fill, erase, or change the file.
+  Do not answer with praise alone or with 看起来不错. Follow the pixelforge
+  skill for preview, diff, and the shortest edit path. Drawing or fixing
+  pixels is pixelforge-draw or pixelforge-sprite-4dir, not this skill. This
+  checklist does not replace a pixel artist's judgment.
 ---
 
 # 只读检查
@@ -21,7 +23,7 @@ description: >-
 
 ## When to use
 
-用户要检查、评审、或问一张已有的图好不好、完成了没有。用户要改像素时改用 `pixelforge-draw` 或 `pixelforge-sprite-4dir`，不要在这次只读里顺手画。
+用户要检查、评审、或问一张已有的图好不好、完成了没有。也用于核对编辑路径：相邻同色 `fillRect` 能否合并、同姿帧是否整帧重画。用户要改像素时改用 `pixelforge-draw` 或 `pixelforge-sprite-4dir`，不要在这次只读里顺手画。
 
 ## What to run
 
@@ -48,6 +50,26 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 
 *Read `scene` first. It does not change the file. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes` with the real indices. Do not pass `--dirty` from this skill. A matching `paletteHash` only says the palette did not change.*
 
+## 最少编辑路径
+
+画图时怎么把路径缩短，规范在 `pixelforge` 的「最少编辑路径」。这里只读，用来挑已经发生的长路径。不调用 `duplicateFrame`、`fillRect` 或任何会改文件的工具。2026-10-25 的士兵射击动画是 1,191 次工具操作，其中 1,133 次是 `fillRect`：同姿帧整帧重画、扫描行没有合成更高的矩形、空白帧上重填整个人，并且一次批量 `call` 被当成了一步。
+
+有对话里的工具记录时，逐条数绘制请求（`fillRect`、`eraseRect`、`paint`、`erase`、`copyRect`、`moveRect`）。一次 `pixelforge call` 里的每个 `--request` 各算一次。`beginGesture` / `endGesture` 只说明这些请求会合成一步撤销，不把次数收成 1。没有记录时，可合并的 `fillRect` 写「未核」：最终像素看不出当初拆成几笔。
+
+同姿帧用 `diff`。`changed` 为 0 只说明两帧像素相同，看不出是 `duplicateFrame` 还是重画；没有记录就写未核。记录里是 `addFrame` 再对整个人 `fillRect`，而另一帧已经有这个姿势，记为缺陷。短路径是 `duplicateFrame` 后只改差，或在下标已经占死时 `copyRect --from-frame --to-frame` 再改差。
+
+可合并的记录长这样。之前三笔，同一索引、同一 `x`、同一 `width`，`y` 为 20、21、22，高度都是 1：
+
+```json
+{"tool":"fillRect","params":{"x":8,"y":20,"width":12,"height":1,"colorIndex":4}}
+{"tool":"fillRect","params":{"x":8,"y":21,"width":12,"height":1,"colorIndex":4}}
+{"tool":"fillRect","params":{"x":8,"y":22,"width":12,"height":1,"colorIndex":4}}
+```
+
+合成之后是一笔：`x=8`，`y=20`，`width=12`，`height=3`，`colorIndex=4`。左右相接、同 `y`、同 `height`、同色，合成更宽的一笔，同一条规则。L 形或中间有缝不算可合并。缺陷里写出能合成的那一块矩形，不要只写「可以更短」。
+
+*Read-only. The normative before-and-after is in the pixelforge skill. Flag a redraw of a pose that already exists, and flag abutting same-color `fillRect`s that form one taller or wider rect. Each `--request` in one `call` counts. Without a log, the fillRect merge check is 未核.*
+
 ## Checklist
 
 每一条都要写进输出。通过的条也写证据（数过的行、帧号、你看到的字形）。不要合并成一句总评。
@@ -58,8 +80,12 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 4. **腿体积连续**：大腿到小腿到脚在 ASCII 里是一块相连的质量。中间出现 `.`，或收到只剩一格又突然变粗，记为断点。
 5. **脚接触**：同一朝向的 idle 和 walk，最低的非透明格是否在同一地面行。`diff` 里地面行出现横移的 `!` 或单独字形，记为脚滑。俯视小体型看身体最下面的接触格，滑一格也算。
 6. **色阶**：皮肤、衣服、金属是不是不同索引，彩色 PNG 里能不能分开。相邻区域同一索引，或颜色接近、边界分不清，记为糊。没看到 PNG 就写未核。`inspect` / `scene` 的 `indexPolicy` 默认是 `reject`；`clamp` 表示越界索引会被写成最后一项，色阶检查时要知道画上去的索引可能不是请求的那个。若对话里已经有 `palette remap` 或 `palette apply-png` 的结果，用 `misses`（没精确命中的颜色）、`merges`（并进了哪项近似色）和 `pixelsChanged`（改了多少格）当作证据。本 skill 不调用这两条，它们会改文件。没有这份报告时，仍只看彩色 PNG。
+7. **可合并的 fillRect**：只在有本次编辑记录时核。同一 `colorIndex`、同一 `x`、同一 `width`，下一块的 `y` 等于上一块的 `y + height`，记为缺陷，并写出合成后的那一块（`x`、`y`、`width`、合计 `height`、索引）。同 `y`、同 `height`、左右相接、同色，写出合成后的更宽一块。一次 `call` 里的多笔仍逐笔算。没有记录就写未核，不要写成通过。
+8. **重复帧未复制**：多帧时对看起来同姿的两帧跑 `diff`。记录里是 `addFrame`（或事先的空白帧）再整帧 `fillRect`，而 `diff` 的 `changed` 远小于 `preview` 的 `ink`，或另一帧已经是这个姿势，记为缺陷，并写明应 `duplicateFrame` 后只改差，或在槽位已占死时 `copyRect` 再改差。`changed` 为 0 且没有记录：写未核，像素相同证明不了路径。只有一帧且没有记录：写未核。
 
-四向表再核对行是不是一个朝向、`export sheet` 是否会用 `--cols` 保住这个行数。那是布局，不是审美加分。
+四向表再核对行是不是一个朝向、`export sheet` 是否会用 `--cols` 保住这个行数。那是布局，不是审美加分。第 7、8 条是编辑路径，不是审美加分。单帧且没有编辑记录时，两条都写入「未核」。
+
+*Items 7 and 8 are the edit path. A batched call still counts each fill. Identical pixels without a log are 未核, not a pass.*
 
 ## Output
 
@@ -69,6 +95,8 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 ## 缺陷
 - [头身] 站立立绘 48×64，头 6 行，身体 40 行，读成示意图
 - [脚接触] 帧 0 与帧 1 的地面行 y=46 上有横移的 !
+- [可合并的 fillRect] 记录里三笔 colorIndex 4、x=8、width=12、height=1，y=20、21、22，可合成 x=8 y=20 width=12 height=3。这三笔在同一次 call 里仍是三次 fillRect
+- [重复帧未复制] 帧 3 与帧 1 的 diff changed 为 40，preview ink 约 800；记录是 addFrame 后整帧 fillRect。应 duplicateFrame 帧 1 再改这 40 格，槽位已占死时用 copyRect
 
 ## 未发现
 - [剪影] 帧 0 的 ASCII 外轮廓能分开头和躯干，身体内部没有多余的 .
@@ -79,5 +107,7 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 ## 阶段
 色块
 ```
+
+没有编辑记录、只有一帧时，第 7、8 条改写入「未核」，例如「[可合并的 fillRect] 没有本次编辑记录，最终像素看不出拆成几笔」。不要把这两条算成通过。
 
 阶段词不是分数。清单通过之后仍然写一句：这不判断好不好看。

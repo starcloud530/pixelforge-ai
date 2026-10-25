@@ -16,11 +16,11 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、导出 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。其它创作 skill 先遵守这里。 |
+| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
-| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
+| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢 | body / gear / limbs。合成预览、`--layer`、`layer flatten`。 |
-| `pixelforge-critique` | [.cursor/skills/pixelforge-critique/SKILL.md](../.cursor/skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。输出必须列缺陷，不能只说看起来不错。 |
+| `pixelforge-critique` | [.cursor/skills/pixelforge-critique/SKILL.md](../.cursor/skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。输出必须列缺陷，不能只说看起来不错。 |
 
 ## 安装与运行 Install and run
 
@@ -160,7 +160,7 @@ pixelforge import-aseprite --file hero.aseprite --project hero.json
 
 *Glyphs: `.` is transparent, `1`–`9` and `A`–`Z` / `a`–`z` are indices, `*` is index 62 or above. `preview` writes a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `export sheet --cols N` sets the column count; scale does not.*
 
-平涂优先 `fillRect`，挖剪影优先 `eraseRect`，挪姿势或道具优先 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。
+平涂优先 `fillRect`，挖剪影优先 `eraseRect`，挪姿势或道具优先 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。撤销步数不是内核操作次数，见下面的最少编辑路径。
 
 ```bash
 pixelforge call --project hero.json \
@@ -281,9 +281,21 @@ pixelforge call --project hero.json --request-file edits.json
 
 站立立绘优先 64×128 或 96×128。站立立绘做成 48×64 是示意图。俯视小体型是 16–32。常见四向游戏精灵大约 32–64。更高细节的俯视或全身精灵用 96×96 或 128×128，需要拉高时用 96×128 或 64×128。这些尺寸都在边长 `1..=256` 里，默认 `new` 仍是 16×16。更大只是格子更多，不会自动更好看。96 和 128 的 ASCII 是整帧，阶段检查看 `preview --scale` 的彩色 PNG，ASCII 只抽局部。16 帧走表不要默认用立绘的高度。`resize` 只搬已有索引。变身用 `duplicateFrame` 之后必须 `frame select` 返回的下标。
 
+### 最少编辑路径 Shortest edit path
+
+规范正文和前后对照在 [pixelforge](../.cursor/skills/pixelforge/SKILL.md) 的「最少编辑路径」。四向表上的用法在 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。只读挑错在 [pixelforge-critique](../.cursor/skills/pixelforge-critique/SKILL.md) 的第 7、8 条。这里是同一条约，缩短后的样子：
+
+同姿且新帧可以紧挨源帧：`duplicateFrame`，再 `setActiveFrame` 到返回的下标，只改差集。槽位已经占死（例如第 3、4、7 帧）：`copyRect` 的 `fromFrame` / `toFrame` 把身体拷进去，再改差。不要 `addFrame` 出空白再把整个人 `fillRect` 一遍。
+
+相邻同色、同一 `x`、同一 `width`、`y` 相接的扫描行合成一块更高的矩形。`y=20`、`21`、`22` 三笔 `height=1`、`width=12`、`colorIndex=4` 是一笔 `height=3`。左右相接、同 `y`、同 `height`、同色则合成更宽的一笔。
+
+一次 `pixelforge call` 里每个绘制 `--request` 仍是一次内核操作。`beginGesture` / `endGesture` 只合并撤销。2026-10-25 士兵射击动画是 1,191 次工具操作，其中 1,133 次 `fillRect`，就是这三件事叠在一起。不新增内核工具。
+
+*Duplicate a same pose and edit the diff, or `copyRect` into a slot that already exists. Merge abutting same-color scanlines into one taller `fillRect`. A batched `call` counts every drawing request. `beginGesture` groups undo only.*
+
 ### 四向走 + 闲 pixelforge-sprite-4dir
 
-行是朝向（下、左、右、上），列是 idle 然后 walk。`export sheet --cols N` 的 `N` 等于每行帧数。跨帧用 `copy-rect --from-frame --to-frame`。脚是否滑看 `diff --frame A --with B --scale 4`：地面行上横移的 `!` 是脚滑。俯视小体型把接触格留在原位，动上面的身体。`hflip` 只搬索引，不改颜色。高光格子跟着身体翻到另一侧，画面上的光源还在原来的一侧，再用 `paint` 把高光画回去。
+行是朝向（下、左、右、上），列是 idle 然后 walk。`export sheet --cols N` 的 `N` 等于每行帧数。下一列从本行 idle `duplicate` 后只改腿和手臂；槽位已经占死时用 `copy-rect --from-frame --to-frame`。脚是否滑看 `diff --frame A --with B --scale 4`：地面行上横移的 `!` 是脚滑。俯视小体型把接触格留在原位，动上面的身体。`hflip` 只搬索引，不改颜色。高光格子跟着身体翻到另一侧，画面上的光源还在原来的一侧，再用 `paint` 把高光画回去。扫描行 `fillRect` 先合成更高的一块。一次批量 `call` 仍按请求计数。
 
 ### 分层 pixelforge-layers
 
@@ -291,4 +303,4 @@ pixelforge call --project hero.json --request-file edits.json
 
 ### 只读检查 pixelforge-critique
 
-不改文件。用 `inspect`、`preview --scale 4`、`diff`。输出必须逐条写剪影、头身、侧向深度、腿体积连续、脚接触、色阶。有缺陷就列出来。没有缺陷的条写「未发现」并附上帧号或字形。不要只回答「看起来不错」。打不开彩色 PNG 时色阶写「未核」。
+不改文件。用 `inspect`、`preview --scale 4`、`diff`。输出必须逐条写剪影、头身、侧向深度、腿体积连续、脚接触、色阶。有编辑记录时再写可合并的 `fillRect`（相邻同色扫描行应合成一块更高的矩形）。多帧时再写重复帧未复制（同姿却 `addFrame` 后整帧重画；没有记录则写未核）。有缺陷就列出来。没有缺陷的条写「未发现」并附上帧号或字形。不要只回答「看起来不错」。打不开彩色 PNG 时色阶写「未核」。一次 `call` 里的每个绘制请求各算一次。
