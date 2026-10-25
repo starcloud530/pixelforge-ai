@@ -106,6 +106,7 @@ fn help_lists_the_agent_commands() {
         "vflip",
         "rotate",
         "import-aseprite",
+        "part",
         "resize",
         "--from-frame",
         "--horizontal",
@@ -500,6 +501,8 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"rotate"));
     assert!(names.contains(&"importAseprite"));
     assert!(names.contains(&"resizeCanvas"));
+    assert!(names.contains(&"addPart"));
+    assert!(names.contains(&"setAnchor"));
     assert!(names.contains(&"undo"));
 }
 
@@ -2305,6 +2308,183 @@ fn import_aseprite_then_vflip_and_rotate() {
     assert_eq!(status(&replaced), 0, "{}", stderr(&replaced));
     assert_eq!((load(&wide).width(), load(&wide).height()), (2, 2));
     assert_eq!(load(&wide).pixels(), &[1, 2, 0, 3]);
+}
+
+#[test]
+fn soldier_gun_grip_is_stored_on_the_gear_layer() {
+    let scratch = Scratch::new();
+    let project = scratch.child("soldier.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "48",
+            "--height",
+            "32",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "layer",
+            "rename",
+            "--project",
+            project_arg,
+            "--name",
+            "body",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "fill-rect",
+            "--project",
+            project_arg,
+            "--x",
+            "16",
+            "--y",
+            "6",
+            "--width",
+            "10",
+            "--height",
+            "18",
+            "--color-index",
+            "3",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "layer",
+            "add",
+            "--project",
+            project_arg,
+            "--name",
+            "gear",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "fill-rect",
+            "--project",
+            project_arg,
+            "--layer",
+            "1",
+            "--x",
+            "24",
+            "--y",
+            "12",
+            "--width",
+            "14",
+            "--height",
+            "4",
+            "--color-index",
+            "1",
+        ]))),
+        0
+    );
+
+    let added = pixelforge(&arg(&[
+        "part",
+        "add",
+        "--project",
+        project_arg,
+        "--name",
+        "gun",
+        "--layer",
+        "1",
+        "--x",
+        "24",
+        "--y",
+        "12",
+    ]));
+    assert_eq!(status(&added), 0, "{}", stderr(&added));
+    assert_eq!(json_lines(&added)[0]["result"]["name"], "gun");
+    assert_eq!(json_lines(&added)[0]["result"]["layer"], 1);
+    assert_eq!(json_lines(&added)[0]["result"]["x"], 24);
+
+    let grip = pixelforge(&arg(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        project_arg,
+        "--part",
+        "gun",
+        "--name",
+        "grip",
+        "--x",
+        "2",
+        "--y",
+        "2",
+    ]));
+    assert_eq!(status(&grip), 0, "{}", stderr(&grip));
+    assert_eq!(json_lines(&grip)[0]["result"]["name"], "grip");
+    assert_eq!(json_lines(&grip)[0]["result"]["x"], 2);
+    assert_eq!(json_lines(&grip)[0]["result"]["y"], 2);
+
+    let butt = pixelforge(&arg(&[
+        "part",
+        "anchor",
+        "set",
+        "--project",
+        project_arg,
+        "--part",
+        "gun",
+        "--name",
+        "butt",
+        "--x",
+        "-1",
+        "--y",
+        "0",
+    ]));
+    assert_eq!(status(&butt), 0, "{}", stderr(&butt));
+    assert_eq!(json_lines(&butt)[0]["result"]["x"], -1);
+    assert_eq!(
+        load(&project).parts()[0].anchor_canvas("butt"),
+        Some((23, 12))
+    );
+
+    let listed = pixelforge(&arg(&["part", "list", "--project", project_arg]));
+    assert_eq!(status(&listed), 0, "{}", stderr(&listed));
+    assert_eq!(
+        json_lines(&listed)[0]["result"]["parts"][0]["anchors"][0]["name"],
+        "grip"
+    );
+
+    let saved = fs::read_to_string(&project).unwrap();
+    assert!(saved.contains("\"grip\""));
+    let doc = load(&project);
+    assert_eq!(doc.parts().len(), 1);
+    assert_eq!(doc.parts()[0].layer, Some(1));
+    assert_eq!(doc.parts()[0].anchor_canvas("grip"), Some((26, 14)));
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[12 * 48 + 24], 1);
+
+    let before = fs::read(&project).unwrap();
+    let again = pixelforge(&arg(&["part", "list", "--project", project_arg]));
+    assert_eq!(status(&again), 0, "{}", stderr(&again));
+    assert_eq!(fs::read(&project).unwrap(), before);
+
+    let missing = pixelforge(&arg(&[
+        "part",
+        "anchor",
+        "remove",
+        "--project",
+        project_arg,
+        "--part",
+        "gun",
+        "--name",
+        "stock",
+    ]));
+    assert_eq!(status(&missing), 1, "{}", stderr(&missing));
+    assert_eq!(json_lines(&missing)[0]["error"]["code"], "AnchorMissing");
+    let kept = load(&project);
+    assert_eq!(kept.parts()[0].anchors.len(), 2);
+    assert_eq!(kept.parts()[0].anchor_canvas("grip"), Some((26, 14)));
 }
 
 fn indexed_aseprite() -> Vec<u8> {

@@ -293,6 +293,62 @@ const BY_NAME = {
     },
     ["name"],
   ),
+  listParts: tool(
+    "listParts",
+    "Read named parts and their anchors. A part is not a layer. Does not change the document.",
+  ),
+  addPart: tool(
+    "addPart",
+    "Add a named part. x and y are the canvas cell that is local (0, 0). Optional layer attaches the part to that paint layer and does not select it. Omit layer to leave the part unattached. Names are unique. One undo step. Does not write pixels.",
+    {
+      name: { type: "string", description: "Part name, trimmed, 1 to 64 characters." },
+      x: int("Origin column. Must lie on the canvas.", 0, 65535),
+      y: int("Origin row. Must lie on the canvas.", 0, 65535),
+      layer: int("Paint layer this part names. Omit to leave it unattached.", 0, 4294967295),
+    },
+    ["name", "x", "y"],
+  ),
+  setPart: tool(
+    "setPart",
+    "Change a part origin, layer attachment, or name. Pass at least one of x, y, layer, clearLayer, or rename. clearLayer true drops the attachment and cannot be combined with layer. The same resulting part is not recorded. Anchors stay in local cells. One undo step.",
+    {
+      name: { type: "string", description: "Current part name." },
+      x: int("New origin column. Omit to keep it.", 0, 65535),
+      y: int("New origin row. Omit to keep it.", 0, 65535),
+      layer: int("Attach the part to this layer. Omit to keep the attachment.", 0, 4294967295),
+      clearLayer: { type: "boolean", description: "When true, drop the layer attachment. Do not pass layer as well." },
+      rename: { type: "string", description: "New unique name. Omit to keep the current name." },
+    },
+    ["name"],
+  ),
+  removePart: tool(
+    "removePart",
+    "Remove a part and its anchors. Pixels stay. One undo step.",
+    {
+      name: { type: "string", description: "Part name to remove." },
+    },
+    ["name"],
+  ),
+  setAnchor: tool(
+    "setAnchor",
+    "Create or replace a named anchor on a part. x and y are local pixel offsets from the part origin, from -256 to 256, not canvas coordinates. The same offset is not recorded. One undo step. Does not rotate or write pixels.",
+    {
+      part: { type: "string", description: "Part name." },
+      name: { type: "string", description: "Anchor name, trimmed, 1 to 64 characters. Unique on this part." },
+      x: int("Local column, from -256 to 256.", -256, 256),
+      y: int("Local row, from -256 to 256.", -256, 256),
+    },
+    ["part", "name", "x", "y"],
+  ),
+  removeAnchor: tool(
+    "removeAnchor",
+    "Remove one anchor from a part. The part stays. One undo step.",
+    {
+      part: { type: "string", description: "Part name." },
+      name: { type: "string", description: "Anchor name to remove." },
+    },
+    ["part", "name"],
+  ),
   beginGesture: tool(
     "beginGesture",
     "Start grouping later successful edits into one undo step. Fails if a gesture is already open.",
@@ -481,6 +537,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "previewFrame",
   "diffFrames",
   "listLayers",
+  "listParts",
 ];
 
 function tool(

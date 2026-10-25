@@ -5,7 +5,8 @@
 //! writing a second encoder. The file stores canvas size, the palette, the
 //! palette lock, every frame's indices and delay, the active frame, and, when
 //! the document is more than the original single layer, the layer stack, and,
-//! when any are set, named animation tags.
+//! when any are set, named animation tags, and, when any are set, named parts
+//! with anchors.
 //! The undo stack and the playback clock are not part of the file, so a loaded
 //! document undoes back to the opened pixels and is not playing. A frame
 //! written before delays existed omits `delayMs` and loads as
@@ -15,7 +16,9 @@
 //! layers existed omits `layers` and `activeLayer` and loads as one layer
 //! named [`crate::DEFAULT_LAYER_NAME`]. A single default layer is still saved
 //! in that older shape. A file written before animation tags existed omits
-//! `tags` and loads with none. An empty tag list is still saved that way. A missing `selection` loads as no mask. The rectangle
+//! `tags` and loads with none. An empty tag list is still saved that way. A file
+//! written before parts existed omits `parts` and loads with none. An empty
+//! part list is still saved that way. A missing `selection` loads as no mask. The rectangle
 //! is written only while one is set. The undo stack is still omitted.
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +27,7 @@ use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
 use crate::palette::{IndexPolicy, Palette};
+use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
 use crate::selection::Selection;
 use crate::tag::{normalize_tag_name, LoopMode, Tag};
 use crate::Rgba;
@@ -75,6 +79,9 @@ struct ProjectFile {
     /// Named inclusive frame ranges. Missing when the file has no tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tags: Vec<TagFile>,
+    /// Named parts. Missing when the file has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    parts: Vec<PartFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +102,28 @@ struct TagFile {
     /// Missing means [`LoopMode::Forward`].
     #[serde(default, rename = "loop")]
     loop_mode: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PartFile {
+    name: String,
+    x: i64,
+    y: i64,
+    /// Missing when the part is not attached to a layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layer: Option<i64>,
+    /// Missing when the part has no anchors.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    anchors: Vec<AnchorFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AnchorFile {
+    name: String,
+    x: i64,
+    y: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -166,6 +195,7 @@ impl Document {
                 .map(|index| self.stored_frame(index))
                 .collect(),
             tags: self.stored_tags(),
+            parts: self.stored_parts(),
         };
         let mut json = serde_json::to_string_pretty(&file)
             .expect("project fields are JSON numbers, strings, and arrays");
@@ -253,6 +283,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let index_policy = index_policy_from_file(file.index_policy)?;
     let selection = selection_from_file(file.selection, width, height)?;
     let tags = tags_from_file(file.tags, frames.len())?;
+    let parts = parts_from_file(file.parts, width, height, names.len())?;
     Ok(Document::from_stored(
         width,
         height,
@@ -265,7 +296,88 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         active_layer,
         selection,
         tags,
+        parts,
     ))
+}
+
+fn parts_from_file(
+    files: Vec<PartFile>,
+    width: u16,
+    height: u16,
+    layer_count: usize,
+) -> Result<Vec<Part>, KernelError> {
+    let mut parts: Vec<Part> = Vec::with_capacity(files.len());
+    for (index, file) in files.into_iter().enumerate() {
+        let part = part_from_file(index, file, width, height, layer_count)?;
+        if parts.iter().any(|existing| existing.name == part.name) {
+            return Err(invalid(ProjectFileError::PartDuplicate { index }));
+        }
+        parts.push(part);
+    }
+    Ok(parts)
+}
+
+fn part_from_file(
+    index: usize,
+    file: PartFile,
+    width: u16,
+    height: u16,
+    layer_count: usize,
+) -> Result<Part, KernelError> {
+    let name = normalize_part_name(&file.name)
+        .map_err(|()| invalid(ProjectFileError::PartName { index }))?;
+    let x = u16::try_from(file.x).map_err(|_| invalid(ProjectFileError::PartOrigin { index }))?;
+    let y = u16::try_from(file.y).map_err(|_| invalid(ProjectFileError::PartOrigin { index }))?;
+    if x >= width || y >= height {
+        return Err(invalid(ProjectFileError::PartOrigin { index }));
+    }
+    let layer = match file.layer {
+        None => None,
+        Some(layer) => {
+            let layer = usize::try_from(layer)
+                .map_err(|_| invalid(ProjectFileError::PartLayer { index }))?;
+            if layer >= layer_count {
+                return Err(invalid(ProjectFileError::PartLayer { index }));
+            }
+            Some(layer)
+        }
+    };
+    let mut anchors = Vec::with_capacity(file.anchors.len());
+    for (anchor_index, anchor) in file.anchors.into_iter().enumerate() {
+        let anchor_name = normalize_part_name(&anchor.name).map_err(|()| {
+            invalid(ProjectFileError::AnchorName {
+                part: index,
+                index: anchor_index,
+            })
+        })?;
+        if anchors
+            .iter()
+            .any(|existing: &Anchor| existing.name == anchor_name)
+        {
+            return Err(invalid(ProjectFileError::AnchorDuplicate {
+                part: index,
+                index: anchor_index,
+            }));
+        }
+        let Some((anchor_x, anchor_y)) = anchor_offset_i64(anchor.x, anchor.y) else {
+            return Err(invalid(ProjectFileError::AnchorCoord {
+                part: index,
+                index: anchor_index,
+            }));
+        };
+        anchors.push(Anchor {
+            name: anchor_name,
+            x: anchor_x,
+            y: anchor_y,
+        });
+    }
+    Ok(Part {
+        name,
+        x,
+        y,
+        layer,
+        anchors,
+    })
 }
 
 fn tags_from_file(files: Vec<TagFile>, frame_count: usize) -> Result<Vec<Tag>, KernelError> {
@@ -334,6 +446,29 @@ fn index_policy_from_file(value: Option<String>) -> Result<IndexPolicy, KernelEr
 }
 
 impl Document {
+    fn stored_parts(&self) -> Vec<PartFile> {
+        self.parts()
+            .iter()
+            .map(|part| PartFile {
+                name: part.name.clone(),
+                x: i64::from(part.x),
+                y: i64::from(part.y),
+                layer: part
+                    .layer
+                    .map(|layer| i64::try_from(layer).expect("layer index fits in i64")),
+                anchors: part
+                    .anchors
+                    .iter()
+                    .map(|anchor| AnchorFile {
+                        name: anchor.name.clone(),
+                        x: i64::from(anchor.x),
+                        y: i64::from(anchor.y),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
     fn stored_tags(&self) -> Vec<TagFile> {
         self.tags()
             .iter()

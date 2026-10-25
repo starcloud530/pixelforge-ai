@@ -65,6 +65,20 @@ pub enum KernelError {
     ///
     /// `from` and `to` are inclusive. `len` is the frame count.
     TagRange { from: usize, to: usize, len: usize },
+    /// A part name is empty, only whitespace, longer than
+    /// [`crate::MAX_PART_NAME_CHARS`], or contains a control character.
+    PartName,
+    /// A part already uses this name.
+    PartExists,
+    /// No part uses this name.
+    PartMissing,
+    /// An anchor name is empty, only whitespace, longer than
+    /// [`crate::MAX_PART_NAME_CHARS`], or contains a control character.
+    AnchorName,
+    /// This part has no anchor with this name.
+    AnchorMissing,
+    /// An anchor's local `x` or `y` is outside `-MAX_CANVAS_EDGE..=MAX_CANVAS_EDGE`.
+    AnchorCoord { x: i32, y: i32 },
     /// A move would write or clear a cell outside the rectangular selection.
     ///
     /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
@@ -169,6 +183,20 @@ pub enum ProjectFileError {
     TagLoop { index: usize },
     /// Two tags in the file share a name. `index` is the later one.
     TagDuplicate { index: usize },
+    /// A part name is empty, too long, or contains a control character.
+    PartName { index: usize },
+    /// Two parts in the file share a name. `index` is the later one.
+    PartDuplicate { index: usize },
+    /// A part origin is not a cell on the canvas.
+    PartOrigin { index: usize },
+    /// A part's `layer` is not an index into the layer stack.
+    PartLayer { index: usize },
+    /// An anchor name is empty, too long, or contains a control character.
+    AnchorName { part: usize, index: usize },
+    /// Two anchors on one part share a name. `index` is the later one.
+    AnchorDuplicate { part: usize, index: usize },
+    /// An anchor's local coordinate is outside `-MAX_CANVAS_EDGE..=MAX_CANVAS_EDGE`.
+    AnchorCoord { part: usize, index: usize },
 }
 
 impl KernelError {
@@ -197,6 +225,12 @@ impl KernelError {
             Self::TagExists => "TagExists",
             Self::TagMissing => "TagMissing",
             Self::TagRange { .. } => "TagRange",
+            Self::PartName => "PartName",
+            Self::PartExists => "PartExists",
+            Self::PartMissing => "PartMissing",
+            Self::AnchorName => "AnchorName",
+            Self::AnchorMissing => "AnchorMissing",
+            Self::AnchorCoord { .. } => "AnchorCoord",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -286,6 +320,23 @@ impl fmt::Display for KernelError {
             Self::TagRange { from, to, len } => {
                 write!(f, "tag frames {from}..={to} must lie inside 0..{len}")
             }
+            Self::PartName => write!(
+                f,
+                "part name must be 1 to {} characters",
+                crate::MAX_PART_NAME_CHARS
+            ),
+            Self::PartExists => write!(f, "part name is already used"),
+            Self::PartMissing => write!(f, "part name is not on this document"),
+            Self::AnchorName => write!(
+                f,
+                "anchor name must be 1 to {} characters",
+                crate::MAX_PART_NAME_CHARS
+            ),
+            Self::AnchorMissing => write!(f, "anchor name is not on this part"),
+            Self::AnchorCoord { x, y } => write!(
+                f,
+                "anchor {x},{y} is outside -{MAX_CANVAS_EDGE}..={MAX_CANVAS_EDGE}"
+            ),
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
@@ -406,6 +457,30 @@ impl fmt::Display for ProjectFileError {
                 "tag {index} loop must be forward, reverse, pingpong, or once"
             ),
             Self::TagDuplicate { index } => write!(f, "tag {index} name is already used"),
+            Self::PartName { index } => write!(
+                f,
+                "part {index} name must be 1 to {} characters",
+                crate::MAX_PART_NAME_CHARS
+            ),
+            Self::PartDuplicate { index } => write!(f, "part {index} name is already used"),
+            Self::PartOrigin { index } => {
+                write!(f, "part {index} origin is not a cell on the canvas")
+            }
+            Self::PartLayer { index } => {
+                write!(f, "part {index} layer is outside the layer stack")
+            }
+            Self::AnchorName { part, index } => write!(
+                f,
+                "part {part} anchor {index} name must be 1 to {} characters",
+                crate::MAX_PART_NAME_CHARS
+            ),
+            Self::AnchorDuplicate { part, index } => {
+                write!(f, "part {part} anchor {index} name is already used")
+            }
+            Self::AnchorCoord { part, index } => write!(
+                f,
+                "part {part} anchor {index} is outside -{MAX_CANVAS_EDGE}..={MAX_CANVAS_EDGE}"
+            ),
         }
     }
 }
@@ -438,6 +513,15 @@ mod tests {
         assert_eq!(
             KernelError::ProjectFile(ProjectFileError::TagLoop { index: 0 }).to_string(),
             "tag 0 loop must be forward, reverse, pingpong, or once"
+        );
+        assert_eq!(KernelError::PartMissing.code(), "PartMissing");
+        assert_eq!(
+            KernelError::AnchorCoord { x: 300, y: 0 }.to_string(),
+            "anchor 300,0 is outside -256..=256"
+        );
+        assert_eq!(
+            KernelError::ProjectFile(ProjectFileError::PartOrigin { index: 1 }).to_string(),
+            "part 1 origin is not a cell on the canvas"
         );
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");

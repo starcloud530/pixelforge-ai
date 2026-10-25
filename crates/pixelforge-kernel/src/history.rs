@@ -5,7 +5,7 @@
 //! horizontal index flip, a canvas resize, a palette color change, a palette
 //! import, a palette lock, a frame-list change, an active-frame change, a
 //! layer-stack change, an active-layer change, a rectangular selection, a
-//! per-frame delay change, or a whole gesture of those.
+//! per-frame delay change, a named part list, or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
@@ -13,6 +13,7 @@
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::IndexPolicy;
+use crate::part::Part;
 use crate::selection::Selection;
 use crate::tag::Tag;
 use crate::Rgba;
@@ -104,6 +105,15 @@ pub(crate) enum Change {
     Tags {
         before: Vec<Tag>,
         after: Vec<Tag>,
+    },
+    /// The named part list was replaced.
+    ///
+    /// Stored as a snapshot so one undo restores parts together with the layer
+    /// insert, delete, reorder, flatten, or canvas resize that moved them.
+    /// Anchors stay in each part's local pixel grid. This is not a transform.
+    Parts {
+        before: Vec<Part>,
+        after: Vec<Part>,
     },
     /// Whether palette edits and imports are refused.
     PaletteLocked {
@@ -329,6 +339,7 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
         } => coalesce_delay(changes, index, before, after),
         Change::ActiveFrame { before, after } => coalesce_active(changes, before, after),
         Change::Tags { before, after } => coalesce_tags(changes, before, after),
+        Change::Parts { before, after } => coalesce_parts(changes, before, after),
         other => changes.push(other),
     }
 }
@@ -479,6 +490,23 @@ fn coalesce_selection(
     }
 
     changes.push(Change::Selection { before, after });
+}
+
+fn coalesce_parts(changes: &mut Vec<Change>, before: Vec<Part>, after: Vec<Part>) {
+    if let Some(Change::Parts {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(slot, &before, "part history skipped a write");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::Parts { before, after });
 }
 
 fn coalesce_tags(changes: &mut Vec<Change>, before: Vec<Tag>, after: Vec<Tag>) {
