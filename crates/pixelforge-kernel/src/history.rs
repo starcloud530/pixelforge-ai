@@ -6,11 +6,12 @@
 //! import, a palette lock, a frame-list change, an active-frame change, a
 //! layer-stack change, an active-layer change, a rectangular selection, a
 //! per-frame delay change, a named part list, a part-parameter curve list,
-//! or a whole gesture of those.
+//! a constraint list, or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
 //! drag undoes in one step. Inverse data lives on the entry; undo does not
 //! replay through [`crate::Document::paint`].
 
+use crate::constraint::Constraint;
 use crate::curve::Curve;
 use crate::error::KernelError;
 use crate::frame::Frame;
@@ -126,6 +127,16 @@ pub(crate) enum Change {
     Curves {
         before: Vec<Curve>,
         after: Vec<Curve>,
+    },
+    /// The constraint list was replaced.
+    ///
+    /// Stored as a snapshot so one undo restores constraints together with the
+    /// part rename, removal, or canvas resize that renamed or dropped them.
+    /// Solving is a separate edit: it moves parts and ink, and this entry is
+    /// only the definition list.
+    Constraints {
+        before: Vec<Constraint>,
+        after: Vec<Constraint>,
     },
     /// Whether palette edits and imports are refused.
     PaletteLocked {
@@ -353,6 +364,7 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
         Change::Tags { before, after } => coalesce_tags(changes, before, after),
         Change::Parts { before, after } => coalesce_parts(changes, before, after),
         Change::Curves { before, after } => coalesce_curves(changes, before, after),
+        Change::Constraints { before, after } => coalesce_constraints(changes, before, after),
         other => changes.push(other),
     }
 }
@@ -537,6 +549,27 @@ fn coalesce_curves(changes: &mut Vec<Change>, before: Vec<Curve>, after: Vec<Cur
     }
 
     changes.push(Change::Curves { before, after });
+}
+
+fn coalesce_constraints(
+    changes: &mut Vec<Change>,
+    before: Vec<Constraint>,
+    after: Vec<Constraint>,
+) {
+    if let Some(Change::Constraints {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(slot, &before, "constraint history skipped a write");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+
+    changes.push(Change::Constraints { before, after });
 }
 
 fn coalesce_tags(changes: &mut Vec<Change>, before: Vec<Tag>, after: Vec<Tag>) {

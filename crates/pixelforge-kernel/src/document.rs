@@ -1,5 +1,10 @@
 use std::cmp::Ordering;
 
+use crate::constraint::{
+    apply_deltas, canvas_local, constraints_after_rename, constraints_after_resize,
+    constraints_for_parts, ink_label, motion_steps, orient_part, place_origin, prepare_constraint,
+    solve_order, Constraint, ConstraintKind, PosedPart, SolveReport, SolvedAnchor, SolvedPart,
+};
 use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
@@ -30,7 +35,7 @@ use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
-/// Indexed pixel document: size, palette, frames, layers, delays, tags, parts, curves, and the undo stack.
+/// Indexed pixel document: size, palette, frames, layers, delays, tags, parts, curves, constraints, and the undo stack.
 ///
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
@@ -71,6 +76,9 @@ pub struct Document {
     /// Keyframed part-transform parameters. Empty when the file omits `curves`.
     /// Sampling reads this list and does not write pixels.
     curves: Vec<Curve>,
+    /// Follow, attach, and pin definitions. Empty when the file omits
+    /// `constraints`. Solving them is a separate call.
+    constraints: Vec<Constraint>,
     history: History,
     playback: Playback,
 }
@@ -115,6 +123,7 @@ impl Document {
             tags: Vec::new(),
             parts: Vec::new(),
             curves: Vec::new(),
+            constraints: Vec::new(),
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -1147,11 +1156,21 @@ impl Document {
         let selection_same = before_selection == after_selection;
         let before_parts = self.parts.clone();
         let before_curves = self.curves.clone();
+        let before_constraints = self.constraints.clone();
         let after_parts = parts_after_resize(&before_parts, offset_x, offset_y, width, height);
         let after_curves = curves_for_parts(&before_curves, &after_parts);
+        let after_constraints = constraints_after_resize(
+            &before_constraints,
+            &after_parts,
+            offset_x,
+            offset_y,
+            width,
+            height,
+        );
         let parts_same = before_parts == after_parts;
         let curves_same = before_curves == after_curves;
-        if pixels_same && selection_same && parts_same && curves_same {
+        let constraints_same = before_constraints == after_constraints;
+        if pixels_same && selection_same && parts_same && curves_same && constraints_same {
             return Ok(());
         }
         let before_width = self.width;
@@ -1191,6 +1210,13 @@ impl Document {
             changes.push(Change::Curves {
                 before: before_curves,
                 after: after_curves,
+            });
+        }
+        if !constraints_same {
+            self.constraints = after_constraints.clone();
+            changes.push(Change::Constraints {
+                before: before_constraints,
+                after: after_constraints,
             });
         }
         self.history.record_group(changes);
@@ -1942,12 +1968,18 @@ impl Document {
         let previous_name = self.parts[index].name.clone();
         let before_parts = self.parts.clone();
         let before_curves = self.curves.clone();
+        let before_constraints = self.constraints.clone();
         self.parts[index] = next;
         if self.parts[index].name != previous_name {
             self.curves =
                 curves_after_rename(&before_curves, &previous_name, &self.parts[index].name);
+            self.constraints = constraints_after_rename(
+                &before_constraints,
+                &previous_name,
+                &self.parts[index].name,
+            );
         }
-        self.record_rig(before_parts, before_curves);
+        self.record_rig(before_parts, before_curves, before_constraints);
         Ok(index)
     }
 
@@ -1957,9 +1989,11 @@ impl Document {
         let index = self.part_position(&name)?;
         let before_parts = self.parts.clone();
         let before_curves = self.curves.clone();
+        let before_constraints = self.constraints.clone();
         self.parts.remove(index);
         self.curves = curves_for_parts(&before_curves, &self.parts);
-        self.record_rig(before_parts, before_curves);
+        self.constraints = constraints_for_parts(&before_constraints, &self.parts);
+        self.record_rig(before_parts, before_curves, before_constraints);
         Ok(index)
     }
 
@@ -2277,6 +2311,243 @@ impl Document {
             Motion::FlipHorizontal
         };
         self.transform_part(name, motion, anchor, frame)
+    }
+
+    /// Stored constraints, in insertion order. Empty when the file has none.
+    pub fn constraints(&self) -> &[Constraint] {
+        &self.constraints
+    }
+
+    /// Appends one constraint. Names are trimmed.
+    ///
+    /// `follow` tracks `target_anchor` with an optional follower anchor (the
+    /// origin when omitted). `attach` requires both anchors. `pin` stores a
+    /// canvas cell and no target. `stick` is not a stored kind; pass
+    /// [`ConstraintKind::Attach`]. A second driver for the same part, or a
+    /// cycle, is refused and the list is left unchanged. One undo step. This
+    /// does not move pixels. Solving is [`Self::solve_constraints`].
+    pub fn add_constraint(
+        &mut self,
+        name: &str,
+        kind: ConstraintKind,
+        part: &str,
+        anchor: Option<&str>,
+        target: Option<&str>,
+        target_anchor: Option<&str>,
+        x: Option<i32>,
+        y: Option<i32>,
+    ) -> Result<usize, KernelError> {
+        let constraint = prepare_constraint(
+            &self.constraints,
+            &self.parts,
+            self.width,
+            self.height,
+            name,
+            kind,
+            part,
+            anchor,
+            target,
+            target_anchor,
+            x,
+            y,
+        )?;
+        let index = self.constraints.len();
+        let before = self.constraints.clone();
+        self.constraints.push(constraint);
+        self.record_constraints(before);
+        Ok(index)
+    }
+
+    /// Removes one constraint by name. Parts and pixels stay. Returns the removed index.
+    pub fn remove_constraint(&mut self, name: &str) -> Result<usize, KernelError> {
+        let name = normalize_part_name(name).map_err(|()| KernelError::ConstraintName)?;
+        let index = self
+            .constraints
+            .iter()
+            .position(|constraint| constraint.name == name)
+            .ok_or(KernelError::ConstraintMissing)?;
+        let before = self.constraints.clone();
+        self.constraints.remove(index);
+        self.record_constraints(before);
+        Ok(index)
+    }
+
+    /// Samples curves when `frame` is set, then solves constraints.
+    ///
+    /// `frame` is a curve position and may be fractional. Omit it to read the
+    /// stored part pose, including a pose already written by `rotate_part`.
+    /// The channel order is rotation, horizontal flip, vertical flip, each
+    /// around the stored origin, then translation. A fractional translation
+    /// snaps to the nearest cell, ties away from zero.
+    ///
+    /// Solve order is dependency order: a follower waits for a driven target.
+    /// Independent constraints keep file order. A cycle, a second driver, a
+    /// missing anchor, an origin or ink cell off the canvas, a shared layer
+    /// with two posed parts, or a selection that does not cover the ink is an
+    /// error and writes nothing.
+    ///
+    /// `apply` false returns the pose and does not push undo. `apply` true
+    /// writes that pose onto `pixel_frame` (the active frame when omitted) as
+    /// one undo step when anything changed. A linked layer's non-zero ink
+    /// moves. An unattached part only moves its origin and anchors. Calling
+    /// this again stacks on the stored pose. It does not create frames and
+    /// does not walk the timeline.
+    pub fn solve_constraints(
+        &mut self,
+        frame: Option<f64>,
+        apply: bool,
+        pixel_frame: Option<usize>,
+    ) -> Result<SolveReport, KernelError> {
+        if frame.is_some_and(|frame| !frame.is_finite()) {
+            return Err(KernelError::CurveFrame);
+        }
+        let pixel_frame = self.frame_or_err(pixel_frame.unwrap_or(self.active))?;
+        let mut posed: Vec<PosedPart> = Vec::with_capacity(self.parts.len());
+        for part in &self.parts {
+            posed.push(orient_part(
+                part,
+                &self.curves,
+                frame,
+                self.width,
+                self.height,
+            )?);
+        }
+        let order = solve_order(&self.constraints)?;
+        let solved = apply_deltas(
+            &mut posed,
+            &self.constraints,
+            &order,
+            self.width,
+            self.height,
+        )?;
+        let order_names: Vec<String> = order
+            .iter()
+            .map(|index| self.constraints[*index].name.clone())
+            .collect();
+
+        let mut steps_per_part = Vec::with_capacity(posed.len());
+        let mut moving_layers: Vec<(usize, usize)> = Vec::new();
+        for (index, part) in posed.iter().enumerate() {
+            let steps = motion_steps(part)?;
+            if !steps.is_empty() {
+                if let Some(layer) = part.oriented.layer {
+                    if moving_layers.iter().any(|(existing, _)| *existing == layer) {
+                        return Err(KernelError::ConstraintLayer { layer });
+                    }
+                    moving_layers.push((layer, index));
+                }
+            }
+            steps_per_part.push(steps);
+        }
+
+        let mut layer_buffers: Vec<(usize, Vec<u8>, u32)> = Vec::new();
+        for (layer, index) in &moving_layers {
+            let old = self.frames[pixel_frame].layer_pixels(*layer);
+            let (next, dropped) = crate::constraint::warp_ink(
+                self.width,
+                self.height,
+                old,
+                &steps_per_part[*index],
+                |x, y| self.accepts_write(x, y),
+            )?;
+            layer_buffers.push((*layer, next, dropped));
+        }
+
+        let mut solved_parts = Vec::with_capacity(posed.len());
+        for (index, part) in posed.iter().enumerate() {
+            let (x, y) = place_origin(part, self.width, self.height)?;
+            let moves = !steps_per_part[index].is_empty();
+            let dropped = layer_buffers
+                .iter()
+                .find(|(layer, _, _)| part.oriented.layer == Some(*layer) && moves)
+                .map(|(_, _, dropped)| *dropped)
+                .unwrap_or(0);
+            let anchors = part
+                .oriented
+                .anchors
+                .iter()
+                .map(|anchor| {
+                    let (canvas_x, canvas_y) =
+                        canvas_local(part, i32::from(anchor.x), i32::from(anchor.y))
+                            .expect("anchor local was stored inside the offset limit");
+                    SolvedAnchor {
+                        name: anchor.name.clone(),
+                        x: anchor.x,
+                        y: anchor.y,
+                        canvas_x,
+                        canvas_y,
+                    }
+                })
+                .collect();
+            solved_parts.push(SolvedPart {
+                name: part.oriented.name.clone(),
+                x,
+                y,
+                layer: part.oriented.layer,
+                ink: ink_label(part.oriented.layer, moves),
+                dropped,
+                anchors,
+            });
+        }
+
+        let next_parts: Vec<Part> = solved_parts
+            .iter()
+            .map(|part| Part {
+                name: part.name.clone(),
+                x: part.x,
+                y: part.y,
+                layer: part.layer,
+                anchors: part
+                    .anchors
+                    .iter()
+                    .map(|anchor| Anchor {
+                        name: anchor.name.clone(),
+                        x: anchor.x,
+                        y: anchor.y,
+                    })
+                    .collect(),
+            })
+            .collect();
+        let parts_changed = next_parts != self.parts;
+        let pixels_changed = layer_buffers.iter().any(|(layer, next, _)| {
+            next.as_slice() != self.frames[pixel_frame].layer_pixels(*layer)
+        });
+        let wrote = apply && (parts_changed || pixels_changed);
+        if wrote {
+            let mut changes = Vec::new();
+            for (layer, next, _) in &layer_buffers {
+                let old = self.frames[pixel_frame].layer_pixels(*layer);
+                let mut plan = vec![None; next.len()];
+                for (offset, (before, after)) in old.iter().zip(next.iter()).enumerate() {
+                    if before != after {
+                        plan[offset] = Some(*after);
+                    }
+                }
+                self.push_plan(pixel_frame, *layer, &plan, &mut changes);
+            }
+            if parts_changed {
+                let before = std::mem::replace(&mut self.parts, next_parts);
+                changes.push(Change::Parts {
+                    before,
+                    after: self.parts.clone(),
+                });
+            }
+            self.history.record_group(changes);
+        }
+        let dropped = solved_parts
+            .iter()
+            .map(|part| part.dropped)
+            .fold(0u32, u32::saturating_add);
+        Ok(SolveReport {
+            frame,
+            pixel_frame,
+            apply,
+            wrote,
+            dropped,
+            order: order_names,
+            constraints: solved,
+            parts: solved_parts,
+        })
     }
 
     fn transform_part(
@@ -2634,6 +2905,7 @@ impl Document {
         tags: Vec<Tag>,
         parts: Vec<Part>,
         curves: Vec<Curve>,
+        constraints: Vec<Constraint>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -2671,6 +2943,16 @@ impl Document {
             }),
             "curves were checked"
         );
+        debug_assert!(
+            constraints.iter().all(|constraint| {
+                parts.iter().any(|part| part.name == constraint.part)
+                    && constraint
+                        .target
+                        .as_ref()
+                        .is_none_or(|target| parts.iter().any(|part| part.name == *target))
+            }),
+            "constraints were checked"
+        );
         let len = pixel_len(width, height);
         debug_assert!(
             frames.iter().all(|frame| {
@@ -2693,6 +2975,7 @@ impl Document {
             tags,
             parts,
             curves,
+            constraints,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -2777,7 +3060,12 @@ impl Document {
         }
     }
 
-    fn record_rig(&mut self, before_parts: Vec<Part>, before_curves: Vec<Curve>) {
+    fn record_rig(
+        &mut self,
+        before_parts: Vec<Part>,
+        before_curves: Vec<Curve>,
+        before_constraints: Vec<Constraint>,
+    ) {
         let mut changes = Vec::new();
         if before_parts != self.parts {
             changes.push(Change::Parts {
@@ -2791,8 +3079,23 @@ impl Document {
                 after: self.curves.clone(),
             });
         }
+        if before_constraints != self.constraints {
+            changes.push(Change::Constraints {
+                before: before_constraints,
+                after: self.constraints.clone(),
+            });
+        }
         if !changes.is_empty() {
             self.history.record_group(changes);
+        }
+    }
+
+    fn record_constraints(&mut self, before: Vec<Constraint>) {
+        if before != self.constraints {
+            self.history.record(Change::Constraints {
+                before,
+                after: self.constraints.clone(),
+            });
         }
     }
 
@@ -3088,6 +3391,13 @@ impl Document {
             }
             Change::Curves { before, after } => {
                 self.curves = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
+            }
+            Change::Constraints { before, after } => {
+                self.constraints = if forward {
                     after.clone()
                 } else {
                     before.clone()

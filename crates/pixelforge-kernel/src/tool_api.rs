@@ -16,6 +16,7 @@ use serde::Serialize;
 use serde_json::{Map, Number, Value};
 
 use crate::aseprite::AsepriteReport;
+use crate::constraint::{Constraint, ConstraintKind, SolveReport};
 use crate::curve::{CurveChannel, CurveSample, Ease, PartSample};
 use crate::document::{Document, QuarterTurn};
 use crate::error::KernelError;
@@ -75,6 +76,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "listCurves",
     "sampleCurve",
     "samplePart",
+    "addConstraint",
+    "removeConstraint",
+    "listConstraints",
+    "solveConstraints",
     "beginGesture",
     "endGesture",
     "undo",
@@ -738,6 +743,43 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 .map_err(ToolFailure::Kernel)?;
             Ok(part_sample_value(&sample))
         }
+        "addConstraint" => {
+            let input = parse_add_constraint(params)?;
+            let index = document
+                .add_constraint(
+                    &input.name,
+                    input.kind,
+                    &input.part,
+                    input.anchor.as_deref(),
+                    input.target.as_deref(),
+                    input.target_anchor.as_deref(),
+                    input.x,
+                    input.y,
+                )
+                .map_err(ToolFailure::Kernel)?;
+            Ok(constraint_value(document, index))
+        }
+        "removeConstraint" => {
+            let name = parse_remove_constraint(params)?;
+            let index = document
+                .remove_constraint(&name)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "name": name.trim(),
+            }))
+        }
+        "listConstraints" => {
+            parse_empty(tool, params)?;
+            Ok(constraints_value(document))
+        }
+        "solveConstraints" => {
+            let (frame, apply, pixel_frame) = parse_solve_constraints(params)?;
+            let report = document
+                .solve_constraints(frame, apply, pixel_frame)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(solve_value(&report))
+        }
         "beginGesture" => {
             parse_empty(tool, params)?;
             document.begin_gesture().map_err(ToolFailure::Kernel)?;
@@ -1050,6 +1092,7 @@ fn inspect_value(document: &Document) -> Value {
         "tags": tags_json(document),
         "parts": parts_json(document),
         "curves": curves_json(document, None),
+        "constraints": constraints_json(document),
         "layers": layer_entries(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
@@ -1092,6 +1135,7 @@ fn scene_value(document: &Document) -> Value {
         "tags": tags_json(document),
         "parts": parts_json(document),
         "curves": curves_json(document, None),
+        "constraints": constraints_json(document),
     })
 }
 
@@ -1192,6 +1236,100 @@ fn curves_json(document: &Document, part: Option<&str>) -> Vec<Value> {
         .filter(|(_, curve)| part.is_none_or(|name| curve.part == name))
         .map(|(index, curve)| curve_fields(index, curve))
         .collect()
+}
+
+fn constraints_value(document: &Document) -> Value {
+    serde_json::json!({ "constraints": constraints_json(document) })
+}
+
+fn constraints_json(document: &Document) -> Vec<Value> {
+    document
+        .constraints()
+        .iter()
+        .enumerate()
+        .map(|(index, constraint)| constraint_fields(index, constraint))
+        .collect()
+}
+
+fn constraint_value(document: &Document, index: usize) -> Value {
+    constraint_fields(index, &document.constraints()[index])
+}
+
+fn constraint_fields(index: usize, constraint: &Constraint) -> Value {
+    serde_json::json!({
+        "index": as_u32(index),
+        "name": constraint.name,
+        "kind": constraint.kind.as_str(),
+        "part": constraint.part,
+        "anchor": constraint.anchor,
+        "target": constraint.target,
+        "targetAnchor": constraint.target_anchor,
+        "x": constraint.x,
+        "y": constraint.y,
+    })
+}
+
+fn solve_value(report: &SolveReport) -> Value {
+    serde_json::json!({
+        "frame": match report.frame {
+            None => Value::Null,
+            Some(frame) => json_finite(frame),
+        },
+        "pixelFrame": as_u32(report.pixel_frame),
+        "apply": report.apply,
+        "wrote": report.wrote,
+        "dropped": report.dropped,
+        "order": report.order,
+        "constraints": report
+            .constraints
+            .iter()
+            .map(|constraint| {
+                serde_json::json!({
+                    "index": as_u32(constraint.index),
+                    "name": constraint.name,
+                    "kind": constraint.kind.as_str(),
+                    "part": constraint.part,
+                    "anchor": constraint.anchor,
+                    "target": constraint.target,
+                    "targetAnchor": constraint.target_anchor,
+                    "x": constraint.x,
+                    "y": constraint.y,
+                    "dx": constraint.dx,
+                    "dy": constraint.dy,
+                    "satisfied": constraint.satisfied,
+                    "from": { "x": constraint.from_x, "y": constraint.from_y },
+                    "to": { "x": constraint.to_x, "y": constraint.to_y },
+                })
+            })
+            .collect::<Vec<_>>(),
+        "parts": report
+            .parts
+            .iter()
+            .map(|part| {
+                serde_json::json!({
+                    "name": part.name,
+                    "x": part.x,
+                    "y": part.y,
+                    "layer": part.layer.map(as_u32),
+                    "ink": part.ink,
+                    "dropped": part.dropped,
+                    "anchors": part
+                        .anchors
+                        .iter()
+                        .map(|anchor| {
+                            serde_json::json!({
+                                "name": anchor.name,
+                                "x": anchor.x,
+                                "y": anchor.y,
+                                "canvasX": anchor.canvas_x,
+                                "canvasY": anchor.canvas_y,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
 }
 
 fn curve_write_value(document: &Document, index: usize, key_index: usize) -> Value {
@@ -2015,6 +2153,97 @@ fn parse_sample_curve(params: Value) -> Result<(String, CurveChannel, f64), Tool
     )?;
     let frame = require_finite("sampleCurve", &map, "frame")?;
     Ok((part, channel, frame))
+}
+
+struct ConstraintInput {
+    name: String,
+    kind: ConstraintKind,
+    part: String,
+    anchor: Option<String>,
+    target: Option<String>,
+    target_anchor: Option<String>,
+    x: Option<i32>,
+    y: Option<i32>,
+}
+
+fn parse_add_constraint(params: Value) -> Result<ConstraintInput, ToolFailure> {
+    let map = expect_object("addConstraint", params)?;
+    reject_params(
+        "addConstraint",
+        &map,
+        &[
+            "name",
+            "kind",
+            "part",
+            "anchor",
+            "target",
+            "targetAnchor",
+            "x",
+            "y",
+        ],
+    )?;
+    let name = require_string("addConstraint", &map, "name")?;
+    let kind = parse_constraint_kind(
+        "addConstraint",
+        &require_string("addConstraint", &map, "kind")?,
+    )?;
+    let part = require_string("addConstraint", &map, "part")?;
+    let anchor = optional_string("addConstraint", &map, "anchor")?;
+    let target = optional_string("addConstraint", &map, "target")?;
+    let target_anchor = optional_string("addConstraint", &map, "targetAnchor")?;
+    let x = optional_i32("addConstraint", &map, "x")?;
+    let y = optional_i32("addConstraint", &map, "y")?;
+    Ok(ConstraintInput {
+        name,
+        kind,
+        part,
+        anchor,
+        target,
+        target_anchor,
+        x,
+        y,
+    })
+}
+
+fn parse_remove_constraint(params: Value) -> Result<String, ToolFailure> {
+    let map = expect_object("removeConstraint", params)?;
+    reject_params("removeConstraint", &map, &["name"])?;
+    require_string("removeConstraint", &map, "name")
+}
+
+fn parse_solve_constraints(
+    params: Value,
+) -> Result<(Option<f64>, bool, Option<usize>), ToolFailure> {
+    let map = expect_object("solveConstraints", params)?;
+    reject_params("solveConstraints", &map, &["frame", "apply", "pixelFrame"])?;
+    let frame = optional_finite("solveConstraints", &map, "frame")?;
+    let apply = optional_bool("solveConstraints", &map, "apply")?;
+    let pixel_frame = optional_frame("solveConstraints", &map, "pixelFrame")?;
+    Ok((frame, apply, pixel_frame))
+}
+
+fn parse_constraint_kind(tool: &str, text: &str) -> Result<ConstraintKind, ToolFailure> {
+    ConstraintKind::parse(text)
+        .ok_or_else(|| invalid_params(tool, "kind must be follow, attach, stick, or pin"))
+}
+
+fn optional_finite(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<f64>, ToolFailure> {
+    if map.get(key).is_none() {
+        return Ok(None);
+    }
+    Ok(Some(require_finite(tool, map, key)?))
+}
+
+fn optional_bool(tool: &str, map: &Map<String, Value>, key: &str) -> Result<bool, ToolFailure> {
+    match map.get(key) {
+        None => Ok(false),
+        Some(Value::Bool(value)) => Ok(*value),
+        Some(_) => Err(invalid_params(tool, &format!("{key} must be a boolean"))),
+    }
 }
 
 fn parse_sample_part(params: Value) -> Result<(String, f64), ToolFailure> {

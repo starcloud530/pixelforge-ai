@@ -10,7 +10,9 @@ description: >-
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
   270 degrees, naming parts and anchors, translating, rotating, or flipping a
   named part on the pixel grid, keyframing that part's rotation, translation,
-  or flip and sampling the curve, adding or duplicating frames, undoing,
+  or flip and sampling the curve, solving a follow, attach, or pin constraint
+  so a hand, a gun butt, or a planted foot tracks an anchor, adding or
+  duplicating frames, undoing,
   running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
@@ -67,7 +69,7 @@ cargo run -p pixelforge-cli -- --help
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
 - 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
-- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素，也不烘焙。
+- 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素。约束见「约束」：`constraint solve` 才把从动部件的锚点跟到目标，挂接层的墨水在 `--apply` 时一起平移。空的约束列表不写进文件。这一版不把整条时间轴烘焙成格子。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
@@ -93,7 +95,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1
 ```
 
-`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）、`constraints`（`index`、`name`、`kind`、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`；没有约束时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。没有约束时工程文件也省略 `constraints`。
 
 `visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
 
@@ -105,7 +107,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。
 
-*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `curves` is the part-parameter tracks, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools and on part translate, rotate, and flip; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
+*Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `curves` is the part-parameter tracks, or `[]`. `constraints` is the follow, attach, and pin list, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools and on part translate, rotate, and flip; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
 
 ## Pictures, sheets, and canvas commands
 
@@ -207,9 +209,9 @@ pixelforge call --project hero.json \
 
 *A batched `call` is one process, not one edit. `beginGesture` / `endGesture` group undo only. Count each drawing request. Duplicate and merge first, then send what remains.*
 
-枪已经是挂在自己那一层上的部件时，抬枪、挪枪、镜像用 `part rotate` / `part translate` / `part flip` 一次调用，不要把枪的格子再 `fillRect` 一遍。同一下抬枪要落在好几帧上时，用 `curve set` 记下旋转关键帧，`curve sample` 取出某一帧的角度，再交给 `part rotate`。采样不写像素，也不代替这四条。还没有烘焙成格子。上面四条仍然管还没有变成部件的身体和扫描行。矩形 `hflip` / `rotate` 不搬部件。
+枪已经是挂在自己那一层上的部件时，抬枪用一次 `part rotate`，或一条旋转曲线加一次 `constraint solve --frame N --apply`。手跟握持用一条 `follow`，枪托贴肩用一条 `attach`，脚底固定用一条 `pin`，同一次 `solve` 按依赖顺序解完。挂接层的墨水跟着平移，不必把整只手再 `fillRect` 一遍。省略 `--apply` 只读报告。一次 `solveConstraints` 是一次内核操作、一步撤销。上面四条仍然管还没有变成部件的身体和扫描行。整条时间轴烘焙成格子留到以后。矩形 `hflip` / `rotate` 不搬部件。
 
-*When the gun is already a part on its own layer, one `part rotate`, `part translate`, or `part flip` poses it. A raise that spans frames is a `curve set` on rotation, then `curve sample`, then `part rotate` with that angle. Sampling does not write pixels and does not replace the four rules. There is no bake to cells yet. Those rules still cover a body that is not a part. Rectangle `hflip` and `rotate` do not move parts.*
+*When the gun is already a part on its own layer, one `part rotate` poses it. A raise that spans frames is a rotation curve plus one `constraint solve --frame N --apply`. A `follow` puts the hand on the grip, an `attach` puts the butt on the shoulder, and a `pin` plants the foot. That one solve runs them in dependency order and translates the linked layer, so the hand is not a second pass of `fillRect`. Omit `--apply` to read the report. One `solveConstraints` is one kernel operation and one undo step. The four rules still cover a body that is not a part. Baking the timeline into cells comes later. Rectangle `hflip` and `rotate` do not move parts.*
 
 ## Recipes
 
@@ -356,7 +358,7 @@ pixelforge scene --project soldier.json
 
 只改 `frame`（缺省当前帧）的像素。部件列表仍是整份文档一份，所以这一下的原点描述的是你刚转过的那一帧，其它帧的像素不动。枪和别的墨水不要挂在同一层：变换搬走的是这一层上全部非 0 格。有选区时，这些格和落点必须都在选区内，否则 `SelectionProtected`，一格都不写。落出画布是 `PartOffCanvas`。
 
-不做自由仿射、亚像素合成、骨骼界面、脚本、约束或烘焙。关键帧只采样，不把采样写进格子。见「部件曲线」。
+不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧只采样，不把采样写进格子。见「部件曲线」。手、枪托和脚底用「约束」里的显式 `constraint solve`，一次调用解当前这一帧。整条时间轴烘焙成格子不在这里。
 
 *A part transform moves the linked layer's ink and the origin and anchors in one undo step. It remaps indices and does not invent colors. The pivot is the center of the origin cell, or of `--anchor`. An unattached shoulder only moves its origin.*
 
@@ -364,7 +366,7 @@ pixelforge scene --project soldier.json
 
 *`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index and reports `dropped`. Read `grid` and `degreesCenti`.*
 
-*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, constraint, or bake. A keyframe curve samples a pose and does not write cells. See Part curves.*
+*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, or full IK chain. A keyframe curve samples a pose and does not write cells. See Part curves. A hand, a butt, and a planted foot use an explicit `constraint solve` in Constraints. That call poses one frame. Baking the timeline into cells is not here.*
 
 ```bash
 pixelforge part translate --project soldier.json --name gun --dx 2 --dy 0
@@ -427,6 +429,64 @@ pixelforge curve remove --project soldier.json --part gun --channel rotation --f
 { "tool": "setCurveKey", "params": { "part": "gun", "channel": "rotation", "frame": 4, "value": 90 } }
 { "tool": "sampleCurve", "params": { "part": "gun", "channel": "rotation", "frame": 2 } }
 { "tool": "samplePart", "params": { "part": "gun", "frame": 2 } }
+```
+
+### 约束 Constraints
+
+约束是工程文件里的一份名单，不是第二块像素，也不是骨骼。三种：
+
+- `follow`：把 `part` 的 `anchor`（省略则是原点）平移到 `target` 的 `targetAnchor`。手掌跟枪的 `grip`。
+- `attach`：同样是平移，但两边的锚点都要写。枪托 `butt` 贴肩的 `joint`。CLI 和 Tool API 的 `stick` 存成 `attach`。文件里只写 `attach`。
+- `pin`：把 `part` 的 `anchor`（省略则是原点）平移到画布格 `(x, y)`。脚的 `sole` 钉在地上。没有 `target`。
+
+`part rotate`、`curve set` 都不自动解约束。要解就调用 `constraint solve` / `solveConstraints`。这样一次调用仍是一次内核操作。
+
+`--frame` 给出时，先按曲线从**当前存着的姿势**采样，再解约束。通道顺序是绕存着的原点旋转、水平翻转、垂直翻转，然后整格平移。平移的小数取最近格，正好一半时远离 0。曲线的旋转枢轴是原点，不是锚点。要绕枪托转，把原点放在枪托上，或先 `part rotate --anchor butt`，再 `constraint solve` 且不写 `--frame`。写了 `--frame` 时，旋转绕原点，随后 `attach` 再把枪托平移回肩上，墨水的朝向留着。
+
+省略 `--frame` 时不读曲线，用已经存下的姿势，包括 `part rotate` 刚写下的那一帧。
+
+求解顺序：从动部件等它的目标先解完。互不依赖的约束保持文件里的先后。自己跟自己、或绕成环，是 `ConstraintCycle`。同一个部件被两条约束驱动，是 `ConstraintConflict`。两条都会动的部件挂在同一层，是 `ConstraintLayer`：一层的墨水只搬一次。一个会动的部件和同层上不动的部件可以共存，这一层上每一个非 0 格都会跟着走，和 `part rotate` 一样。
+
+失败整次不写：锚点已经删掉是 `AnchorMissing`（约束还留在文件里，下次求解再报）；原点或最终墨水出画布是 `PartOffCanvas`；添加时钉点不在画布上也是 `PartOffCanvas`；选区没盖住源格和落点是 `SelectionProtected`。`apply` 省略或 false 时同样做完这些检查，返回报告，不进撤销栈。
+
+`--apply` 把姿势写进 `--pixel-frame`（缺省当前帧）：挂了层的部件，该层非 0 墨水平移，`ink` 为 `moved`；没挂层的只改原点和锚点，`ink` 为 `metadata`；这一次没有位移的是 `unchanged`。有改动才是一步撤销。再解一次会叠在存下的姿势上：曲线再采样一次就再转一次，已经对齐的约束则 `wrote` 为 false。不建新帧，也不沿时间轴逐帧写。那是以后的烘焙。
+
+改名会改写约束里的 `part` 和 `target`。删掉部件会丢掉提到它的约束。`resize` 把钉点按同一偏移挪走，钉点出画布或部件被裁掉时丢掉该约束。删锚点不删约束。空列表不写 `constraints`。版本仍是 1。未知字段拒绝。
+
+*A constraint is a record in the project file. It is not a second pixel buffer and not a bone. `follow` translates `part` so its anchor, or its origin, lands on `targetAnchor`. `attach` is the same translation with both anchors required; CLI and Tool API `stick` is stored as `attach`. `pin` translates an anchor or the origin onto a canvas cell and names no target.*
+
+*`part rotate` and `curve set` do not solve. `constraint solve` is the call, so the edit count stays one operation. With `--frame`, curves are sampled from the stored pose and then constraints run. Channel order is rotation, horizontal flip, vertical flip, each around the stored origin, then whole-cell translation. A fractional translation snaps to the nearest cell, and a tie goes away from zero. The curve pivot is the origin. To turn around the butt, put the origin there, or `part rotate --anchor butt` and then `constraint solve` with no `--frame`. With `--frame`, rotation is around the origin and `attach` then slides the butt back onto the shoulder. The ink keeps that rotation.*
+
+*Omit `--frame` and curves are left unread. The stored pose is used, including one `part rotate` just wrote.*
+
+*Solve order waits for a driven target. Independent constraints keep file order. A self-target or a loop is `ConstraintCycle`. A second driver for one part is `ConstraintConflict`. Two posed parts on one layer are `ConstraintLayer`, because a layer's ink is warped once. One moving part may share a layer with a part that does not move; every non-zero cell on that layer moves with it, as `part rotate` already does.*
+
+*A failure writes nothing. A removed anchor is `AnchorMissing` and the constraint stays for the next solve. An origin or a final ink cell off the canvas is `PartOffCanvas`. A pin cell off the canvas is `PartOffCanvas` at add time. A selection that misses a source or destination cell is `SelectionProtected`. `apply` omitted or false runs the same checks, returns the report, and does not push undo.*
+
+*`--apply` writes the pose onto `--pixel-frame`, or the active frame. A linked layer's non-zero ink translates and `ink` is `moved`. An unattached part moves its origin and anchors and `ink` is `metadata`. A part with no motion is `unchanged`. A change is one undo step. Solving again stacks on the stored pose: another curve sample turns again, and a constraint that is already met returns `wrote` false. The call does not create frames and does not walk the timeline. That bake comes later.*
+
+*Renaming a part rewrites `part` and `target`. Removing a part drops constraints that name it. `resize` shifts pin cells with the canvas and drops a constraint whose pin or part leaves the canvas. Removing an anchor leaves the constraint. An empty list omits `constraints`. The version stays 1. Unknown fields are rejected.*
+
+```bash
+pixelforge constraint add --project soldier.json --name hand-grip --kind follow --part hand --anchor palm --target gun --target-anchor grip
+pixelforge constraint add --project soldier.json --name butt-shoulder --kind stick --part gun --anchor butt --target shoulder --target-anchor joint
+pixelforge constraint add --project soldier.json --name plant-foot --kind pin --part foot --anchor sole --x 4 --y 11
+pixelforge constraint list --project soldier.json
+pixelforge part rotate --project soldier.json --name gun --degrees 90
+pixelforge constraint solve --project soldier.json
+pixelforge constraint solve --project soldier.json --apply
+pixelforge constraint solve --project soldier.json --frame 4 --apply
+```
+
+`constraint solve` 不带 `--apply` 时文件不动。`--frame 4` 在枪的旋转曲线上取 90°，再把枪托贴回肩、手跟到新的握持、脚钉在 `(4, 11)`。`stick` 的列表结果是 `kind: attach`。
+
+*Without `--apply`, `constraint solve` leaves the file unchanged. `--frame 4` reads 90° from the gun's rotation curve, then seats the butt, follows the grip, and plants the foot on `(4, 11)`. A stored `stick` lists as `kind: attach`.*
+
+```json
+{ "tool": "addConstraint", "params": { "name": "hand-grip", "kind": "follow", "part": "hand", "anchor": "palm", "target": "gun", "targetAnchor": "grip" } }
+{ "tool": "addConstraint", "params": { "name": "butt-shoulder", "kind": "stick", "part": "gun", "anchor": "butt", "target": "shoulder", "targetAnchor": "joint" } }
+{ "tool": "addConstraint", "params": { "name": "plant-foot", "kind": "pin", "part": "foot", "anchor": "sole", "x": 4, "y": 11 } }
+{ "tool": "solveConstraints", "params": { "frame": 4, "apply": true } }
 ```
 
 ### Palette
