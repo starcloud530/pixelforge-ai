@@ -105,7 +105,7 @@ pub enum KernelError {
     ConstraintExists,
     /// No constraint uses this name.
     ConstraintMissing,
-    /// The fields do not match `follow`, `attach`, or `pin`.
+    /// The fields do not match `follow`, `attach`, `pin`, `ik`, or `plant`.
     ConstraintFields,
     /// The constraint graph has a cycle. `name` is one constraint on it.
     ///
@@ -116,6 +116,11 @@ pub enum KernelError {
     /// Two posed parts share a linked layer, so the solver will not move that
     /// layer twice. The call writes nothing.
     ConstraintLayer { layer: usize },
+    /// A short IK chain could not put its end effector on the target cell.
+    ///
+    /// The call writes nothing. The solver does not leave the effector on a
+    /// nearby cell.
+    IkUnreachable { name: String, x: i32, y: i32 },
     /// A bake range is empty, starts past the frame list, or ends at or after
     /// [`crate::MAX_BAKE_FRAMES`].
     ///
@@ -264,7 +269,7 @@ pub enum ProjectFileError {
     ConstraintName { index: usize },
     /// Two constraints in the file share a name. `index` is the later one.
     ConstraintDuplicate { index: usize },
-    /// A constraint's `kind` is not `follow`, `attach`, or `pin`.
+    /// A constraint's `kind` is not `follow`, `attach`, `pin`, `ik`, or `plant`.
     ConstraintKind { index: usize },
     /// A constraint's fields do not match its kind.
     ConstraintFields { index: usize },
@@ -326,6 +331,7 @@ impl KernelError {
             Self::ConstraintCycle { .. } => "ConstraintCycle",
             Self::ConstraintConflict { .. } => "ConstraintConflict",
             Self::ConstraintLayer { .. } => "ConstraintLayer",
+            Self::IkUnreachable { .. } => "IkUnreachable",
             Self::BakeRange { .. } => "BakeRange",
             Self::BakeFps => "BakeFps",
             Self::MaskMissing => "MaskMissing",
@@ -458,7 +464,10 @@ impl fmt::Display for KernelError {
             Self::ConstraintExists => write!(f, "constraint name is already used"),
             Self::ConstraintMissing => write!(f, "constraint name is not on this document"),
             Self::ConstraintFields => {
-                write!(f, "constraint fields do not match follow, attach, or pin")
+                write!(
+                    f,
+                    "constraint fields do not match follow, attach, pin, ik, or plant"
+                )
             }
             Self::ConstraintCycle { name } => {
                 write!(f, "constraint \"{name}\" is part of a cycle")
@@ -470,6 +479,9 @@ impl fmt::Display for KernelError {
                 f,
                 "layer {layer} has more than one posed part; give each moving part its own layer"
             ),
+            Self::IkUnreachable { name, x, y } => {
+                write!(f, "ik \"{name}\" cannot place the end effector on {x},{y}")
+            }
             Self::BakeRange { from, to, len } => write!(
                 f,
                 "bake frames {from}..={to} must have from <= to, from <= {len}, and to < {}",
@@ -651,7 +663,10 @@ impl fmt::Display for ProjectFileError {
                 write!(f, "constraint {index} name is already used")
             }
             Self::ConstraintKind { index } => {
-                write!(f, "constraint {index} kind must be follow, attach, or pin")
+                write!(
+                    f,
+                    "constraint {index} kind must be follow, attach, pin, ik, or plant"
+                )
             }
             Self::ConstraintFields { index } => {
                 write!(f, "constraint {index} fields do not match its kind")

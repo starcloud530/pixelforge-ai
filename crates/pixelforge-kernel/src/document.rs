@@ -1,10 +1,10 @@
 use std::cmp::Ordering;
 
 use crate::constraint::{
-    apply_deltas, canvas_local, constraints_after_rename, constraints_after_resize,
-    constraints_for_parts, ink_label, motion_steps, orient_part, place_origin, prepare_constraint,
-    solve_order, warp_ink, Constraint, ConstraintKind, MotionStep, PosedPart, SolveReport,
-    SolvedAnchor, SolvedPart,
+    apply_deltas, canvas_local, constraints_after_insert, constraints_after_remove,
+    constraints_after_rename, constraints_after_resize, constraints_for_parts, ink_label,
+    motion_steps, orient_part, place_origin, prepare_constraint, solve_order, warp_ink, Constraint,
+    ConstraintKind, Contact, MotionStep, PosedPart, SolveReport, SolvedAnchor, SolvedPart,
 };
 use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
@@ -1754,10 +1754,17 @@ impl Document {
         let index = self.frames.len();
         let before_tags = self.tags.clone();
         let before_curves = self.curves.clone();
+        let before_constraints = self.constraints.clone();
         self.frames.push(self.blank_frame());
         self.tags = tags_after_insert(&before_tags, index);
         self.curves = curves_after_insert(&before_curves, index);
-        self.record_frame_change(before_tags, before_curves, Change::AddFrame { index });
+        self.constraints = constraints_after_insert(&before_constraints, index);
+        self.record_frame_change(
+            before_tags,
+            before_curves,
+            before_constraints,
+            Change::AddFrame { index },
+        );
         index
     }
 
@@ -1785,15 +1792,18 @@ impl Document {
         let active_before = self.active;
         let before_tags = self.tags.clone();
         let before_curves = self.curves.clone();
+        let before_constraints = self.constraints.clone();
         self.frames.insert(inserted, frame.clone());
         if self.active >= inserted {
             self.active += 1;
         }
         self.tags = tags_after_insert(&before_tags, inserted);
         self.curves = curves_after_insert(&before_curves, inserted);
+        self.constraints = constraints_after_insert(&before_constraints, inserted);
         self.record_frame_change(
             before_tags,
             before_curves,
+            before_constraints,
             Change::InsertFrame {
                 index: inserted,
                 frame,
@@ -1818,9 +1828,11 @@ impl Document {
         let active_before = self.active;
         let before_tags = self.tags.clone();
         let before_curves = self.curves.clone();
+        let before_constraints = self.constraints.clone();
         let frame = self.frames.remove(index);
         self.tags = tags_after_remove(&before_tags, index);
         self.curves = curves_after_remove(&before_curves, index);
+        self.constraints = constraints_after_remove(&before_constraints, index);
         self.active = match active_before.cmp(&index) {
             Ordering::Greater => active_before - 1,
             Ordering::Equal => index.min(self.frames.len() - 1),
@@ -1830,6 +1842,7 @@ impl Document {
         self.record_frame_change(
             before_tags,
             before_curves,
+            before_constraints,
             Change::RemoveFrame {
                 index,
                 frame,
@@ -2595,6 +2608,8 @@ impl Document {
     /// [`ConstraintKind::Attach`]. A second driver for the same part, or a
     /// cycle, is refused and the list is left unchanged. One undo step. This
     /// does not move pixels. Solving is [`Self::solve_constraints`].
+    ///
+    /// `ik` and `plant` use [`Self::add_constraint_full`].
     pub fn add_constraint(
         &mut self,
         name: &str,
@@ -2606,11 +2621,7 @@ impl Document {
         x: Option<i32>,
         y: Option<i32>,
     ) -> Result<usize, KernelError> {
-        let constraint = prepare_constraint(
-            &self.constraints,
-            &self.parts,
-            self.width,
-            self.height,
+        self.add_constraint_full(
             name,
             kind,
             part,
@@ -2619,6 +2630,48 @@ impl Document {
             target_anchor,
             x,
             y,
+            &[],
+            None,
+            &[],
+        )
+    }
+
+    /// [`Self::add_constraint`] plus a short IK chain, a bend sign, and footprint spans.
+    ///
+    /// `chain` is root-first and has two or three parts. The last name is `part`.
+    /// `bend` is `1`, `-1`, or omitted. `contacts` are inclusive frame spans on
+    /// cells that already exist. One undo step. This does not move pixels.
+    pub fn add_constraint_full(
+        &mut self,
+        name: &str,
+        kind: ConstraintKind,
+        part: &str,
+        anchor: Option<&str>,
+        target: Option<&str>,
+        target_anchor: Option<&str>,
+        x: Option<i32>,
+        y: Option<i32>,
+        chain: &[String],
+        bend: Option<i8>,
+        contacts: &[Contact],
+    ) -> Result<usize, KernelError> {
+        let constraint = prepare_constraint(
+            &self.constraints,
+            &self.parts,
+            self.width,
+            self.height,
+            self.frames.len(),
+            name,
+            kind,
+            part,
+            anchor,
+            target,
+            target_anchor,
+            x,
+            y,
+            chain,
+            bend,
+            contacts,
         )?;
         let index = self.constraints.len();
         let before = self.constraints.clone();
@@ -2682,12 +2735,16 @@ impl Document {
             )?);
         }
         let order = solve_order(&self.constraints)?;
+        let stored = self.parts.clone();
         let solved = apply_deltas(
             &mut posed,
+            &stored,
             &self.constraints,
             &order,
             self.width,
             self.height,
+            frame,
+            pixel_frame,
         )?;
         let order_names: Vec<String> = order
             .iter()
@@ -3055,6 +3112,7 @@ impl Document {
         included: &[bool],
         solve: bool,
     ) -> Result<Vec<PosedPart>, KernelError> {
+        let included = self.bake_included(included, solve);
         let mut posed = Vec::with_capacity(self.parts.len());
         for (index, part) in self.parts.iter().enumerate() {
             let sample = if included[index] { Some(frame) } else { None };
@@ -3079,13 +3137,50 @@ impl Document {
                 .cloned()
                 .collect();
             let order = solve_order(&filtered)?;
-            apply_deltas(&mut posed, &filtered, &order, self.width, self.height)?;
+            let pixel_frame = frame as usize;
+            apply_deltas(
+                &mut posed,
+                &self.parts,
+                &filtered,
+                &order,
+                self.width,
+                self.height,
+                Some(frame),
+                pixel_frame,
+            )?;
         } else {
             for part in &posed {
                 place_origin(part, self.width, self.height)?;
             }
         }
         Ok(posed)
+    }
+
+    /// An IK chain is posed together when its end part is selected.
+    fn bake_included(&self, included: &[bool], solve: bool) -> Vec<bool> {
+        let mut included = included.to_vec();
+        if !solve {
+            return included;
+        }
+        for constraint in &self.constraints {
+            if constraint.kind != ConstraintKind::Ik {
+                continue;
+            }
+            let end = self
+                .parts
+                .iter()
+                .enumerate()
+                .any(|(index, part)| included[index] && part.name == constraint.part);
+            if !end {
+                continue;
+            }
+            for name in &constraint.chain {
+                if let Some(index) = self.parts.iter().position(|part| part.name == *name) {
+                    included[index] = true;
+                }
+            }
+        }
+        included
     }
 
     fn normalize_bake_parts(&self, names: &[String]) -> Result<Vec<String>, KernelError> {
@@ -3610,6 +3705,7 @@ impl Document {
         &mut self,
         before_tags: Vec<Tag>,
         before_curves: Vec<Curve>,
+        before_constraints: Vec<Constraint>,
         change: Change,
     ) {
         let mut changes = vec![change];
@@ -3623,6 +3719,12 @@ impl Document {
             changes.push(Change::Curves {
                 before: before_curves,
                 after: self.curves.clone(),
+            });
+        }
+        if before_constraints != self.constraints {
+            changes.push(Change::Constraints {
+                before: before_constraints,
+                after: self.constraints.clone(),
             });
         }
         self.history.record_group(changes);

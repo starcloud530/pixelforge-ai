@@ -1394,27 +1394,38 @@ pub enum ConstraintCmd {
         /// Constraint name. Trimmed. 1 to 64 characters. Unique in the file.
         #[arg(long)]
         name: String,
-        /// follow, attach, stick, or pin.
+        /// follow, attach, stick, pin, ik, or plant.
         #[arg(long)]
         kind: String,
-        /// Part this constraint moves.
+        /// Part this constraint moves. For ik, the end of the chain.
         #[arg(long)]
         part: String,
-        /// Follower anchor. Omit on follow or pin to use the origin.
+        /// Follower anchor. Omit on follow, pin, or plant to use the origin.
+        /// On ik this is the end effector. Omit it to aim the end origin.
         #[arg(long)]
         anchor: Option<String>,
-        /// Part that follow or attach tracks.
+        /// Part that follow, attach, or ik tracks.
         #[arg(long)]
         target: Option<String>,
-        /// Anchor on the target. Required for follow and attach.
+        /// Anchor on the target. Required for follow, attach, and an ik part target.
         #[arg(long)]
         target_anchor: Option<String>,
-        /// Pin column. A leading minus is a value, and it must lie on the canvas.
+        /// Pin or ik column. A leading minus is a value, and it must lie on the canvas.
         #[arg(long, allow_hyphen_values = true)]
         x: Option<i32>,
-        /// Pin row. A leading minus is a value, and it must lie on the canvas.
+        /// Pin or ik row. A leading minus is a value, and it must lie on the canvas.
         #[arg(long, allow_hyphen_values = true)]
         y: Option<i32>,
+        /// IK joint, root first. Repeat two or three times. The last name is `--part`.
+        #[arg(long = "chain")]
+        chain: Vec<String>,
+        /// `1` puts the first joint on the clockwise side of root-to-target. `-1` is the other side.
+        #[arg(long, allow_hyphen_values = true)]
+        bend: Option<i8>,
+        /// Footprint span `frame:x:y` or `frame:to:x:y`. Repeat for each plant.
+        /// A sample inside the span keeps that cell. Frames outside every span are not pinned.
+        #[arg(long = "contact")]
+        contact: Vec<String>,
     },
     /// List constraints. Does not change the file.
     List {

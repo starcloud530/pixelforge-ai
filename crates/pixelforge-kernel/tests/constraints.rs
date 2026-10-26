@@ -464,7 +464,7 @@ fn solver_failures_leave_the_rig_where_it_was() {
     let kind = tool_err(
         &mut document,
         "addConstraint",
-        json!({"name": "nope", "kind": "ik", "part": "foot", "x": 0, "y": 0}),
+        json!({"name": "nope", "kind": "gait", "part": "foot", "x": 0, "y": 0}),
     );
     assert_eq!(kind["code"], json!("InvalidParams"));
     assert_eq!(document.constraints().len(), 3);

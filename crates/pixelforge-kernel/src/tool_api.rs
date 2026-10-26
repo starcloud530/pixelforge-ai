@@ -16,7 +16,7 @@ use serde::Serialize;
 use serde_json::{Map, Number, Value};
 
 use crate::aseprite::AsepriteReport;
-use crate::constraint::{Constraint, ConstraintKind, SolveReport};
+use crate::constraint::{Constraint, ConstraintKind, Contact, SolveReport};
 use crate::curve::{CurveChannel, CurveSample, Ease, PartSample};
 use crate::document::{BakeOptions, Document, QuarterTurn};
 use crate::error::KernelError;
@@ -756,7 +756,7 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
         "addConstraint" => {
             let input = parse_add_constraint(params)?;
             let index = document
-                .add_constraint(
+                .add_constraint_full(
                     &input.name,
                     input.kind,
                     &input.part,
@@ -765,6 +765,9 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                     input.target_anchor.as_deref(),
                     input.x,
                     input.y,
+                    &input.chain,
+                    input.bend,
+                    &input.contacts,
                 )
                 .map_err(ToolFailure::Kernel)?;
             Ok(constraint_value(document, index))
@@ -1309,6 +1312,18 @@ fn constraint_fields(index: usize, constraint: &Constraint) -> Value {
         "targetAnchor": constraint.target_anchor,
         "x": constraint.x,
         "y": constraint.y,
+        "chain": constraint.chain,
+        "bend": constraint.bend,
+        "contacts": constraint.contacts.iter().map(contact_fields).collect::<Vec<_>>(),
+    })
+}
+
+fn contact_fields(contact: &Contact) -> Value {
+    serde_json::json!({
+        "frame": contact.frame,
+        "to": contact.to,
+        "x": contact.x,
+        "y": contact.y,
     })
 }
 
@@ -1395,6 +1410,7 @@ fn solve_value(report: &SolveReport) -> Value {
                     "dx": constraint.dx,
                     "dy": constraint.dy,
                     "satisfied": constraint.satisfied,
+                    "planted": constraint.planted,
                     "from": { "x": constraint.from_x, "y": constraint.from_y },
                     "to": { "x": constraint.to_x, "y": constraint.to_y },
                 })
@@ -2306,6 +2322,9 @@ struct ConstraintInput {
     target_anchor: Option<String>,
     x: Option<i32>,
     y: Option<i32>,
+    chain: Vec<String>,
+    bend: Option<i8>,
+    contacts: Vec<Contact>,
 }
 
 fn parse_add_constraint(params: Value) -> Result<ConstraintInput, ToolFailure> {
@@ -2322,6 +2341,9 @@ fn parse_add_constraint(params: Value) -> Result<ConstraintInput, ToolFailure> {
             "targetAnchor",
             "x",
             "y",
+            "chain",
+            "bend",
+            "contacts",
         ],
     )?;
     let name = require_string("addConstraint", &map, "name")?;
@@ -2335,6 +2357,9 @@ fn parse_add_constraint(params: Value) -> Result<ConstraintInput, ToolFailure> {
     let target_anchor = optional_string("addConstraint", &map, "targetAnchor")?;
     let x = optional_i32("addConstraint", &map, "x")?;
     let y = optional_i32("addConstraint", &map, "y")?;
+    let chain = optional_string_list("addConstraint", &map, "chain")?.unwrap_or_default();
+    let bend = optional_bend("addConstraint", &map)?;
+    let contacts = optional_contacts("addConstraint", &map)?;
     Ok(ConstraintInput {
         name,
         kind,
@@ -2344,7 +2369,56 @@ fn parse_add_constraint(params: Value) -> Result<ConstraintInput, ToolFailure> {
         target_anchor,
         x,
         y,
+        chain,
+        bend,
+        contacts,
     })
+}
+
+fn optional_bend(tool: &str, map: &Map<String, Value>) -> Result<Option<i8>, ToolFailure> {
+    match map.get("bend") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => {
+            let number = value
+                .as_i64()
+                .ok_or_else(|| invalid_params(tool, "bend must be 1 or -1"))?;
+            if number == 1 || number == -1 {
+                Ok(Some(number as i8))
+            } else {
+                Err(invalid_params(tool, "bend must be 1 or -1"))
+            }
+        }
+    }
+}
+
+fn optional_contacts(tool: &str, map: &Map<String, Value>) -> Result<Vec<Contact>, ToolFailure> {
+    let Some(value) = map.get("contacts") else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = value.as_array() else {
+        return Err(invalid_params(tool, "contacts must be an array"));
+    };
+    if items.is_empty() {
+        return Err(invalid_params(tool, "contacts must list at least one span"));
+    }
+    let mut contacts = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(contact) = item.as_object() else {
+            return Err(invalid_params(tool, "contacts must be an array of objects"));
+        };
+        reject_unknown(contact, &["frame", "to", "x", "y"], |field| {
+            invalid_params(tool, &format!("unknown field {field}"))
+        })?;
+        let frame = require_u16(tool, contact, "frame")?;
+        let to = match contact.get("to") {
+            None => frame,
+            Some(_) => require_u16(tool, contact, "to")?,
+        };
+        let x = require_u16(tool, contact, "x")?;
+        let y = require_u16(tool, contact, "y")?;
+        contacts.push(Contact { frame, to, x, y });
+    }
+    Ok(contacts)
 }
 
 fn parse_remove_constraint(params: Value) -> Result<String, ToolFailure> {
@@ -2476,8 +2550,12 @@ fn optional_index_list(
 }
 
 fn parse_constraint_kind(tool: &str, text: &str) -> Result<ConstraintKind, ToolFailure> {
-    ConstraintKind::parse(text)
-        .ok_or_else(|| invalid_params(tool, "kind must be follow, attach, stick, or pin"))
+    ConstraintKind::parse(text).ok_or_else(|| {
+        invalid_params(
+            tool,
+            "kind must be follow, attach, stick, pin, ik, or plant",
+        )
+    })
 }
 
 fn optional_finite(
