@@ -26,6 +26,7 @@ use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
 };
+use crate::LayerRole;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -102,6 +103,8 @@ pub struct BakeReport {
     pub appended: usize,
     pub wrote: bool,
     pub dropped: u32,
+    /// Polish overlay indices. Bake did not write these layers.
+    pub polish: Vec<usize>,
     pub frames: Vec<BakeFrame>,
 }
 
@@ -212,6 +215,33 @@ fn bake_write_layers(
     out
 }
 
+/// Drops polish overlays out of a bake write set.
+///
+/// Naming a polish layer with `parts` or `layers` leaves its pixels. A part
+/// this bake manages must not be linked to it, including when the pose is the
+/// identity: that rebuild would be dropped, so the call fails and writes nothing.
+fn exclude_polish_layers(
+    write_layers: &[usize],
+    roles: &[LayerRole],
+    posed: &[PosedPart],
+    managed: &[bool],
+) -> Result<Vec<usize>, KernelError> {
+    let mut kept = Vec::with_capacity(write_layers.len());
+    for &layer in write_layers {
+        if roles.get(layer).copied().unwrap_or(LayerRole::Default) != LayerRole::Polish {
+            kept.push(layer);
+            continue;
+        }
+        let managed_here = posed.iter().enumerate().any(|(index, part)| {
+            managed.get(index).copied().unwrap_or(false) && part.oriented.layer == Some(layer)
+        });
+        if managed_here {
+            return Err(KernelError::PolishLayer { layer });
+        }
+    }
+    Ok(kept)
+}
+
 fn describe_bake_parts(
     posed: &[PosedPart],
     steps: &[Vec<MotionStep>],
@@ -295,6 +325,11 @@ pub struct Document {
     active: usize,
     /// Bottom layer is index 0. The same names and order apply to every frame.
     layer_names: Vec<String>,
+    /// Bake role of each layer. Same length as [`Self::layer_names`].
+    ///
+    /// [`LayerRole::Polish`] is an overlay bake never rebuilds. The file omits
+    /// the role when it is [`LayerRole::Default`].
+    layer_roles: Vec<LayerRole>,
     active_layer: usize,
     /// Canvas mask shared by every frame and layer, or none.
     ///
@@ -352,6 +387,7 @@ impl Document {
             frames: vec![Frame::blank(1, len, DEFAULT_FRAME_DELAY_MS)],
             active: 0,
             layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
+            layer_roles: vec![LayerRole::Default],
             active_layer: 0,
             selection: None,
             tags: Vec::new(),
@@ -574,6 +610,17 @@ impl Document {
     pub fn layer_name(&self, index: usize) -> Result<&str, KernelError> {
         let index = self.layer_or_err(index)?;
         Ok(&self.layer_names[index])
+    }
+
+    /// Bake role of one layer. [`LayerRole::Polish`] is not rebuilt by bake.
+    pub fn layer_role(&self, index: usize) -> Result<LayerRole, KernelError> {
+        let index = self.layer_or_err(index)?;
+        Ok(self.layer_roles[index])
+    }
+
+    /// Bake role of every layer, bottom to top.
+    pub fn layer_roles(&self) -> &[LayerRole] {
+        &self.layer_roles
     }
 
     pub fn get(&self, x: u16, y: u16) -> Result<u8, KernelError> {
@@ -1895,8 +1942,20 @@ impl Document {
     /// Inserts a transparent layer above the active one and selects it.
     ///
     /// The same layer is added to every frame. `name` is trimmed. Omit it and
-    /// the name is the first free `Layer N`. The insert is one undo step.
+    /// the name is the first free `Layer N`. The role is [`LayerRole::Default`].
+    /// The insert is one undo step.
     pub fn add_layer(&mut self, name: Option<&str>) -> Result<usize, KernelError> {
+        self.add_layer_with_role(name, LayerRole::Default)
+    }
+
+    /// Inserts a transparent layer with an explicit bake role.
+    ///
+    /// [`LayerRole::Polish`] is an overlay. Bake does not rebuild it.
+    pub fn add_layer_with_role(
+        &mut self,
+        name: Option<&str>,
+        role: LayerRole,
+    ) -> Result<usize, KernelError> {
         let name = match name {
             Some(name) => normalize_layer_name(name)?,
             None => self.next_layer_name(),
@@ -1909,6 +1968,7 @@ impl Document {
             frame.insert_layer(index, blank.clone());
         }
         self.layer_names.insert(index, name.clone());
+        self.layer_roles.insert(index, role);
         self.active_layer = index;
         self.parts = parts_after_layer_insert(&before_parts, index);
         self.record_with_parts(
@@ -1916,6 +1976,7 @@ impl Document {
             Change::AddLayer {
                 index,
                 name,
+                role,
                 active_before,
                 active_after: index,
             },
@@ -1935,6 +1996,7 @@ impl Document {
         let active_before = self.active_layer;
         let before_parts = self.parts.clone();
         let name = self.layer_names.remove(index);
+        let role = self.layer_roles.remove(index);
         let mut pixels = Vec::with_capacity(self.frames.len());
         for frame in &mut self.frames {
             pixels.push(frame.remove_layer(index));
@@ -1952,6 +2014,7 @@ impl Document {
             Change::RemoveLayer {
                 index,
                 name,
+                role,
                 pixels,
                 active_before,
                 active_after: self.active_layer,
@@ -1972,6 +2035,25 @@ impl Document {
             index,
             before,
             after: name,
+        });
+        Ok(())
+    }
+
+    /// Sets whether bake may rebuild this layer.
+    ///
+    /// The same role is not recorded. Pixels stay. [`LayerRole::Polish`] is the
+    /// overlay bake leaves alone.
+    pub fn set_layer_role(&mut self, index: usize, role: LayerRole) -> Result<(), KernelError> {
+        let index = self.layer_or_err(index)?;
+        if self.layer_roles[index] == role {
+            return Ok(());
+        }
+        let before = self.layer_roles[index];
+        self.layer_roles[index] = role;
+        self.history.record(Change::LayerRole {
+            index,
+            before,
+            after: role,
         });
         Ok(())
     }
@@ -2029,10 +2111,12 @@ impl Document {
         if self.layer_names.len() == 1
             && self.layer_names[0] == DEFAULT_LAYER_NAME
             && self.active_layer == 0
+            && self.layer_roles[0] == LayerRole::Default
         {
             return Ok(());
         }
         let before_names = self.layer_names.clone();
+        let before_roles = self.layer_roles.clone();
         let before_pixels = self
             .frames
             .iter()
@@ -2045,12 +2129,14 @@ impl Document {
             frame.set_all_layers(vec![pixels]);
         }
         self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
+        self.layer_roles = vec![LayerRole::Default];
         self.active_layer = 0;
         self.parts = parts_after_flatten(&before_parts);
         self.record_with_parts(
             before_parts,
             Change::Flatten {
                 before_names,
+                before_roles,
                 before_pixels,
                 before_active,
                 after_pixels,
@@ -2909,8 +2995,11 @@ impl Document {
     /// constraints are replaced from the rest ink, even when that pose is the
     /// identity. `parts` or `layers` name a different write set. A layer with
     /// no curve and no driving constraint stays, so duplicate the rest frame
-    /// first when a body with no part should remain. Appended frames copy
-    /// every source layer, then replace the posed ones.
+    /// first when a body with no part should remain. A [`LayerRole::Polish`]
+    /// layer is never written. A managed part linked to one is
+    /// [`KernelError::PolishLayer`] and the call writes nothing. Appended
+    /// frames copy every source layer, including polish from the source, then
+    /// replace the posed layers.
     ///
     /// A failure writes nothing. A success that changes pixels, delays, or the
     /// frame list is one undo step. The same pixels and delays are not recorded.
@@ -2944,6 +3033,7 @@ impl Document {
             .collect();
         let pose_included = self.bake_included(&included, options.constraints);
         let managed = self.bake_managed(&pose_included, options.constraints);
+        let polish = self.polish_layers();
         let source_layers: Vec<Vec<u8>> = (0..self.layer_names.len())
             .map(|layer| self.frames[source].layer_pixels(layer).to_vec())
             .collect();
@@ -2991,6 +3081,8 @@ impl Document {
                     return Err(KernelError::ConstraintLayer { layer: *layer });
                 }
             }
+            let write_layers =
+                exclude_polish_layers(&write_layers, &self.layer_roles, &posed, &managed)?;
             let is_new = index >= len;
             let mut writes = Vec::new();
             let mut dropped = 0u32;
@@ -3122,8 +3214,18 @@ impl Document {
             appended,
             wrote,
             dropped,
+            polish,
             frames,
         })
+    }
+
+    fn polish_layers(&self) -> Vec<usize> {
+        self.layer_roles
+            .iter()
+            .enumerate()
+            .filter(|(_, role)| **role == LayerRole::Polish)
+            .map(|(index, _)| index)
+            .collect()
     }
 
     fn pose_bake(
@@ -3655,6 +3757,7 @@ impl Document {
         frames: Vec<Frame>,
         active: usize,
         layer_names: Vec<String>,
+        layer_roles: Vec<LayerRole>,
         active_layer: usize,
         selection: Option<Mask>,
         tags: Vec<Tag>,
@@ -3669,6 +3772,11 @@ impl Document {
             "project files keep at least one layer"
         );
         debug_assert!(active_layer < layer_names.len(), "active layer was checked");
+        debug_assert_eq!(
+            layer_roles.len(),
+            layer_names.len(),
+            "each layer has a bake role"
+        );
         debug_assert!(
             selection.as_ref().is_none_or(|sel| sel.fits(width, height)),
             "selection was checked"
@@ -3725,6 +3833,7 @@ impl Document {
             frames,
             active,
             layer_names,
+            layer_roles,
             active_layer,
             selection,
             tags,
@@ -3928,6 +4037,8 @@ impl Document {
     fn move_layer(&mut self, from: usize, to: usize) {
         let name = self.layer_names.remove(from);
         self.layer_names.insert(to, name);
+        let role = self.layer_roles.remove(from);
+        self.layer_roles.insert(to, role);
         for frame in &mut self.frames {
             let pixels = frame.remove_layer(from);
             frame.insert_layer(to, pixels);
@@ -4080,6 +4191,7 @@ impl Document {
             Change::AddLayer {
                 index,
                 name,
+                role,
                 active_before,
                 active_after,
             } => {
@@ -4089,9 +4201,11 @@ impl Document {
                         frame.insert_layer(*index, blank.clone());
                     }
                     self.layer_names.insert(*index, name.clone());
+                    self.layer_roles.insert(*index, *role);
                     self.active_layer = *active_after;
                 } else {
                     self.layer_names.remove(*index);
+                    self.layer_roles.remove(*index);
                     for frame in &mut self.frames {
                         frame.remove_layer(*index);
                     }
@@ -4101,12 +4215,14 @@ impl Document {
             Change::RemoveLayer {
                 index,
                 name,
+                role,
                 pixels,
                 active_before,
                 active_after,
             } => {
                 if forward {
                     self.layer_names.remove(*index);
+                    self.layer_roles.remove(*index);
                     for frame in &mut self.frames {
                         frame.remove_layer(*index);
                     }
@@ -4114,6 +4230,7 @@ impl Document {
                 } else {
                     debug_assert_eq!(pixels.len(), self.frames.len());
                     self.layer_names.insert(*index, name.clone());
+                    self.layer_roles.insert(*index, *role);
                     for (frame, buffer) in self.frames.iter_mut().zip(pixels.iter()) {
                         frame.insert_layer(*index, buffer.clone());
                     }
@@ -4130,6 +4247,13 @@ impl Document {
                 } else {
                     before.clone()
                 };
+            }
+            Change::LayerRole {
+                index,
+                before,
+                after,
+            } => {
+                self.layer_roles[*index] = if forward { *after } else { *before };
             }
             Change::ActiveLayer { before, after } => {
                 self.active_layer = if forward { *after } else { *before };
@@ -4185,6 +4309,7 @@ impl Document {
             }
             Change::Flatten {
                 before_names,
+                before_roles,
                 before_pixels,
                 before_active,
                 after_pixels,
@@ -4195,13 +4320,16 @@ impl Document {
                         frame.set_all_layers(vec![pixels.clone()]);
                     }
                     self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
+                    self.layer_roles = vec![LayerRole::Default];
                     self.active_layer = 0;
                 } else {
                     debug_assert_eq!(before_pixels.len(), self.frames.len());
+                    debug_assert_eq!(before_roles.len(), before_names.len());
                     for (frame, layers) in self.frames.iter_mut().zip(before_pixels.iter()) {
                         frame.set_all_layers(layers.clone());
                     }
                     self.layer_names = before_names.clone();
+                    self.layer_roles = before_roles.clone();
                     self.active_layer = *before_active;
                 }
             }

@@ -696,7 +696,7 @@ fn export_scale_is_nearest_neighbor_and_defaults_to_one() {
 
 #[test]
 fn every_catalog_name_is_a_known_tool() {
-    assert_eq!(TOOL_NAMES.len(), 69);
+    assert_eq!(TOOL_NAMES.len(), 70);
     for name in TOOL_NAMES {
         let mut document = doc();
         let response = call(&mut document, json!({ "tool": name }));

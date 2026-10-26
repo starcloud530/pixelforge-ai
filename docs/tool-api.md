@@ -111,6 +111,7 @@
 | `ConstraintCycle` | 约束自己指向自己，或几条约束绕成环。一格都不写 |
 | `ConstraintConflict` | 同一个部件被两条约束驱动。一条 `ik` 驱动链上的每一节。一格都不写 |
 | `ConstraintLayer` | 同一层上有两个会动的部件。给每个会动的部件单独一层 |
+| `PolishLayer` | `bake` 要重建的层是 `polish` 覆盖层，而且曲线或约束管着挂在这层上的部件。整次不写。把部件挪到 `default` 层 |
 | `IkUnreachable` | 短链 IK 不能把末端正好落到目标格。一格都不写，也不会改放到旁边的格 |
 | `BakeRange` | `bake` 的 `from` 大于 `to`，`from` 大于现有帧数，或 `to` 大于等于 4096 |
 | `BakeFps` | `bake` 的 `fps` 不是大于 0 的有限数 |
@@ -908,7 +909,7 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 | `source` | 静止墨水所在帧。缺省 0。这一帧的像素不改 |
 | `fps` | 大于 0 的有限数。区间里每一帧（含源帧）的 `delayMs` 变成 `round(1000/fps)`。12 是 83 |
 | `parts` | 只摆这些部件。省略则摆每一个。空数组是 `InvalidParams` |
-| `layers` | 只写这些层。省略则写受曲线或约束管理的挂接层，变换全为 0 也从源帧重写；给了 `parts` 又省略 `layers` 时，写这些部件挂着的层 |
+| `layers` | 只写这些层。省略则写受曲线或约束管理的挂接层，变换全为 0 也从源帧重写；给了 `parts` 又省略 `layers` 时，写这些部件挂着的层。`polish` 层即使被点名也不写 |
 | `constraints` | 缺省 true。false 只采样曲线，不解约束 |
 
 每一非源帧都从源帧的墨水摆姿势，不从该帧已经有的像素接着摆，所以再烤一次不叠加。通道顺序与 `solveConstraints` 带 `frame` 时相同。存着的原点不改。曲线和约束不删。报告里的 `x`、`y` 是摆好的原点。
@@ -917,7 +918,9 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 
 `parts` 给定时，只摆名单里的部件，从动部件只跟同样被选中的目标。`layers` 再把写入收成交集。两个都省略时，写这一次采样或求解管到的挂接层，不看当前位移是不是 0。曲线回到 0、约束增量也是 0 时，这些层从源帧恢复身份姿势。没挂曲线、也没被约束驱动的层不动。同一层上两个会动、且这一层会被写入的部件是 `ConstraintLayer`。挂接层上每一个非 0 格都搬走。
 
-选区必须盖住搬走的源格和落点；追加帧上新写入的非 0 格也必须在选区内。否则 `SelectionProtected`，一格都不写。出画布、缺锚点、环、第二条驱动同样整次不写。
+`role` 为 `polish` 的层是精修覆盖层，不在上面的写入集合里。`--layer` 或 `parts` 点到它时像素保持原样，不从源帧重置。曲线或约束管着的部件挂在这层上是 `PolishLayer`，整次不写。精修格子留在画下的画布格，不跟着部件走。挂接层上的局部改色会被下一次烘焙盖掉，所以手指修正要画在覆盖层。追加帧复制源帧的覆盖层，不复制只存在于别的帧上的精修。
+
+选区必须盖住搬走的源格和落点；追加帧上新写入的非 0 格也必须在选区内。否则 `SelectionProtected`，一格都不写。覆盖层不参与这次写入，所以选区没盖住的精修格不会让烘焙失败。出画布、缺锚点、环、第二条驱动同样整次不写。
 
 像素或时长有变化才是一步撤销。源帧只可能改时长。当前帧不因这次调用而改变。工程文件仍是 version 1，没有 `bake` 字段。
 
@@ -932,11 +935,12 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 | `appended` | 新追加的帧数 |
 | `wrote` | 像素或时长是否真的变了 |
 | `dropped` | 各帧最近邻碰撞丢掉的格数之和 |
-| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 为空。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件 |
+| `polish` | 精修覆盖层的下标，从底到顶。这些层这次没有写。没有覆盖层时是 `[]` |
+| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 为空。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件。`layers` 不含 `polish` |
 
 CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun --part hand --layer 0`。`pixelforge bake --curves-only`。`pixelforge bake --source 0 --from 1 --to 4`。
 
-错误：`BakeRange`、`BakeFps`、`FrameDelay`、`FrameIndex`、`LayerIndex`、`PartName`、`PartMissing`、`CurveValue`、`AnchorMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`IkUnreachable`。`fps` 不是有限数、`constraints` 不是布尔、`parts` 或 `layers` 是空数组或类型不对时是 `InvalidParams`。选了 `ik` 的末端时，链上其它关节会一起摆。
+错误：`BakeRange`、`BakeFps`、`FrameDelay`、`FrameIndex`、`LayerIndex`、`PartName`、`PartMissing`、`CurveValue`、`AnchorMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`PolishLayer`、`IkUnreachable`。`fps` 不是有限数、`constraints` 不是布尔、`parts` 或 `layers` 是空数组或类型不对时是 `InvalidParams`。选了 `ik` 的末端时，链上其它关节会一起摆。
 
 *Every optional field may be omitted. Each non-source frame is posed from the source frame's ink, not from pixels already on that frame, so a second bake does not stack. Channel order matches `solveConstraints` with `frame`. Stored origins stay. Curves and constraints stay. Reported `x` and `y` are the posed origin.*
 
@@ -944,9 +948,11 @@ CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun 
 
 *A `parts` list poses only those parts, and a follower tracks a target only when that target is included. `layers` intersects that write set. With neither filter, a layer linked to a part this bake samples or that a solved constraint drives is written, including when that pose is the identity, so a curve that returns to zero restores the source ink. A layer with no curve and no driving constraint stays. Two moving parts on a layer that will be written are `ConstraintLayer`. Every non-zero cell on a written linked layer moves.*
 
-*A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it too. Otherwise the call is `SelectionProtected` and writes nothing. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
+*A `polish` layer is an overlay and is not in that write set. Naming it with `layers` or `parts` leaves its pixels. A managed part linked to it is `PolishLayer` and the call writes nothing. Polish cells stay on the canvas cells where they were painted. They do not ride the part. A retouch on a managed layer is replaced, so a finger fix belongs on the overlay. An appended frame copies the source overlay and does not copy polish that exists only on another frame.*
 
-*A change to pixels or delays is one undo step. The source frame can change its delay only. The active frame stays. The project stays version 1 and has no `bake` field. `ink` is `moved` or `unchanged`. An unattached part, or a layer that was not written, is `unchanged`, because the origin is not stored.*
+*A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it too. Otherwise the call is `SelectionProtected` and writes nothing. Polish cells are not part of that write, so a polish cell outside the selection does not fail the bake. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
+
+*A change to pixels or delays is one undo step. The source frame can change its delay only. The active frame stays. The project stays version 1 and has no `bake` field. `ink` is `moved` or `unchanged`. An unattached part, or a layer that was not written, is `unchanged`, because the origin is not stored. `polish` is the overlay indices, or `[]`.*
 
 ### `beginGesture` / `endGesture`
 
@@ -1210,19 +1216,33 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 `preview`、`diff`、`export png`、`export sheet` 默认看合成结果。`previewFrame` / `diffFrames` 以及 CLI 的 `--layer N` 只看那一层。绘制工具的 `layer` 只决定改哪一层。
 
+每一层有 `role`。缺省 `default`：普通像素，`bake` 可以在曲线或约束管到这一层时从源帧整层重建。`polish` 是精修覆盖层，`bake` 不写它。文件里只有 `polish` 才写 `role`。单层、名字仍是 `Layer 1`、当前层是 0、角色是 `default` 时，仍然不写 `layers`。`layer flatten` 把覆盖层合成进 `Layer 1`，角色回到 `default`。
+
+*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay `bake` does not write. The file writes `role` only for `polish`. A single layer named `Layer 1`, active layer 0, and role `default` still omits `layers`. `layer flatten` composites the overlay into `Layer 1` and clears the role.*
+
 ### `listLayers`
 
 参数：无。只读。
 
-`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name" }] }`。
+`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name", "role" }] }`。`role` 是 `default` 或 `polish`。
 
 ### `addLayer`
 
-`params`：可选 `name`。省略时用还没被占用的 `Layer N`，从「当前层数 + 1」起找。名字会去掉首尾空白，长度 1 到 64。新层插在当前层上面，每一帧都是透明索引，并成为当前层。一步撤销。
+`params`：可选 `name`、可选 `role`（`default` 或 `polish`，缺省 `default`）。省略 `name` 时用还没被占用的 `Layer N`，从「当前层数 + 1」起找。名字会去掉首尾空白，长度 1 到 64。新层插在当前层上面，每一帧都是透明索引，并成为当前层。一步撤销。
 
-`result`：`{ "index", "name", "activeLayer" }`。
+`result`：`{ "index", "name", "role", "activeLayer" }`。
 
-错误：`LayerName`。
+错误：`LayerName`。`role` 不是那两个字符串时是 `InvalidParams`。
+
+### `setLayerRole`
+
+`params`：`role`（`default` 或 `polish`），可选 `index`（省略时是当前层）。同一个角色不进撤销栈。像素不动。
+
+`result`：`{ "index", "role" }`。
+
+CLI：`pixelforge layer role --role polish`。`pixelforge layer add --name polish --role polish`。
+
+错误：`LayerIndex`。`role` 缺失或不是那两个字符串时是 `InvalidParams`。
 
 ### `deleteLayer`
 
@@ -1262,7 +1282,7 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 `result`：`{ "layerCount": 1, "activeLayer": 0, "name": "Layer 1" }`。
 
-CLI：`layer list`、`layer add --name gear`、`layer remove`（别名 `delete`）、`layer rename`、`layer select`、`layer reorder --from --to`、`layer flatten`。
+CLI：`layer list`、`layer add --name gear`、`layer add --name polish --role polish`、`layer role --role polish`、`layer remove`（别名 `delete`）、`layer rename`、`layer select`、`layer reorder --from --to`、`layer flatten`。
 
 *Layers are a document-level stack. Every frame has one index buffer per layer, the same size as the canvas. Index 0 is the bottom. A new project and an old single-layer file are one layer named `Layer 1`. That file is still saved without `layers` or `activeLayer`. A stack, a renamed layer, or a non-zero active layer writes those fields. Frames with more than one layer store `frames[].layers[].pixels` and omit the legacy `pixels` array.*
 
@@ -1270,7 +1290,7 @@ CLI：`layer list`、`layer add --name gear`、`layer remove`（别名 `delete`�
 
 *`preview`, `diff`, and `export png` / `export sheet` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
 
-*`addLayer` inserts a transparent layer above the active one on every frame and selects it. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the composite back into one layer named `Layer 1`.*
+*`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the composite back into one layer named `Layer 1` and clears a polish role.*
 
 ## 不变量 Invariants
 

@@ -116,6 +116,12 @@ pub enum KernelError {
     /// Two posed parts share a linked layer, so the solver will not move that
     /// layer twice. The call writes nothing.
     ConstraintLayer { layer: usize },
+    /// Bake would rebuild this polish overlay because a sampled curve or a
+    /// solved constraint manages a part on it.
+    ///
+    /// The call writes nothing. Polish pixels stay only when no managed part
+    /// is linked to that layer.
+    PolishLayer { layer: usize },
     /// A short IK chain could not put its end effector on the target cell.
     ///
     /// The call writes nothing. The solver does not leave the effector on a
@@ -198,6 +204,8 @@ pub enum ProjectFileError {
     ActiveLayer { index: u64, len: usize },
     /// A layer name is empty or longer than [`crate::MAX_LAYER_NAME_CHARS`].
     LayerName { index: usize },
+    /// A layer `role` is not `default` or `polish`.
+    LayerRole { index: usize },
     /// A frame stores both a legacy `pixels` buffer and a `layers` array.
     LayerPixels { frame: usize },
     /// A frame's layer count does not match the document layer stack.
@@ -331,6 +339,7 @@ impl KernelError {
             Self::ConstraintCycle { .. } => "ConstraintCycle",
             Self::ConstraintConflict { .. } => "ConstraintConflict",
             Self::ConstraintLayer { .. } => "ConstraintLayer",
+            Self::PolishLayer { .. } => "PolishLayer",
             Self::IkUnreachable { .. } => "IkUnreachable",
             Self::BakeRange { .. } => "BakeRange",
             Self::BakeFps => "BakeFps",
@@ -479,6 +488,10 @@ impl fmt::Display for KernelError {
                 f,
                 "layer {layer} has more than one posed part; give each moving part its own layer"
             ),
+            Self::PolishLayer { layer } => write!(
+                f,
+                "layer {layer} is a polish overlay; bake does not rebuild it. Move the managed part to another layer"
+            ),
             Self::IkUnreachable { name, x, y } => {
                 write!(f, "ik \"{name}\" cannot place the end effector on {x},{y}")
             }
@@ -558,6 +571,9 @@ impl fmt::Display for ProjectFileError {
                 "layer {index} name must be 1 to {} characters",
                 crate::MAX_LAYER_NAME_CHARS
             ),
+            Self::LayerRole { index } => {
+                write!(f, "layer {index} role must be default or polish")
+            },
             Self::LayerPixels { frame } => {
                 write!(f, "frame {frame} stores both pixels and layers")
             }

@@ -3662,6 +3662,170 @@ fn selection_scope_diffs_the_helmet_and_subtracts_the_feet_before_fill() {
     assert_eq!(index_at(&doc, 0, 0, 2, 2), 0);
 }
 
+#[test]
+fn raise_gun_tweak_keeps_a_polished_finger() {
+    let scratch = Scratch::new();
+    let project = scratch.child("soldier.json");
+    let path = project.to_str().unwrap();
+    let ok = |args: &[&str]| {
+        let output = pixelforge(&arg(args));
+        assert_eq!(status(&output), 0, "{args:?}\n{}", stderr(&output));
+        json_lines(&output)[0]["result"].clone()
+    };
+    ok(&["new", "--width", "16", "--height", "16", "--output", path]);
+    ok(&[
+        "paint",
+        "--project",
+        path,
+        "--x",
+        "6",
+        "--y",
+        "4",
+        "--color-index",
+        "3",
+    ]);
+    ok(&[
+        "part",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--layer",
+        "0",
+        "--x",
+        "4",
+        "--y",
+        "4",
+    ]);
+    for _ in 0..4 {
+        ok(&["frame", "add", "--project", path]);
+    }
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "0",
+        "--value",
+        "0",
+    ]);
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "4",
+        "--value",
+        "90",
+    ]);
+    ok(&["bake", "--project", path, "--from", "0", "--to", "4"]);
+    let raised = load(&project);
+    assert_eq!(index_at(&raised, 4, 0, 4, 6), 3);
+
+    ok(&["frame", "select", "--project", path, "--index", "4"]);
+    ok(&[
+        "paint",
+        "--project",
+        path,
+        "--x",
+        "4",
+        "--y",
+        "6",
+        "--color-index",
+        "7",
+    ]);
+    let wiped = ok(&["bake", "--project", path, "--from", "0", "--to", "4"]);
+    assert_eq!(wiped["polish"], json!([]));
+    assert_eq!(index_at(&load(&project), 4, 0, 4, 6), 3);
+
+    let added = ok(&[
+        "layer",
+        "add",
+        "--project",
+        path,
+        "--name",
+        "polish",
+        "--role",
+        "polish",
+    ]);
+    assert_eq!(added["role"], json!("polish"));
+    let polish = added["index"].as_u64().unwrap() as usize;
+    ok(&["frame", "select", "--project", path, "--index", "4"]);
+    ok(&[
+        "paint",
+        "--project",
+        path,
+        "--x",
+        "4",
+        "--y",
+        "6",
+        "--color-index",
+        "7",
+    ]);
+    ok(&[
+        "curve",
+        "set",
+        "--project",
+        path,
+        "--part",
+        "gun",
+        "--channel",
+        "rotation",
+        "--frame",
+        "4",
+        "--value",
+        "45",
+    ]);
+    let tweaked = ok(&["bake", "--project", path, "--from", "0", "--to", "4"]);
+    assert_eq!(tweaked["polish"], json!([polish]));
+    let document = load(&project);
+    assert_eq!(index_at(&document, 4, polish, 4, 6), 7);
+    assert_ne!(index_at(&document, 4, 0, 4, 6), 7);
+    assert!(document.save_project().contains("\"role\": \"polish\""));
+    assert_eq!(
+        document.layer_role(polish).unwrap(),
+        pixelforge_kernel::LayerRole::Polish
+    );
+
+    let blocked = pixelforge(&arg(&[
+        "part",
+        "set",
+        "--project",
+        path,
+        "--name",
+        "gun",
+        "--layer",
+        &polish.to_string(),
+    ]));
+    assert_eq!(status(&blocked), 0, "{}", stderr(&blocked));
+    let refused = pixelforge(&arg(&[
+        "bake",
+        "--project",
+        path,
+        "--from",
+        "4",
+        "--to",
+        "4",
+    ]));
+    assert_eq!(status(&refused), 1, "{}", stderr(&refused));
+    assert_eq!(
+        json_lines(&refused)[0]["error"]["code"],
+        json!("PolishLayer")
+    );
+    assert_eq!(index_at(&load(&project), 4, polish, 4, 6), 7);
+}
+
 fn index_at(document: &Document, frame: usize, layer: usize, x: u16, y: u16) -> u8 {
     let width = usize::from(document.width());
     document.layer_pixels(frame, layer).unwrap()[usize::from(y) * width + usize::from(x)]

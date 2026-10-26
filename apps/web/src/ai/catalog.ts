@@ -570,7 +570,7 @@ const BY_NAME = {
   ),
   bake: tool(
     "bake",
-    "Sample part curves, then solve constraints, and write ordinary editable pixel frames over an inclusive index range. The source frame's pixels stay the rest pose, so a second bake does not stack. Stored part origins, curves, and constraints stay. fps sets delayMs to round(1000/fps) on every frame in the range, including the source. Omit parts to pose every part. Omit layers to write layers managed by the sampled curves and solved constraints, including an identity pose, or the linked layers of parts when that filter is set. constraints false samples curves and skips the solver. from past the last frame appends posed copies of the source. One bake is one undo step when pixels or delays change. There is no script runtime.",
+    "Sample part curves, then solve constraints, and write ordinary editable pixel frames over an inclusive index range. The source frame's pixels stay the rest pose, so a second bake does not stack. Stored part origins, curves, and constraints stay. fps sets delayMs to round(1000/fps) on every frame in the range, including the source. Omit parts to pose every part. Omit layers to write layers managed by the sampled curves and solved constraints, including an identity pose, or the linked layers of parts when that filter is set. A polish layer is never written. A managed part on a polish layer refuses the bake. constraints false samples curves and skips the solver. from past the last frame appends posed copies of the source. One bake is one undo step when pixels or delays change. There is no script runtime.",
     {
       from: int("First frame index, inclusive. Default 0. May equal the frame count to append only.", 0, 4095),
       to: int("Last frame index, inclusive. Default is the last existing frame. Past the end appends frames. Must be below 4096.", 0, 4095),
@@ -581,7 +581,7 @@ const BY_NAME = {
         minimum: 0,
       },
       parts: names("Pose only these parts. Omit to pose every part. An empty array is refused."),
-      layers: indices("Write only these layers. Omit to write the layers the pose moves."),
+      layers: indices("Write only these layers. Omit to write layers a curve or constraint manages. A polish layer is skipped."),
       constraints: {
         type: "boolean",
         description: "Solve constraints after sampling curves. Omit or true solves them. false samples curves only.",
@@ -735,10 +735,28 @@ const BY_NAME = {
   ),
   addLayer: tool(
     "addLayer",
-    "Insert a transparent layer above the active one on every frame and select it. Omit name for the next free Layer N. One undo step.",
+    "Insert a transparent layer above the active one on every frame and select it. Omit name for the next free Layer N. role polish is an overlay bake never writes. Omit role for default. One undo step.",
     {
       name: { type: "string", description: "Layer name, 1 to 64 characters. Omit for Layer N." },
+      role: {
+        type: "string",
+        enum: ["default", "polish"],
+        description: "default lets bake rebuild this layer. polish keeps hand-tuned cells. Omit for default.",
+      },
     },
+  ),
+  setLayerRole: tool(
+    "setLayerRole",
+    "Set whether bake may rebuild this layer. polish is an overlay bake never writes. default is an ordinary layer. Pixels stay. The same role is not recorded. Omit index for the active layer.",
+    {
+      index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
+      role: {
+        type: "string",
+        enum: ["default", "polish"],
+        description: "default or polish.",
+      },
+    },
+    ["role"],
   ),
   deleteLayer: tool(
     "deleteLayer",

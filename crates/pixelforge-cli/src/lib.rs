@@ -909,12 +909,22 @@ fn cmd_frame(command: FrameCmd) -> i32 {
 fn cmd_layer(command: LayerCmd) -> i32 {
     match command {
         LayerCmd::List { doc } => apply(&doc, vec![request("listLayers", json!({}))]),
-        LayerCmd::Add { doc, name } => {
+        LayerCmd::Add { doc, name, role } => {
             let mut params = json!({});
             if let Some(name) = name {
                 params["name"] = json!(name);
             }
+            if let Some(role) = role {
+                params["role"] = json!(role.as_str());
+            }
             apply(&doc, vec![request("addLayer", params)])
+        }
+        LayerCmd::Role { doc, index, role } => {
+            let mut params = json!({ "role": role.as_str() });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("setLayerRole", params)])
         }
         LayerCmd::Remove { doc, index } => {
             let mut params = json!({});
