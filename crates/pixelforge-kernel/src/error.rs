@@ -126,6 +126,10 @@ pub enum KernelError {
     ///
     /// A rate that rounds outside the delay range is [`Self::FrameDelay`].
     BakeFps,
+    /// A boolean or a scoped view asked for the current selection, and none is stored.
+    ///
+    /// The call writes nothing. An explicit rectangle or mask does not need one.
+    MaskMissing,
     /// A move would write or clear a cell outside the rectangular selection.
     ///
     /// The call writes nothing. Fill, paint, erase, copy, and flip skip those
@@ -220,7 +224,7 @@ pub enum ProjectFileError {
     FrameDelay { frame: usize, delay: u64 },
     /// `indexPolicy` is present and is not `reject` or `clamp`.
     IndexPolicy,
-    /// `selection` is present and is not a rectangle that lies on the canvas.
+    /// `selection` is present and is not a rectangle, or a list of rectangles, on the canvas.
     Selection,
     /// A tag name is empty, too long, or contains a control character.
     TagName { index: usize },
@@ -324,6 +328,7 @@ impl KernelError {
             Self::ConstraintLayer { .. } => "ConstraintLayer",
             Self::BakeRange { .. } => "BakeRange",
             Self::BakeFps => "BakeFps",
+            Self::MaskMissing => "MaskMissing",
             Self::NothingToUndo => "NothingToUndo",
             Self::NothingToRedo => "NothingToRedo",
             Self::OpenGesture => "OpenGesture",
@@ -471,6 +476,7 @@ impl fmt::Display for KernelError {
                 crate::MAX_BAKE_FRAMES
             ),
             Self::BakeFps => write!(f, "bake fps must be a finite number greater than 0"),
+            Self::MaskMissing => write!(f, "no selection is stored"),
             Self::NothingToUndo => write!(f, "nothing to undo"),
             Self::NothingToRedo => write!(f, "nothing to redo"),
             Self::OpenGesture => write!(f, "a gesture is already open"),
@@ -577,7 +583,7 @@ impl fmt::Display for ProjectFileError {
                 crate::MAX_FRAME_DELAY_MS
             ),
             Self::IndexPolicy => write!(f, "indexPolicy must be reject or clamp"),
-            Self::Selection => write!(f, "selection is not a rectangle on the canvas"),
+            Self::Selection => write!(f, "selection is not a mask of rectangles on the canvas"),
             Self::TagName { index } => write!(
                 f,
                 "tag {index} name must be 1 to {} characters",
@@ -716,6 +722,11 @@ mod tests {
         );
         assert_eq!(KernelError::NothingToUndo.code(), "NothingToUndo");
         assert_eq!(KernelError::OpenGesture.code(), "OpenGesture");
+        assert_eq!(KernelError::MaskMissing.code(), "MaskMissing");
+        assert_eq!(
+            KernelError::MaskMissing.to_string(),
+            "no selection is stored"
+        );
         assert_eq!(KernelError::SelectionProtected.code(), "SelectionProtected");
         assert_eq!(
             KernelError::SelectionProtected.to_string(),
@@ -723,7 +734,7 @@ mod tests {
         );
         assert_eq!(
             KernelError::ProjectFile(ProjectFileError::Selection).to_string(),
-            "selection is not a rectangle on the canvas"
+            "selection is not a mask of rectangles on the canvas"
         );
         assert_eq!(KernelError::ExportScale { scale: 0 }.code(), "ExportScale");
         assert_eq!(

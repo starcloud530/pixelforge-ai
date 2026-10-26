@@ -53,12 +53,12 @@ fn selection_is_stored_in_the_project_and_undoes_inside_one_process() {
         set["selection"],
         json!({"x": 1, "y": 2, "width": 2, "height": 1})
     );
-    assert_eq!(document.selection(), Some(rect(1, 2, 2, 1)));
+    assert_eq!(document.selection_rect(), Some(rect(1, 2, 2, 1)));
     assert_eq!(document.active_layer(), 0);
     let saved = document.save_project();
     assert!(saved.contains("\"selection\""));
     let loaded = Document::load_project(&saved).unwrap();
-    assert_eq!(loaded.selection(), Some(rect(1, 2, 2, 1)));
+    assert_eq!(loaded.selection_rect(), Some(rect(1, 2, 2, 1)));
     assert!(!loaded.can_undo());
 
     tool(
@@ -69,14 +69,14 @@ fn selection_is_stored_in_the_project_and_undoes_inside_one_process() {
     tool(&mut document, "undo", json!({}));
     assert_eq!(document.selection(), None);
     tool(&mut document, "redo", json!({}));
-    assert_eq!(document.selection(), Some(rect(1, 2, 2, 1)));
+    assert_eq!(document.selection_rect(), Some(rect(1, 2, 2, 1)));
 
     let cleared = tool(&mut document, "clearSelection", json!({}));
     assert!(cleared["selection"].is_null());
     assert!(!document.save_project().contains("selection"));
     tool(&mut document, "clearSelection", json!({}));
     tool(&mut document, "undo", json!({}));
-    assert_eq!(document.selection(), Some(rect(1, 2, 2, 1)));
+    assert_eq!(document.selection_rect(), Some(rect(1, 2, 2, 1)));
 }
 
 #[test]
@@ -354,10 +354,10 @@ fn resize_moves_the_rectangle_with_the_pixels_or_clears_it() {
         "resizeCanvas",
         json!({"width": 10, "height": 10, "offsetX": 1, "offsetY": 1}),
     );
-    assert_eq!(document.selection(), Some(rect(2, 2, 2, 2)));
+    assert_eq!(document.selection_rect(), Some(rect(2, 2, 2, 2)));
     assert_eq!((document.width(), document.height()), (10, 10));
     tool(&mut document, "undo", json!({}));
-    assert_eq!(document.selection(), Some(rect(1, 1, 2, 2)));
+    assert_eq!(document.selection_rect(), Some(rect(1, 1, 2, 2)));
     assert_eq!((document.width(), document.height()), (8, 8));
 
     tool(
@@ -367,7 +367,7 @@ fn resize_moves_the_rectangle_with_the_pixels_or_clears_it() {
     );
     assert_eq!(document.selection(), None);
     tool(&mut document, "undo", json!({}));
-    assert_eq!(document.selection(), Some(rect(1, 1, 2, 2)));
+    assert_eq!(document.selection_rect(), Some(rect(1, 1, 2, 2)));
     assert_eq!((document.width(), document.height()), (8, 8));
 }
 
@@ -391,7 +391,7 @@ fn one_gesture_undoes_the_mask_and_the_fill() {
     assert_eq!(document.selection(), None);
     assert_eq!(document.pixels(), &[0, 0, 0, 0]);
     tool(&mut document, "redo", json!({}));
-    assert_eq!(document.selection(), Some(rect(1, 0, 2, 1)));
+    assert_eq!(document.selection_rect(), Some(rect(1, 0, 2, 1)));
     assert_eq!(document.pixels(), &[0, 1, 1, 0]);
 }
 

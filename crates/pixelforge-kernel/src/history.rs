@@ -17,7 +17,7 @@ use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::IndexPolicy;
 use crate::part::Part;
-use crate::selection::Selection;
+use crate::selection::Mask;
 use crate::tag::Tag;
 use crate::Rgba;
 use crate::MAX_UNDO;
@@ -187,11 +187,12 @@ pub(crate) enum Change {
         before: usize,
         after: usize,
     },
-    /// The rectangular mask was set or cleared. `None` means the whole canvas
-    /// is writable. This is not a pixel edit.
+    /// The selection mask was set, combined, or cleared. `None` means the
+    /// whole canvas is writable. An empty mask protects every cell. This is
+    /// not a pixel edit.
     Selection {
-        before: Option<Selection>,
-        after: Option<Selection>,
+        before: Option<Mask>,
+        after: Option<Mask>,
     },
     /// The layer at `from` was moved so it sits at `to`.
     ///
@@ -496,17 +497,13 @@ fn coalesce_active(changes: &mut Vec<Change>, before: usize, after: usize) {
     changes.push(Change::ActiveFrame { before, after });
 }
 
-fn coalesce_selection(
-    changes: &mut Vec<Change>,
-    before: Option<Selection>,
-    after: Option<Selection>,
-) {
+fn coalesce_selection(changes: &mut Vec<Change>, before: Option<Mask>, after: Option<Mask>) {
     if let Some(Change::Selection {
         before: original,
         after: slot,
     }) = changes.last_mut()
     {
-        debug_assert_eq!(*slot, before, "selection history skipped a write");
+        debug_assert_eq!(slot, &before, "selection history skipped a write");
         *slot = after;
         if *original == *slot {
             changes.pop();

@@ -22,7 +22,7 @@ use crate::part::{
     PartUpdate,
 };
 use crate::part_xform::{self, map_point, CellMap, Motion, PartPose};
-use crate::selection::Selection;
+use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
 };
@@ -256,8 +256,8 @@ fn describe_bake_parts(
 /// UI gestures and Tool API calls meet here. Paint, erase, rectangle fill,
 /// rectangle erase, rectangle copy, rectangle move, palette edits, frame
 /// edits, layer edits, and delay edits record kernel operations on this
-/// document. Drawing writes the active layer. When a rectangular selection is
-/// set, paint tools skip cells outside that rectangle. Preview and export
+/// document. Drawing writes the active layer. When a selection mask is set,
+/// paint tools skip cells outside it. Preview and export
 /// composite the stack. Undo restores those operations; it does not patch a
 /// buffer owned by the shell.
 /// Loop playback is preview state: [`Self::tick`] moves the active frame from
@@ -280,9 +280,11 @@ pub struct Document {
     /// Bottom layer is index 0. The same names and order apply to every frame.
     layer_names: Vec<String>,
     active_layer: usize,
-    /// One canvas rectangle shared by every frame and layer, or none.
-    /// Paint tools skip cells outside it. The project file stores it.
-    selection: Option<Selection>,
+    /// Canvas mask shared by every frame and layer, or none.
+    ///
+    /// `None` means every cell is writable. `Some` with no rectangles protects
+    /// every cell. Paint tools skip cells outside it. The project file stores it.
+    selection: Option<Mask>,
     /// Named inclusive frame ranges. Empty when the file omits `tags`.
     /// Not a linked cel: each frame still owns its pixels.
     tags: Vec<Tag>,
@@ -444,12 +446,18 @@ impl Document {
         self.active_layer
     }
 
-    /// The rectangular mask, or `None` when every cell is writable.
+    /// The selection mask, or `None` when every cell is writable.
     ///
-    /// One rectangle in canvas coordinates. It is not per layer and not per
-    /// frame. The project file stores it and omits the field when it is clear.
-    pub fn selection(&self) -> Option<Selection> {
-        self.selection
+    /// One mask in canvas coordinates. It is not per layer and not per frame.
+    /// The project file stores it and omits the field when it is clear.
+    /// An empty mask is `Some` and protects every cell.
+    pub fn selection(&self) -> Option<&Mask> {
+        self.selection.as_ref()
+    }
+
+    /// The mask when it is exactly one rectangle.
+    pub fn selection_rect(&self) -> Option<Selection> {
+        self.selection.as_ref().and_then(Mask::as_rect)
     }
 
     /// Stores a rectangle that lies entirely on the canvas.
@@ -466,30 +474,56 @@ impl Document {
         height: u16,
     ) -> Result<(), KernelError> {
         self.inclusive_rect(x, y, width, height)?;
-        let after = Selection {
+        self.replace_mask(Mask::from_rect(Selection {
             x,
             y,
             width,
             height,
-        };
-        if self.selection == Some(after) {
-            return Ok(());
+        }))
+    }
+
+    /// Replaces the stored selection with `base OP operand`.
+    ///
+    /// `base == None` uses the current selection. With no selection, `union`
+    /// stores `operand` and `intersect` / `subtract` return
+    /// [`KernelError::MaskMissing`]. The result is stored even when it covers
+    /// no cells, so a later fill does not paint the whole canvas. The same
+    /// mask is not recorded. This does not change pixels or the active layer.
+    pub fn combine_mask(
+        &mut self,
+        op: MaskOp,
+        base: Option<Mask>,
+        operand: Mask,
+    ) -> Result<(), KernelError> {
+        if let Some(base) = &base {
+            self.ensure_mask_fits(base)?;
         }
-        let before = self.selection;
-        self.selection = Some(after);
-        self.history.record(Change::Selection {
-            before,
-            after: Some(after),
-        });
-        Ok(())
+        self.ensure_mask_fits(&operand)?;
+        let left = if let Some(base) = base {
+            base
+        } else if let Some(current) = &self.selection {
+            current.clone()
+        } else {
+            return match op {
+                MaskOp::Union => self.replace_mask(operand),
+                MaskOp::Intersect | MaskOp::Subtract => Err(KernelError::MaskMissing),
+            };
+        };
+        let result = match op {
+            MaskOp::Union => left.union(&operand),
+            MaskOp::Intersect => left.intersect(&operand),
+            MaskOp::Subtract => left.subtract(&operand),
+        };
+        self.replace_mask(result)
     }
 
     /// Clears the mask so the whole canvas is writable again.
     ///
     /// A document that already has no selection is not recorded. This does not
-    /// change pixels or the active layer.
+    /// change pixels or the active layer. An empty mask is cleared too: empty
+    /// protects every cell, and clear removes that protection.
     pub fn clear_selection(&mut self) {
-        let Some(before) = self.selection else {
+        let Some(before) = self.selection.clone() else {
             return;
         };
         self.selection = None;
@@ -497,6 +531,24 @@ impl Document {
             before: Some(before),
             after: None,
         });
+    }
+
+    fn ensure_mask_fits(&self, mask: &Mask) -> Result<(), KernelError> {
+        for rect in mask.rects() {
+            self.inclusive_rect(rect.x, rect.y, rect.width, rect.height)?;
+        }
+        Ok(())
+    }
+
+    fn replace_mask(&mut self, mask: Mask) -> Result<(), KernelError> {
+        let after = Some(mask);
+        if self.selection == after {
+            return Ok(());
+        }
+        let before = self.selection.clone();
+        self.selection = after.clone();
+        self.history.record(Change::Selection { before, after });
+        Ok(())
     }
 
     pub fn layer_names(&self) -> &[String] {
@@ -1363,9 +1415,10 @@ impl Document {
                     .collect()
             })
             .collect();
-        let before_selection = self.selection;
+        let before_selection = self.selection.clone();
         let after_selection = self
             .selection
+            .as_ref()
             .and_then(|sel| sel.translated(offset_x, offset_y, width, height));
         let pixels_same =
             self.width == width && self.height == height && before_pixels == after_pixels;
@@ -1408,7 +1461,7 @@ impl Document {
             });
         }
         if !selection_same {
-            self.selection = after_selection;
+            self.selection = after_selection.clone();
             changes.push(Change::Selection {
                 before: before_selection,
                 after: after_selection,
@@ -1591,7 +1644,7 @@ impl Document {
     ///
     /// A zero edge or a span that does not fit is [`KernelError::OutOfBounds`]
     /// and names a cell that is not on the canvas when one exists.
-    fn inclusive_rect(
+    pub(crate) fn inclusive_rect(
         &self,
         x: u16,
         y: u16,
@@ -3454,7 +3507,7 @@ impl Document {
         active: usize,
         layer_names: Vec<String>,
         active_layer: usize,
-        selection: Option<Selection>,
+        selection: Option<Mask>,
         tags: Vec<Tag>,
         parts: Vec<Part>,
         curves: Vec<Curve>,
@@ -3468,7 +3521,7 @@ impl Document {
         );
         debug_assert!(active_layer < layer_names.len(), "active layer was checked");
         debug_assert!(
-            selection.is_none_or(|sel| sel.fits(width, height)),
+            selection.as_ref().is_none_or(|sel| sel.fits(width, height)),
             "selection was checked"
         );
         debug_assert!(
@@ -3926,7 +3979,11 @@ impl Document {
                 self.active_layer = if forward { *after } else { *before };
             }
             Change::Selection { before, after } => {
-                self.selection = if forward { *after } else { *before };
+                self.selection = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
             }
             Change::Tags { before, after } => {
                 self.tags = if forward {
@@ -4048,31 +4105,16 @@ impl Document {
 
     /// A cell outside the selection is protected. No selection accepts every cell.
     fn accepts_write(&self, x: u16, y: u16) -> bool {
-        self.selection.is_none_or(|sel| sel.contains(x, y))
+        self.selection.as_ref().is_none_or(|sel| sel.contains(x, y))
     }
 
     /// True when the whole rectangle is writable. No selection accepts every rect
     /// that the caller has already placed on the canvas.
     fn rect_inside_selection(&self, x: u16, y: u16, width: u16, height: u16) -> bool {
-        let Some(sel) = self.selection else {
-            return true;
-        };
-        if width == 0 || height == 0 {
-            return false;
+        match &self.selection {
+            None => true,
+            Some(sel) => sel.covers_rect(x, y, width, height),
         }
-        let Some(x1) = x.checked_add(width - 1) else {
-            return false;
-        };
-        let Some(y1) = y.checked_add(height - 1) else {
-            return false;
-        };
-        let Some(sel_x1) = sel.x.checked_add(sel.width - 1) else {
-            return false;
-        };
-        let Some(sel_y1) = sel.y.checked_add(sel.height - 1) else {
-            return false;
-        };
-        x >= sel.x && y >= sel.y && x1 <= sel_x1 && y1 <= sel_y1
     }
 
     fn stored_index(&self, index: u8) -> Result<u8, KernelError> {

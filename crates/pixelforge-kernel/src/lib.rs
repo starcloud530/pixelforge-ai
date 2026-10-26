@@ -10,9 +10,10 @@
 //! layer under it.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
-//! A rectangular selection, when stored, limits those paint writes to that
-//! rectangle. The project file stores the rectangle and omits it when clear.
-//! There is no lasso and no magic wand.
+//! A selection mask, when stored, limits those paint writes to that mask.
+//! The mask is one rectangle, or the rectangles left by union, intersect, and
+//! subtract. The project file stores it and omits it when clear. There is no
+//! lasso and no magic wand.
 //! Loop playback advances the active frame from those delays. The TypeScript
 //! shell previews this state; it does not own the pixels, the clock, or a
 //! second history.
@@ -64,7 +65,7 @@ pub use palette_file::PaletteImportMode;
 pub use part::{Anchor, LayerAttach, Part, PartUpdate};
 pub use part_xform::PartPose;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
-pub use selection::Selection;
+pub use selection::{Mask, MaskOp, Selection};
 pub use tag::{LoopMode, Tag, TagUpdate};
 pub use tool_api::{TOOL_API_VERSION, TOOL_NAMES};
 
