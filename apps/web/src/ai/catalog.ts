@@ -570,7 +570,7 @@ const BY_NAME = {
   ),
   bake: tool(
     "bake",
-    "Sample part curves, then solve constraints, and write ordinary editable pixel frames over an inclusive index range. The source frame's pixels stay the rest pose, so a second bake does not stack. Stored part origins, curves, and constraints stay. fps sets delayMs to round(1000/fps) on every frame in the range, including the source. Omit parts to pose every part. Omit layers to write only layers a posed part moves, or the linked layers of parts when that filter is set. constraints false samples curves and skips the solver. from past the last frame appends posed copies of the source. One bake is one undo step when pixels or delays change. There is no script runtime.",
+    "Sample part curves, then solve constraints, and write ordinary editable pixel frames over an inclusive index range. The source frame's pixels stay the rest pose, so a second bake does not stack. Stored part origins, curves, and constraints stay. fps sets delayMs to round(1000/fps) on every frame in the range, including the source. Omit parts to pose every part. Omit layers to write layers managed by the sampled curves and solved constraints, including an identity pose, or the linked layers of parts when that filter is set. constraints false samples curves and skips the solver. from past the last frame appends posed copies of the source. One bake is one undo step when pixels or delays change. There is no script runtime.",
     {
       from: int("First frame index, inclusive. Default 0. May equal the frame count to append only.", 0, 4095),
       to: int("Last frame index, inclusive. Default is the last existing frame. Past the end appends frames. Must be below 4096.", 0, 4095),
