@@ -5,7 +5,7 @@
 //! 10–35 are `A`–`Z`, 36–61 are `a`–`z`, and 62 and above share `*`.
 //! Rendering a frame does not change `activeFrame`.
 
-use pixelforge_kernel::{Document, Rgba};
+use pixelforge_kernel::{Document, Mask, Rgba};
 use serde_json::{json, Value};
 
 pub struct AsciiFrame {
@@ -21,6 +21,8 @@ pub struct AsciiFrame {
     pub layer: Option<usize>,
     /// How many layers the document has. Used only to label the preview.
     pub layer_count: usize,
+    /// True when cells outside a mask are `#`.
+    pub scoped: bool,
     pub rows: Vec<String>,
     pub legend: Vec<LegendEntry>,
 }
@@ -44,6 +46,15 @@ pub fn render_view(
     frame: usize,
     layer: Option<usize>,
 ) -> Result<AsciiFrame, pixelforge_kernel::KernelError> {
+    render_view_scoped(document, frame, layer, None)
+}
+
+pub fn render_view_scoped(
+    document: &Document,
+    frame: usize,
+    layer: Option<usize>,
+    mask: Option<&Mask>,
+) -> Result<AsciiFrame, pixelforge_kernel::KernelError> {
     let width = document.width();
     let height = document.height();
     let pixels = document.view_pixels(frame, layer)?;
@@ -52,7 +63,11 @@ pub fn render_view(
     let mut rows = Vec::with_capacity(usize::from(height));
     for y in 0..usize::from(height) {
         let mut row = String::with_capacity(row_len);
-        for index in &pixels[y * row_len..(y + 1) * row_len] {
+        for (x, index) in pixels[y * row_len..(y + 1) * row_len].iter().enumerate() {
+            if mask.is_some_and(|mask| !mask.contains(x as u16, y as u16)) {
+                row.push('#');
+                continue;
+            }
             seen[usize::from(*index)] = true;
             row.push(glyph(*index));
         }
@@ -83,6 +98,7 @@ pub fn render_view(
         active_layer: document.active_layer(),
         layer,
         layer_count: document.layer_count(),
+        scoped: mask.is_some(),
         rows,
         legend,
     })
@@ -138,6 +154,9 @@ pub fn eprint_frame(frame: &AsciiFrame) {
         eprintln!("{row}");
     }
     eprintln!("pixelforge: legend {}", legend_line(frame));
+    if frame.scoped {
+        eprintln!("pixelforge: # = protect, outside the mask");
+    }
 }
 
 fn legend_line(frame: &AsciiFrame) -> String {

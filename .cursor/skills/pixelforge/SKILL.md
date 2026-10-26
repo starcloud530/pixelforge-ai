@@ -69,12 +69,12 @@ cargo run -p pixelforge-cli -- --help
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
-- 矩形选区写在工程文件的 `selection` 里。没有选区时省略这个字段。它不是套索，也不是魔棒。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`remapPalette` 和 `applyPng` 不看选区。
+- 选区写在工程文件的 `selection` 里。一块矩形是 `{x,y,width,height}`。多块或空蒙版是 `{rects:[...]}`。没有选区时省略这个字段。它不是套索，也不是魔棒。`mask union|intersect|subtract`（Tool API `combineMask`）把矩形收成这份蒙版。空蒙版保护每一格；要整幅又可写，用 `selection clear`。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`preview` / `diff` 的 `--selection`，或一块 `--x --y --width --height`，或重复的 `--mask`，只比较蒙版内；外面是 `#`，不算 `changed`。`remapPalette` 和 `applyPng` 不看选区。
 - 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素。约束见「约束」：`constraint solve` 才把从动部件的锚点跟到目标，挂接层的墨水在 `--apply` 时一起平移。空的约束列表不写进文件。`bake` 把曲线和约束采样写进一段帧的像素里，源帧的像素留着，曲线和约束也不删。见「烘焙」。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
-*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A rectangular `selection` is stored in the project and omitted when clear. Paint tools then skip cells outside it. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file.*
+*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A `selection` is one rectangle or a mask of rectangles, stored in the project and omitted when clear. `combineMask` unions, intersects, or subtracts. Paint tools then skip cells outside it. `preview` and `diff` can take that mask and mark the outside `#`. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file.*
 
 ## Output and exit codes
 
@@ -96,7 +96,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1
 ```
 
-`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（矩形或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）、`constraints`（`index`、`name`、`kind`、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`；没有约束时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。没有约束时工程文件也省略 `constraints`。
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（一块矩形、`{rects}`，或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）、`constraints`（`index`、`name`、`kind`、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`；没有约束时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。没有约束时工程文件也省略 `constraints`。
 
 `visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
 
@@ -104,9 +104,9 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。`importAseprite` 不接受这个字段。
 
-`preview` 除了 `rows`，还有 `ink`（非 0 格数）、`bounds`、`indices`（每个索引用了几次）、`pixels`（这一张视图的索引，行优先）。字形 `*` 把 62 及以上折成同一个字符，读索引用 `pixels`。
+`preview` 除了 `rows`，还有 `ink`（非 0 格数）、`bounds`、`indices`（每个索引用了几次）、`pixels`（这一张视图的索引，行优先）。字形 `*` 把 62 及以上折成同一个字符，读索引用 `pixels`。限定范围时另有 `scope`、`mask`、`protected`。`ink` 只数蒙版内。`pixels` 仍是整幅。
 
-`diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。
+`diff` 除了 `diffRows` 和 `changed`，还有 `bounds`、`kinds`（`same`、`differ`、`onlyFrame`、`onlyWith`）、`changes`（`x`、`y`、`left`、`right`）。`!` 不带两边的索引，索引在 `changes` 里。限定范围时 `changed` 只数蒙版内，蒙版外的字形是 `#`，不算 `same`。不限定时没有 `scope` 字段。
 
 *Read `scene` before painting. It does not write the file and it does not return the pixel buffer. `visible` is always true and `opacity` is always null. `tags` is the named frame ranges, or `[]`. `parts` is the named parts and anchors, or `[]`. `curves` is the part-parameter tracks, or `[]`. `constraints` is the follow, attach, and pin list, or `[]`. `paletteHash` is FNV-1a 64 of each entry's `r,g,b,a` in index order. `--dirty` adds `changed`, `dirty`, and `regions` on the drawing tools and on part translate, rotate, and flip; omit it and those fields stay absent. `preview` adds `ink`, `bounds`, `indices`, and `pixels`. `diff` adds `bounds`, `kinds`, and `changes`. This is not a command log.*
 
@@ -116,7 +116,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `preview` 子命令只读。它把 ASCII 打到 stderr，并写出最近邻彩色 PNG。`--scale K` 与导出相同（整数 ≥ 1，默认 1）。路径在 `result.path`（默认工程旁边的 `<stem>.preview.png`，或 `--output`）。`--frame N` 画第 N 帧，不改 `activeFrame`，也不改文件。`--layer N` 只画那一层，不选中它。`result.frame` 是这张图，`result.activeFrame` 仍是文档的当前帧。字形：`.` 透明（索引 0），`1`–`9` 是这些索引，`A`–`Z` 是 10–35，`a`–`z` 是 36–61，`*` 是 62 及以上（stderr 的 legend 写出索引）。会改像素的命令上的 `--preview` 只有 ASCII，不写这张彩色 PNG。
 
-`diff` 只读。`--frame A --with B`。stderr：`.` 索引相同，`!` 两边都有墨且不同，其它字形是唯一有墨的那边。彩色 PNG 在 `result.path`（默认 `<stem>.diff.png`），三格：frame、with、洋葱皮。洋葱皮不改像素。`--scale` 同上。`--layer N` 只比较那一层。
+`diff` 只读。`--frame A --with B`。stderr：`.` 索引相同，`!` 两边都有墨且不同，其它字形是唯一有墨的那边。彩色 PNG 在 `result.path`（默认 `<stem>.diff.png`），三格：frame、with、洋葱皮。洋葱皮不改像素。`--scale` 同上。`--layer N` 只比较那一层。`--selection` 用工程里的蒙版；`--x --y --width --height` 或重复的 `--mask x,y,width,height` 用那一块范围。三种范围只写一种。蒙版外是 `#`，PNG 上是保护色，不计入 `changed`。没有选区却写 `--selection` 是 `MaskMissing`，退出码 `2`。
 
 `hflip` 等于 `flip --horizontal`，不需要再写 `--horizontal`。`vflip` 等于 `flip --vertical`。`flip` 必须恰好写其中一个方向，否则退出码 `2`。两者都只搬索引，不改颜色。水平：`x` 收到 `origin + width - 1 - x`。垂直：`y` 收到 `origin + height - 1 - y`。`rotate --degrees` 是 `90`、`180` 或 `270`，顺时针，只搬索引。90 和 270 要求正方形矩形，不改变画布尺寸；不是正方形时是 `RotateSquare`，一格都不写。不写矩形就是整帧；写矩形时 `x`、`y`、`width`、`height` 要齐。`--frame N` 不切换当前帧。`--layer N` 只改那一层。有选区时，目标格和源格都在选区内才写入。一步撤销。
 
@@ -283,7 +283,36 @@ pixelforge fill-rect --project hero.json --layer 1 --x 0 --y 0 --width 32 --heig
 pixelforge selection clear --project hero.json
 ```
 
-`move-rect` 在选区激活时，源和目标都要整块在矩形内。`remap` 不看选区。
+`move-rect` 在选区激活时，源和目标都要整块在蒙版内。`remap` 不看选区。
+
+### 只 diff 头盔选区
+
+先把选区框在头盔上，再只比较这一块。装备层用 `--layer`，它不改 `activeLayer`。
+
+*Diff only the helmet. `--selection` counts cells inside the stored mask. `--layer` does not select that layer.*
+
+```bash
+pixelforge selection set --project hero.json --x 10 --y 4 --width 12 --height 10
+pixelforge diff --project hero.json --frame 0 --with 1 --layer 1 --selection --scale 4
+```
+
+`changed`、`kinds`、`changes` 只数头盔里的格子。选区外的 ASCII 是 `#`，不算 `same`，也不算变化。`result.scope` 是 `selection`。不写 `--selection` 时仍是整幅比较，结果里没有 `scope`。
+
+### mask 减去脚底再 fill
+
+`mask subtract` 用身体矩形减去脚底，结果写进 `selection`。不改像素，也不改 `activeLayer`。接着的整画布填充只落在剩下的格子上。`--dirty` 的 `changed` 等于蒙版的 `cells`。脚底仍是索引 0。
+
+*Subtract the feet from the body mask, then fill. The fill stays inside the mask. `cells` is the dirty count. The feet stay index 0.*
+
+```bash
+pixelforge mask subtract --project hero.json \
+  --base-x 8 --base-y 16 --base-width 16 --base-height 40 \
+  --x 12 --y 52 --width 8 --height 4
+pixelforge fill-rect --project hero.json --layer 1 \
+  --x 0 --y 0 --width 64 --height 96 --color-index 3 --dirty
+```
+
+没有选区时，`subtract` 和 `intersect` 是 `MaskMissing`（退出码 `1`）。`union` 会把操作数存成选区。空蒙版（`rects: []`）保护每一格。要再画整幅，先 `selection clear`。
 
 ### One undo step
 

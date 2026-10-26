@@ -30,6 +30,8 @@ Examples:
   pixelforge preview --project hero.json --scale 4
   pixelforge preview --project hero.json --frame 1 --scale 4 --output hero-f1.png
   pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
+  pixelforge diff --project hero.json --frame 0 --with 1 --selection
+  pixelforge mask subtract --project hero.json --x 8 --y 36 --width 16 --height 6
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --dirty
   pixelforge resize --project hero.json --width 64 --height 64
   pixelforge layer add --project hero.json --name gear
@@ -68,7 +70,13 @@ index 0 shows the layer under it, and any other index covers that layer.
 change activeFrame or the project file. `--scale K` matches export (integer
 >= 1, default 1). Stdout JSON keeps `result.rows` and adds `result.path`.
 `diff` is read-only: ASCII index diff plus a PNG with frame, with, and an
-onion blend, all from the composite unless `--layer` is set. `flip
+onion blend, all from the composite unless `--layer` is set. `--selection`
+limits preview and diff to the stored mask. `--x --y --width --height` or
+repeat `--mask x,y,width,height` limits them to that rectangle instead.
+Cells outside are `#` and are not part of `changed`. `mask union`,
+`mask intersect`, and `mask subtract` combine that rectangle with the stored
+selection, or with `--base-x --base-y --base-width --base-height`. The result
+is the selection paint tools already use. There is no lasso. `flip
 --horizontal` / `hflip` mirrors indices left to right. `flip --vertical` /
 `vflip` mirrors them top to bottom. `rotate --degrees 90|180|270` turns
 indices clockwise. 90 and 270 need a square rectangle; the canvas size
@@ -195,6 +203,8 @@ pub enum Command {
         /// Draw this layer only. Omit to draw the composite. Does not select it.
         #[arg(long)]
         layer: Option<u32>,
+        #[command(flatten)]
+        scope: ScopeArgs,
     },
     /// Read-only index diff and onion PNG of two frames.
     ///
@@ -219,6 +229,8 @@ pub enum Command {
         /// Compare this layer only. Omit to compare the composite.
         #[arg(long)]
         layer: Option<u32>,
+        #[command(flatten)]
+        scope: ScopeArgs,
     },
     /// Run one or more Tool API requests against one document.
     ///
@@ -294,6 +306,15 @@ pub enum Command {
     Selection {
         #[command(subcommand)]
         command: SelectionCmd,
+    },
+    /// Combine rectangles into the stored selection.
+    ///
+    /// Not a lasso. `union`, `intersect`, and `subtract` update the same
+    /// selection paint tools already read. Pass one rectangle, or repeat
+    /// `--mask`. Omit the base to use the current selection.
+    Mask {
+        #[command(subcommand)]
+        command: MaskCmd,
     },
     /// Replace one stored palette index on the active frame.
     ///
@@ -612,6 +633,107 @@ pub enum SelectionCmd {
         #[command(flatten)]
         doc: ProjectArgs,
     },
+}
+
+/// Limit `preview` or `diff` to the stored selection, one rectangle, or a mask.
+#[derive(Args, Default)]
+pub struct ScopeArgs {
+    /// Use the selection stored in the project. Outside cells are protected.
+    #[arg(long)]
+    pub selection: bool,
+    /// Left column of an explicit rectangle. Pass y, width, and height too.
+    #[arg(long)]
+    pub x: Option<u16>,
+    /// Top row of an explicit rectangle.
+    #[arg(long)]
+    pub y: Option<u16>,
+    /// Width of an explicit rectangle, from 1.
+    #[arg(long)]
+    pub width: Option<u16>,
+    /// Height of an explicit rectangle, from 1.
+    #[arg(long)]
+    pub height: Option<u16>,
+    /// One rectangle of an explicit mask, as `x,y,width,height`. Repeat to combine.
+    #[arg(long, value_parser = parse_cell_rect)]
+    pub mask: Vec<CellRect>,
+}
+
+/// `x,y,width,height` in cells.
+#[derive(Clone, Debug)]
+pub struct CellRect {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
+fn parse_cell_rect(text: &str) -> Result<CellRect, String> {
+    let parts: Vec<&str> = text.split(',').collect();
+    if parts.len() != 4 {
+        return Err("expected x,y,width,height".to_string());
+    }
+    let numbers: Vec<u16> = parts
+        .iter()
+        .map(|part| {
+            part.parse::<u16>()
+                .map_err(|_| format!("expected x,y,width,height, got {text}"))
+        })
+        .collect::<Result<_, _>>()?;
+    if numbers[2] == 0 || numbers[3] == 0 {
+        return Err("width and height must be at least 1".to_string());
+    }
+    Ok(CellRect {
+        x: numbers[0],
+        y: numbers[1],
+        width: numbers[2],
+        height: numbers[3],
+    })
+}
+
+#[derive(Subcommand)]
+pub enum MaskCmd {
+    /// Add a rectangle to the current selection, or to `--base-*`.
+    Union(MaskArgs),
+    /// Keep only the overlap with the current selection, or with `--base-*`.
+    Intersect(MaskArgs),
+    /// Remove a rectangle from the current selection, or from `--base-*`.
+    Subtract(MaskArgs),
+}
+
+#[derive(Args)]
+pub struct MaskArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Left column of the rectangle to combine.
+    #[arg(long)]
+    pub x: Option<u16>,
+    /// Top row of the rectangle to combine.
+    #[arg(long)]
+    pub y: Option<u16>,
+    /// Width of the rectangle to combine, from 1.
+    #[arg(long)]
+    pub width: Option<u16>,
+    /// Height of the rectangle to combine, from 1.
+    #[arg(long)]
+    pub height: Option<u16>,
+    /// One rectangle of the operand, as `x,y,width,height`. Repeat to union them first.
+    #[arg(long, value_parser = parse_cell_rect)]
+    pub mask: Vec<CellRect>,
+    /// Left column of the other mask. Omit all four base edges to use the selection.
+    #[arg(long)]
+    pub base_x: Option<u16>,
+    /// Top row of the other mask.
+    #[arg(long)]
+    pub base_y: Option<u16>,
+    /// Width of the other mask, from 1.
+    #[arg(long)]
+    pub base_width: Option<u16>,
+    /// Height of the other mask, from 1.
+    #[arg(long)]
+    pub base_height: Option<u16>,
+    /// One rectangle of the other mask, as `x,y,width,height`. Repeat to union them first.
+    #[arg(long, value_parser = parse_cell_rect)]
+    pub base_mask: Vec<CellRect>,
 }
 
 #[derive(Args)]

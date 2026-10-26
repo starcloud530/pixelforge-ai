@@ -78,15 +78,31 @@ pub(crate) fn palette_hash(colors: &[Rgba]) -> String {
 
 /// Ink count, tight bounds of non-zero cells, and a count per used index.
 pub(crate) fn summarize_view(pixels: &[u8], width: u16) -> ViewSummary {
+    summarize_view_where(pixels, width, |_, _| true)
+}
+
+/// [`summarize_view`] counting only cells `include` accepts.
+///
+/// Cells outside the mask are not ink and are not an index count, including
+/// index 0. The caller reports them as protected.
+pub(crate) fn summarize_view_where(
+    pixels: &[u8],
+    width: u16,
+    include: impl Fn(u16, u16) -> bool,
+) -> ViewSummary {
     let mut counts = [0u32; 256];
     let mut ink = 0usize;
     let mut ink_cells = Vec::new();
     let stride = usize::from(width);
     for (offset, index) in pixels.iter().copied().enumerate() {
+        let (x, y) = cell_at(offset, stride);
+        if !include(x, y) {
+            continue;
+        }
         counts[usize::from(index)] = counts[usize::from(index)].saturating_add(1);
         if index != 0 {
             ink += 1;
-            ink_cells.push(cell_at(offset, stride));
+            ink_cells.push((x, y));
         }
     }
     let indices = counts
@@ -104,6 +120,19 @@ pub(crate) fn summarize_view(pixels: &[u8], width: u16) -> ViewSummary {
 
 /// `.` / `!` / only-ink counts, plus the indices of every cell that differs.
 pub(crate) fn summarize_diff(left: &[u8], right: &[u8], width: u16) -> DiffSummary {
+    summarize_diff_where(left, right, width, |_, _| true)
+}
+
+/// [`summarize_diff`] counting only cells `include` accepts.
+///
+/// Cells outside the mask are not `same` and not a change. The caller reports
+/// them as protected.
+pub(crate) fn summarize_diff_where(
+    left: &[u8],
+    right: &[u8],
+    width: u16,
+    include: impl Fn(u16, u16) -> bool,
+) -> DiffSummary {
     let stride = usize::from(width);
     let mut same = 0usize;
     let mut differ = 0usize;
@@ -112,6 +141,10 @@ pub(crate) fn summarize_diff(left: &[u8], right: &[u8], width: u16) -> DiffSumma
     let mut changed_at = Vec::new();
     let mut changes = Vec::new();
     for (offset, (left, right)) in left.iter().copied().zip(right.iter().copied()).enumerate() {
+        let (x, y) = cell_at(offset, stride);
+        if !include(x, y) {
+            continue;
+        }
         if left == right {
             same += 1;
             continue;
@@ -123,7 +156,6 @@ pub(crate) fn summarize_diff(left: &[u8], right: &[u8], width: u16) -> DiffSumma
         } else {
             only_with += 1;
         }
-        let (x, y) = cell_at(offset, stride);
         changed_at.push((x, y));
         changes.push(CellChange { x, y, left, right });
     }

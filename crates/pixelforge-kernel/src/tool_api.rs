@@ -25,6 +25,7 @@ use crate::palette_file::PaletteImportMode;
 use crate::palette_map::{ColorMerge, DroppedColor, MapReport};
 use crate::part::{LayerAttach, PartUpdate};
 use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
+use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{LoopMode, TagUpdate};
 use crate::MAX_CANVAS_EDGE;
 
@@ -45,6 +46,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "moveRect",
     "setSelection",
     "clearSelection",
+    "combineMask",
     "replaceIndex",
     "setPaletteColor",
     "addPaletteColor",
@@ -470,6 +472,13 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             document.clear_selection();
             Ok(selection_value(document))
         }
+        "combineMask" => {
+            let (op, base, operand) = parse_combine_mask(params)?;
+            document
+                .combine_mask(op, base, operand)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(combine_value(document, op))
+        }
         "replaceIndex" => {
             let (from_index, to_index, layer) = parse_replace(params)?;
             let written = if to_index == crate::TRANSPARENT_INDEX {
@@ -873,18 +882,24 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(result)
         }
         "previewFrame" => {
-            let (frame, scale, layer) = parse_preview(params, document.active_frame())?;
+            let (frame, scale, layer, scope) = parse_preview(params, document)?;
             let (png_width, png_height) = document
                 .scaled_frame_size(scale)
                 .map_err(ToolFailure::Kernel)?;
             let pixels = document
                 .view_pixels(frame, layer)
                 .map_err(ToolFailure::Kernel)?;
-            let summary = scene::summarize_view(&pixels, document.width());
+            let mask = scope.as_ref().map(|scope| &scope.mask);
+            let summary = match mask {
+                Some(mask) => scene::summarize_view_where(&pixels, document.width(), |x, y| {
+                    mask.contains(x, y)
+                }),
+                None => scene::summarize_view(&pixels, document.width()),
+            };
             let png = document
-                .export_view_png(frame, scale, layer)
+                .export_view_png_masked(frame, scale, layer, mask)
                 .map_err(ToolFailure::Kernel)?;
-            Ok(serde_json::json!({
+            let mut result = serde_json::json!({
                 "frame": frame,
                 "activeFrame": document.active_frame(),
                 "activeLayer": document.active_layer(),
@@ -900,21 +915,36 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "pngWidth": png_width,
                 "pngHeight": png_height,
                 "png": encode_base64(&png),
-            }))
+            });
+            attach_scope(
+                &mut result,
+                scope.as_ref(),
+                document.width(),
+                document.height(),
+            );
+            Ok(result)
         }
         "diffFrames" => {
-            let (frame, with, scale, layer) = parse_diff(params)?;
+            let (frame, with, scale, layer, scope) = parse_diff(params, document)?;
             let left = document
                 .view_pixels(frame, layer)
                 .map_err(ToolFailure::Kernel)?;
             let right = document
                 .view_pixels(with, layer)
                 .map_err(ToolFailure::Kernel)?;
-            let summary = scene::summarize_diff(&left, &right, document.width());
+            let mask = scope.as_ref().map(|scope| &scope.mask);
+            let summary = match mask {
+                Some(mask) => {
+                    scene::summarize_diff_where(&left, &right, document.width(), |x, y| {
+                        mask.contains(x, y)
+                    })
+                }
+                None => scene::summarize_diff(&left, &right, document.width()),
+            };
             let diff = document
-                .diff_frames_on(frame, with, scale, layer)
+                .diff_frames_masked(frame, with, scale, layer, mask)
                 .map_err(ToolFailure::Kernel)?;
-            Ok(serde_json::json!({
+            let mut result = serde_json::json!({
                 "frame": diff.frame,
                 "with": diff.with,
                 "activeFrame": document.active_frame(),
@@ -933,7 +963,14 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "pngWidth": diff.png_width,
                 "pngHeight": diff.png_height,
                 "png": encode_base64(&diff.png),
-            }))
+            });
+            attach_scope(
+                &mut result,
+                scope.as_ref(),
+                document.width(),
+                document.height(),
+            );
+            Ok(result)
         }
         "flipHorizontal" => {
             let report = take_report_dirty(tool, &mut params)?;
@@ -1524,13 +1561,57 @@ fn tag_fields(index: usize, name: &str, from: usize, to: usize, loop_mode: LoopM
 fn selection_json(document: &Document) -> Value {
     match document.selection() {
         None => Value::Null,
-        Some(selection) => serde_json::json!({
+        Some(mask) => mask_json(mask),
+    }
+}
+
+fn mask_json(mask: &Mask) -> Value {
+    if let Some(selection) = mask.as_rect() {
+        serde_json::json!({
             "x": selection.x,
             "y": selection.y,
             "width": selection.width,
             "height": selection.height,
-        }),
+        })
+    } else {
+        serde_json::json!({
+            "rects": mask.rects().iter().map(|selection| serde_json::json!({
+                "x": selection.x,
+                "y": selection.y,
+                "width": selection.width,
+                "height": selection.height,
+            })).collect::<Vec<_>>(),
+        })
     }
+}
+
+fn combine_value(document: &Document, op: MaskOp) -> Value {
+    let mask = document
+        .selection()
+        .expect("combineMask stores a mask, including an empty one");
+    serde_json::json!({
+        "op": op.as_str(),
+        "selection": mask_json(mask),
+        "cells": mask.cell_count(),
+    })
+}
+
+struct ViewScope {
+    mode: &'static str,
+    mask: Mask,
+}
+
+fn attach_scope(result: &mut Value, scope: Option<&ViewScope>, width: u16, height: u16) {
+    let Some(scope) = scope else {
+        return;
+    };
+    let Some(object) = result.as_object_mut() else {
+        return;
+    };
+    let protected = u32::from(width) * u32::from(height) - scope.mask.cell_count();
+    object.insert("scope".to_string(), serde_json::json!(scope.mode));
+    object.insert("mask".to_string(), mask_json(&scope.mask));
+    object.insert("protected".to_string(), serde_json::json!(protected));
 }
 
 fn selection_value(document: &Document) -> Value {
@@ -2519,24 +2600,60 @@ fn parse_loop_mode(tool: &str, value: &Value) -> Result<LoopMode, ToolFailure> {
         .ok_or_else(|| invalid_params(tool, "loop must be forward, reverse, pingpong, or once"))
 }
 
-fn parse_preview(params: Value, active: usize) -> Result<(usize, u32, Option<usize>), ToolFailure> {
+fn parse_preview(
+    params: Value,
+    document: &Document,
+) -> Result<(usize, u32, Option<usize>, Option<ViewScope>), ToolFailure> {
     let map = expect_object("previewFrame", params)?;
-    reject_params("previewFrame", &map, &["frame", "scale", "layer"])?;
+    reject_params(
+        "previewFrame",
+        &map,
+        &[
+            "frame",
+            "scale",
+            "layer",
+            "selection",
+            "x",
+            "y",
+            "width",
+            "height",
+            "mask",
+        ],
+    )?;
     let frame = match optional_frame("previewFrame", &map, "frame")? {
         Some(frame) => frame,
-        None => active,
+        None => document.active_frame(),
     };
     let scale = match map.get("scale") {
         None => 1,
         Some(_) => require_u32_at_least("previewFrame", &map, "scale", 1)?,
     };
     let layer = optional_frame("previewFrame", &map, "layer")?;
-    Ok((frame, scale, layer))
+    let scope = resolve_scope(document, "previewFrame", &map)?;
+    Ok((frame, scale, layer, scope))
 }
 
-fn parse_diff(params: Value) -> Result<(usize, usize, u32, Option<usize>), ToolFailure> {
+fn parse_diff(
+    params: Value,
+    document: &Document,
+) -> Result<(usize, usize, u32, Option<usize>, Option<ViewScope>), ToolFailure> {
     let map = expect_object("diffFrames", params)?;
-    reject_params("diffFrames", &map, &["frame", "with", "scale", "layer"])?;
+    reject_params(
+        "diffFrames",
+        &map,
+        &[
+            "frame",
+            "with",
+            "scale",
+            "layer",
+            "selection",
+            "x",
+            "y",
+            "width",
+            "height",
+            "mask",
+        ],
+    )?;
     let frame = require_frame("diffFrames", &map, "frame")?;
     let with = require_frame("diffFrames", &map, "with")?;
     let scale = match map.get("scale") {
@@ -2544,7 +2661,206 @@ fn parse_diff(params: Value) -> Result<(usize, usize, u32, Option<usize>), ToolF
         Some(_) => require_u32_at_least("diffFrames", &map, "scale", 1)?,
     };
     let layer = optional_frame("diffFrames", &map, "layer")?;
-    Ok((frame, with, scale, layer))
+    let scope = resolve_scope(document, "diffFrames", &map)?;
+    Ok((frame, with, scale, layer, scope))
+}
+
+fn resolve_scope(
+    document: &Document,
+    tool: &str,
+    map: &Map<String, Value>,
+) -> Result<Option<ViewScope>, ToolFailure> {
+    let selection = match map.get("selection") {
+        None => false,
+        Some(Value::Bool(true)) => true,
+        Some(_) => return Err(invalid_params(tool, "selection must be true")),
+    };
+    let has_rect = ["x", "y", "width", "height"]
+        .iter()
+        .any(|key| map.contains_key(*key));
+    let has_mask = map.contains_key("mask");
+    let chosen = usize::from(selection) + usize::from(has_rect) + usize::from(has_mask);
+    if chosen > 1 {
+        return Err(invalid_params(
+            tool,
+            "pass only one of selection, x/y/width/height, or mask",
+        ));
+    }
+    if chosen == 0 {
+        return Ok(None);
+    }
+    if selection {
+        let Some(mask) = document.selection().cloned() else {
+            return Err(ToolFailure::Kernel(KernelError::MaskMissing));
+        };
+        return Ok(Some(ViewScope {
+            mode: "selection",
+            mask,
+        }));
+    }
+    let mask = if has_rect {
+        let (x, y, width, height) = rect_from(tool, map)?;
+        Mask::from_rect(Selection {
+            x,
+            y,
+            width,
+            height,
+        })
+    } else {
+        mask_array(tool, "mask", map.get("mask").expect("mask was checked"))?
+    };
+    for rect in mask.rects() {
+        document
+            .inclusive_rect(rect.x, rect.y, rect.width, rect.height)
+            .map_err(ToolFailure::Kernel)?;
+    }
+    let mode = if has_rect { "rect" } else { "mask" };
+    Ok(Some(ViewScope { mode, mask }))
+}
+
+fn parse_combine_mask(params: Value) -> Result<(MaskOp, Option<Mask>, Mask), ToolFailure> {
+    let map = expect_object("combineMask", params)?;
+    reject_params(
+        "combineMask",
+        &map,
+        &[
+            "op",
+            "x",
+            "y",
+            "width",
+            "height",
+            "mask",
+            "base",
+            "baseX",
+            "baseY",
+            "baseWidth",
+            "baseHeight",
+        ],
+    )?;
+    let op = match map
+        .get("op")
+        .and_then(Value::as_str)
+        .and_then(MaskOp::parse)
+    {
+        Some(op) => op,
+        None => {
+            return Err(invalid_params(
+                "combineMask",
+                "op must be union, intersect, or subtract",
+            ))
+        }
+    };
+    let has_rect = ["x", "y", "width", "height"]
+        .iter()
+        .any(|key| map.contains_key(*key));
+    let has_mask = map.contains_key("mask");
+    if has_rect == has_mask {
+        return Err(invalid_params(
+            "combineMask",
+            "pass x, y, width, and height, or mask",
+        ));
+    }
+    let operand = if has_rect {
+        let (x, y, width, height) = rect_from("combineMask", &map)?;
+        Mask::from_rect(Selection {
+            x,
+            y,
+            width,
+            height,
+        })
+    } else {
+        mask_array(
+            "combineMask",
+            "mask",
+            map.get("mask").expect("mask was checked"),
+        )?
+    };
+    let has_base_rect = ["baseX", "baseY", "baseWidth", "baseHeight"]
+        .iter()
+        .any(|key| map.contains_key(*key));
+    let has_base = map.contains_key("base");
+    if has_base && has_base_rect {
+        return Err(invalid_params(
+            "combineMask",
+            "pass base or baseX, baseY, baseWidth, and baseHeight",
+        ));
+    }
+    let base = if has_base_rect {
+        let x = require_u16("combineMask", &map, "baseX")?;
+        let y = require_u16("combineMask", &map, "baseY")?;
+        let width = require_u16_at_least("combineMask", &map, "baseWidth", 1)?;
+        let height = require_u16_at_least("combineMask", &map, "baseHeight", 1)?;
+        Some(Mask::from_rect(Selection {
+            x,
+            y,
+            width,
+            height,
+        }))
+    } else if has_base {
+        Some(mask_value(
+            "combineMask",
+            "base",
+            map.get("base").expect("base was checked"),
+        )?)
+    } else {
+        None
+    };
+    Ok((op, base, operand))
+}
+
+fn mask_array(tool: &str, key: &str, value: &Value) -> Result<Mask, ToolFailure> {
+    let Some(items) = value.as_array() else {
+        return Err(invalid_params(
+            tool,
+            &format!("{key} must be an array of rectangles"),
+        ));
+    };
+    if items.is_empty() {
+        return Err(invalid_params(
+            tool,
+            &format!("{key} must list at least one rectangle"),
+        ));
+    }
+    let mut rects = Vec::with_capacity(items.len());
+    for item in items {
+        rects.push(rect_value(tool, key, item)?);
+    }
+    Mask::try_from_rects(rects)
+        .map_err(|()| invalid_params(tool, &format!("{key} has an empty rectangle")))
+}
+
+fn mask_value(tool: &str, key: &str, value: &Value) -> Result<Mask, ToolFailure> {
+    if value.is_array() {
+        return mask_array(tool, key, value);
+    }
+    Ok(Mask::from_rect(rect_value(tool, key, value)?))
+}
+
+fn rect_value(tool: &str, key: &str, value: &Value) -> Result<Selection, ToolFailure> {
+    let Some(map) = value.as_object() else {
+        return Err(invalid_params(
+            tool,
+            &format!("{key} must be a rectangle with x, y, width, and height"),
+        ));
+    };
+    if map.len() != 4
+        || ["x", "y", "width", "height"]
+            .iter()
+            .any(|field| !map.contains_key(*field))
+    {
+        return Err(invalid_params(
+            tool,
+            &format!("{key} must be a rectangle with x, y, width, and height"),
+        ));
+    }
+    let owned = Map::clone(map);
+    let (x, y, width, height) = rect_from(tool, &owned)?;
+    Ok(Selection {
+        x,
+        y,
+        width,
+        height,
+    })
 }
 
 struct FlipSpec {

@@ -23,8 +23,10 @@
 //! omits `curves` and loads with none. An empty curve list is still saved that
 //! way. A file written before constraints existed omits `constraints` and loads
 //! with none. An empty constraint list is still saved that way. A missing
-//! `selection` loads as no mask. The rectangle
-//! is written only while one is set. The undo stack is still omitted.
+//! `selection` loads as no mask. One rectangle is written as
+//! `{x,y,width,height}`. Several rectangles, or a mask that covers nothing,
+//! are written as `{rects:[...]}`. The field is omitted when the selection is
+//! clear. The undo stack is still omitted.
 
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +37,7 @@ use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
 use crate::palette::{IndexPolicy, Palette};
 use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
-use crate::selection::Selection;
+use crate::selection::{Mask, Selection};
 use crate::tag::{normalize_tag_name, LoopMode, Tag};
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
@@ -79,7 +81,7 @@ struct ProjectFile {
     /// Missing, or `reject`, unless paint should clamp out-of-range indices.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     index_policy: Option<String>,
-    /// Missing when every cell is writable. One rectangle in canvas cells.
+    /// Missing when every cell is writable. One rectangle, or `rects`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     selection: Option<SelectionFile>,
     frames: Vec<FrameFile>,
@@ -98,12 +100,25 @@ struct ProjectFile {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum SelectionFile {
+    Rect(SelectionRectFile),
+    Rects(SelectionRectsFile),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct SelectionFile {
+struct SelectionRectFile {
     x: u64,
     y: u64,
     width: u64,
     height: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SelectionRectsFile {
+    rects: Vec<SelectionRectFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -686,21 +701,33 @@ fn selection_from_file(
     value: Option<SelectionFile>,
     width: u16,
     height: u16,
-) -> Result<Option<Selection>, KernelError> {
+) -> Result<Option<Mask>, KernelError> {
     let Some(file) = value else {
         return Ok(None);
     };
-    let selection = Selection {
+    let rects = match file {
+        SelectionFile::Rect(rect) => vec![selection_rect_from_file(rect)?],
+        SelectionFile::Rects(file) => file
+            .rects
+            .into_iter()
+            .map(selection_rect_from_file)
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    let mask = Mask::try_from_rects(rects).map_err(|()| invalid(ProjectFileError::Selection))?;
+    if mask.fits(width, height) {
+        Ok(Some(mask))
+    } else {
+        Err(invalid(ProjectFileError::Selection))
+    }
+}
+
+fn selection_rect_from_file(file: SelectionRectFile) -> Result<Selection, KernelError> {
+    Ok(Selection {
         x: u16::try_from(file.x).map_err(|_| invalid(ProjectFileError::Selection))?,
         y: u16::try_from(file.y).map_err(|_| invalid(ProjectFileError::Selection))?,
         width: u16::try_from(file.width).map_err(|_| invalid(ProjectFileError::Selection))?,
         height: u16::try_from(file.height).map_err(|_| invalid(ProjectFileError::Selection))?,
-    };
-    if selection.fits(width, height) {
-        Ok(Some(selection))
-    } else {
-        Err(invalid(ProjectFileError::Selection))
-    }
+    })
 }
 
 fn index_policy_from_file(value: Option<String>) -> Result<IndexPolicy, KernelError> {
@@ -942,7 +969,24 @@ fn invalid(error: ProjectFileError) -> KernelError {
     KernelError::ProjectFile(error)
 }
 
-impl From<Selection> for SelectionFile {
+impl From<&Mask> for SelectionFile {
+    fn from(mask: &Mask) -> Self {
+        if let Some(selection) = mask.as_rect() {
+            Self::Rect(SelectionRectFile::from(selection))
+        } else {
+            Self::Rects(SelectionRectsFile {
+                rects: mask
+                    .rects()
+                    .iter()
+                    .copied()
+                    .map(SelectionRectFile::from)
+                    .collect(),
+            })
+        }
+    }
+}
+
+impl From<Selection> for SelectionRectFile {
     fn from(selection: Selection) -> Self {
         Self {
             x: u64::from(selection.x),

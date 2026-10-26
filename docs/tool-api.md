@@ -116,10 +116,11 @@
 | `NothingToUndo` | 撤销栈是空的 |
 | `NothingToRedo` | 重做栈是空的 |
 | `OpenGesture` | 已经有一个未结束的 gesture，或重做时 gesture 里已经有改动 |
+| `MaskMissing` | 没有存选区，却对它做 `intersect` / `subtract`，或 `previewFrame` / `diffFrames` 传了 `selection: true`。文档不变 |
 | `SelectionProtected` | `moveRect` 的源矩形或目标矩形有格子在选区外。部件变换时，挂接层上有非 0 格或其落点不在选区内。整次调用不写 |
 | `ExportScale` | 导出倍数是 0，或放大后的尺寸放不进一张 PNG |
 | `SheetColumns` | sprite sheet 的列数是 0，或那么多列放不进一张 PNG |
-| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形，某个 `tags` 项的名字、区间、循环模式、重名不合法，某个 `parts` 项的名字、原点、层、锚点不合法，某个 `curves` 项的部件、通道、关键帧、缓动、数值不合法，或某个 `constraints` 项的名字、种类、部件、锚点名、钉点、环或重复驱动不合法时，也是这个码 |
+| `ProjectFile` | `loadProject` 的文本不是 version 1 工程文件。`selection` 不是画布内的矩形蒙版，某个 `tags` 项的名字、区间、循环模式、重名不合法，某个 `parts` 项的名字、原点、层、锚点不合法，某个 `curves` 项的部件、通道、关键帧、缓动、数值不合法，或某个 `constraints` 项的名字、种类、部件、锚点名、钉点、环或重复驱动不合法时，也是这个码 |
 | `AsepriteFile` | `.aseprite` 字节截断、魔数不对、压缩 cel 解不开，或层 / cel 结构读不完 |
 | `AsepriteSize` | 画布边长不在 `1..=256` |
 | `AsepriteColorMode` | 颜色深度不是索引 8 位 |
@@ -137,13 +138,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，结果相同的 `combineMask`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -172,7 +173,7 @@
 | `composite` | 当前帧按层序叠出来的索引，规则见下面的「图层」 |
 | `layerCount` | 层数，至少 1。每一帧都有同样多的层 |
 | `activeLayer` | 当前层，从 0 计。0 在最下面 |
-| `selection` | 矩形选区 `{ "x", "y", "width", "height" }`，或 `null`。见「选区」 |
+| `selection` | 一块矩形 `{ "x", "y", "width", "height" }`，多块或空蒙版 `{ "rects": [...] }`，或 `null`。见「选区」 |
 | `tags` | `{ "index", "name", "from", "to", "loop" }` 数组，按添加顺序。没有标签时是 `[]`。见「动画标签」 |
 | `parts` | `{ "index", "name", "x", "y", "layer", "anchors" }` 数组，按添加顺序。没有部件时是 `[]`。见「部件与锚点」 |
 | `curves` | `{ "index", "part", "channel", "keys" }` 数组，按添加顺序。没有曲线时是 `[]`。见「部件曲线」 |
@@ -240,11 +241,11 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 ### 选区 Selection
 
-矩形选区是文档状态，不是套索，也不是魔棒。`setSelection` 写入一块轴对齐矩形，`clearSelection` 清掉它。没有选区时，画布上每一格都可以写。
+选区是文档状态，不是套索，也不是魔棒。`setSelection` 写入一块轴对齐矩形。`combineMask` 用并、交、差把它收成一组互不相交的轴对齐矩形。`clearSelection` 清掉它。没有选区（`selection` 为 `null`）时，画布上每一格都可以写。差集或交集得到空蒙版时，`selection` 是 `{ "rects": [] }`，每一格都受保护，接下来的 `fillRect` 不会把整幅涂满。
 
-选区**写在工程文件里**。字段是 `selection`：`{ "x", "y", "width", "height" }`。清掉之后文件省略这个字段，旧文件没有这个字段时按没有选区读入。撤销栈仍然不进文件：同一次进程里 `undo` 能撤回 `setSelection`，重新打开文件不能。这和 `activeLayer` 一样是下一次 CLI 进程还要接着用的状态，不是手势。
+选区**写在工程文件里**。一块矩形仍是 `{ "x", "y", "width", "height" }`。多块或空蒙版是 `{ "rects": [ { "x", "y", "width", "height" }, ... ] }`。清掉之后文件省略这个字段。旧文件没有这个字段时按没有选区读入。相邻的矩形在写入时并成一块，所以文件里的划分是确定的。撤销栈仍然不进文件：同一次进程里 `undo` 能撤回 `setSelection` 和 `combineMask`，重新打开文件不能。这和 `activeLayer` 一样是下一次 CLI 进程还要接着用的状态，不是手势。
 
-选区是画布坐标上的一块矩形，所有帧共用，不绑定某一层，也不改变 `activeLayer`。要只改头盔，把矩形框在头盔上，并用 `layer` / `--layer` 指向装备层。选区内只有你指定的那一层会被写；选区外任何层都不写。
+选区是画布坐标上的蒙版，所有帧共用，不绑定某一层，也不改变 `activeLayer`。要只改头盔，把矩形框在头盔上，并用 `layer` / `--layer` 指向装备层。蒙版内只有你指定的那一层会被写；蒙版外任何层都不写。
 
 有选区时：
 
@@ -257,23 +258,23 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 | `moveRect` | 源矩形和目标矩形必须都整块在选区内，否则 `SelectionProtected`，一格都不写 |
 | `translatePart`、`rotatePart`、`flipPart` | 挂接层上每一个非 0 格和它的落点都必须在选区内，否则 `SelectionProtected`，一格都不写。没有挂接层时不看选区 |
 
-`remapPalette`、`applyPng`、调色板编辑、帧结构、层结构、`flattenLayers` 不看选区。只想改头盔的索引时用 `replaceIndex`，不要用整画布重映射。`resizeCanvas` 不按选区裁像素；选区跟着同一个偏移平移，平移后不能整块留在新画布上就在同一步撤销里清掉。
+`remapPalette`、`applyPng`、调色板编辑、帧结构、层结构、`flattenLayers` 不看选区。只想改头盔的索引时用 `replaceIndex`，不要用整画布重映射。`resizeCanvas` 不按选区裁像素；每一块矩形跟着同一个偏移平移。只要有一块会离开新画布，整份蒙版就在同一步撤销里清掉。
 
 没有选区时，`replaceIndex` 替换当前帧、指定层（默认当前层）上的全部匹配格子。`toIndex` 为 0 时把这些格子清成透明。其它 `toIndex` 和 `paint` 一样解析。`fromIndex` 必须是调色板里已有的索引，包括 0。不改变 `activeLayer`，也不改其它帧。
 
-`result`：`setSelection` 和 `clearSelection` 是 `{ "selection": { "x", "y", "width", "height" } }` 或 `{ "selection": null }`。`replaceIndex` 是 `{ "fromIndex", "toIndex", "changed" }`。`toIndex` 是写进去的索引。只有发生钳制时才另加 `indexPolicy` 和 `requestedIndex`。同一个选区、已经没有选区、或一格都没变，都不进撤销栈。
+`result`：一块矩形时 `setSelection` 的 `selection` 是 `{ "x", "y", "width", "height" }`。多块或空蒙版是 `{ "rects": [...] }`。`clearSelection` 是 `{ "selection": null }`。`replaceIndex` 是 `{ "fromIndex", "toIndex", "changed" }`。`toIndex` 是写进去的索引。只有发生钳制时才另加 `indexPolicy` 和 `requestedIndex`。同一个选区、已经没有选区、或一格都没变，都不进撤销栈。
 
-CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge replace-index`。
+CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge mask union|intersect|subtract`、`pixelforge replace-index`。
 
-*The rectangle is document state. It is not a lasso and not a magic wand. `setSelection` stores it. `clearSelection` removes it. With no selection, every cell is writable.*
+*The selection is document state. It is not a lasso and not a magic wand. `setSelection` stores one rectangle. `combineMask` turns rectangles into a mask with union, intersect, or subtract. `clearSelection` removes it. With no selection, every cell is writable. An empty mask is `{ "rects": [] }` and protects every cell, so the next fill does not paint the canvas.*
 
-*The project file stores `selection` while one is set and omits the field when it is clear. A file that has no field loads with no mask. The undo stack is still not stored: `undo` in the same process restores `setSelection`, and reopening the file does not. This matches `activeLayer`: the next CLI process needs it.*
+*The project file stores one rectangle as `{ "x", "y", "width", "height" }` and several rectangles, or an empty mask, as `{ "rects": [...] }`. It omits the field when the selection is clear. A file that has no field loads with no mask. Adjacent rectangles are merged, so the partition is stable. The undo stack is still not stored: `undo` in the same process restores `setSelection` and `combineMask`, and reopening the file does not. This matches `activeLayer`: the next CLI process needs it.*
 
-*One rectangle in canvas coordinates applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the rectangle.*
+*The mask is in canvas coordinates and applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the mask.*
 
-*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the rectangle, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection. `translatePart`, `rotatePart`, and `flipPart` do the same when any ink cell on the linked layer, or the cell it would land on, lies outside the selection.*
+*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the mask, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection. `translatePart`, `rotatePart`, and `flipPart` do the same when any ink cell on the linked layer, or the cell it would land on, lies outside the selection.*
 
-*`remapPalette`, `applyPng`, palette edits, frame structure, layer structure, and `flattenLayers` ignore the selection. `resizeCanvas` translates the rectangle by the same offset and clears it, in that same undo step, when the translated rectangle would leave the new canvas.*
+*`remapPalette`, `applyPng`, palette edits, frame structure, layer structure, and `flattenLayers` ignore the selection. `resizeCanvas` translates every rectangle by the same offset and clears the whole mask, in that same undo step, when any rectangle would leave the new canvas.*
 
 ### `paint`
 
@@ -347,9 +348,23 @@ CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge re
 
 参数：无。
 
-清掉选区。`result.selection` 是 `null`。已经没有选区时不进撤销栈。
+清掉选区。`result.selection` 是 `null`。已经没有选区时不进撤销栈。空蒙版不是「没有选区」：要让整幅又可写，用这一条，不要把 `{ "rects": [] }` 留在文件里。
 
-*Clears the rectangle. `result.selection` is `null`. Already clear is not recorded.*
+*Clears the mask. `result.selection` is `null`. Already clear is not recorded. An empty mask is not "no selection": call this to make the canvas writable again.*
+
+### `combineMask`
+
+`params`：`op` 是 `union`、`intersect` 或 `subtract`。操作数是 `x`、`y`、`width`、`height` 四块整数，或 `mask`（矩形数组，至少一块）。左操作数省略时用当前选区。要换左操作数，传 `base`（一块矩形对象，或矩形数组），或传 `baseX`、`baseY`、`baseWidth`、`baseHeight`。`base` 和 `baseX` 这组不能同时出现。矩形四边和 `mask` 也不能同时出现。
+
+不改像素，不改 `activeLayer`。结果写进 `selection`，形状与「选区」相同。一步撤销。结果和当前选区相同则不进栈。没有选区时，`union` 把操作数存下来；`intersect` 和 `subtract` 是 `MaskMissing`，文档不变。空结果仍是一份选区：`cells` 为 0，之后的绘制整幅跳过。`reportDirty` 是未知字段，`InvalidParams`。
+
+`result`：`{ "op", "selection", "cells" }`。`cells` 是蒙版盖住的格子数。
+
+CLI：`pixelforge mask union|intersect|subtract`。矩形用 `--x --y --width --height`，或多段 `--mask x,y,width,height`。左操作数用 `--base-x --base-y --base-width --base-height`，或多段 `--base-mask`。省略左边时用工程里的选区。工具拒绝时退出码 `1`。
+
+*Does not change pixels or `activeLayer`. The result becomes `selection`. One undo step. The same mask is not recorded. With no selection, `union` stores the operand and `intersect` / `subtract` return `MaskMissing`. An empty result still protects every cell. `reportDirty` is `InvalidParams`.*
+
+错误：`OutOfBounds`、`MaskMissing`。`op` 不对、矩形和 `mask` 同时出现或都缺、`mask` 是空数组，是 `InvalidParams`。
 
 ### `replaceIndex`
 
@@ -1036,6 +1051,16 @@ CLI 的 `pixelforge export sheet --atlas hero-sheet.json` 把这个对象写成�
 
 `params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）、可选 `layer`。不写 `layer` 时画合成图；写了就只画那一层，并且不改变 `activeLayer`。
 
+范围三选一，都省略就是整幅，结果里不出现 `scope`、`mask`、`protected`：
+
+| 参数 | `scope` |
+| --- | --- |
+| `selection: true` | `"selection"`。用工程里的蒙版。没有选区是 `MaskMissing` |
+| `x`、`y`、`width`、`height` | `"rect"`。四个整数要齐 |
+| `mask` | `"mask"`。矩形数组，至少一块。`call` 用这个；聊天目录用上面的矩形 |
+
+同时给两种范围是 `InvalidParams`（`pass only one of selection, x/y/width/height, or mask`）。`selection` 不是布尔 `true` 也是 `InvalidParams`。
+
 只读。不改 `activeFrame`，不进撤销栈。`result`：
 
 | 字段 Field | 含义 Meaning |
@@ -1053,18 +1078,21 @@ CLI 的 `pixelforge export sheet --atlas hero-sheet.json` 把这个对象写成�
 | `pixels` | 这一张视图的调色板索引，行优先。合成或单层，由 `layer` 决定 |
 | `pngWidth`, `pngHeight` | 放大后的像素尺寸 |
 | `png` | 这一帧的 Base64 RGBA PNG。内核先按 `scale` 最近邻重复索引，再解析调色板 |
+| `scope` | 只在限定范围时出现：`selection`、`rect` 或 `mask` |
+| `mask` | 只在限定范围时出现。形状与 `selection` 相同 |
+| `protected` | 只在限定范围时出现。`width * height` 减去蒙版格子数 |
 
-`pixels` 是索引，不是 RGB。字形 `*` 会把 62 及以上的索引折成同一个字符，读索引用 `pixels` 或 `indices`。
+`pixels` 仍是整幅索引，行优先，不是 RGB。限定范围时，`ink`、`bounds`、`indices` 只数蒙版内。蒙版外的 ASCII 是 `#`，PNG 上是只用于查看的 RGBA `[80, 64, 112, 255]`。这个颜色不是调色板项，也不写回格子。字形 `*` 会把 62 及以上的索引折成同一个字符，读索引用 `pixels` 或 `indices`。
 
-CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PNG 写到 `result.path`（默认是工程旁边的 `<stem>.preview.png`），stdout 里不带 base64。`ink`、`bounds`、`indices`、`pixels` 仍在这条 JSON 里。
+CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PNG 写到 `result.path`（默认是工程旁边的 `<stem>.preview.png`），stdout 里不带 base64。`ink`、`bounds`、`indices`、`pixels` 仍在这条 JSON 里。`--selection`、`--x --y --width --height`，或重复的 `--mask x,y,width,height`，对应上面三种范围。内核拒绝时退出码 `2`。
 
-*Read-only. Does not change `activeFrame` and does not push undo. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. `pixels` are palette indices, row-major. The glyph `*` collapses every index from 62 up, so read `pixels` or `indices` for the real index. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64. `ink`, `bounds`, `indices`, and `pixels` stay on that JSON line.*
+*Read-only. Does not change `activeFrame` and does not push undo. Omit the scope and the result has no `scope`, `mask`, or `protected`. Inside a scope, `ink`, `bounds`, and `indices` count only masked cells. `pixels` stay the full index buffer. ASCII outside the mask is `#`. The PNG paints RGBA `[80, 64, 112, 255]` there. That color is a view. It is not a palette entry and it is not stored. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. The glyph `*` collapses every index from 62 up, so read `pixels` or `indices` for the real index. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64.*
 
-错误：`FrameIndex`、`LayerIndex`、`ExportScale`。`scale` 为 0 是 `InvalidParams`。
+错误：`FrameIndex`、`LayerIndex`、`ExportScale`、`MaskMissing`、`OutOfBounds`。`scale` 为 0，或同时给了两种范围，是 `InvalidParams`。
 
 ### `diffFrames`
 
-`params`：`frame`、`with`（都必填），可选 `scale`（缺省为 1），可选 `layer`。不写 `layer` 时比较两帧的合成索引；写了就只比较那一层。
+`params`：`frame`、`with`（都必填），可选 `scale`（缺省为 1），可选 `layer`。不写 `layer` 时比较两帧的合成索引；写了就只比较那一层。范围与 `previewFrame` 相同：`selection: true`、一块矩形，或 `mask` 数组，三选一。省略就是整幅，结果里没有 `scope`。
 
 只读。比较索引，不把洋葱皮写回像素。`result`：
 
@@ -1081,22 +1109,25 @@ CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PN
 | `bounds` | 这些格子的外接矩形。`changed` 为 0 时是 `null` |
 | `kinds` | `{ "same", "differ", "onlyFrame", "onlyWith" }`。`differ` 是两边都非 0 且不同；`onlyFrame` 只有 `frame` 有墨；`onlyWith` 只有 `with` 有墨 |
 | `changes` | `{ "x", "y", "left", "right" }`，行优先。`left` 是 `frame` 的索引，`right` 是 `with` 的索引。只列不同的格子 |
-| `diffRows` | 一行一个字符串。`.` 表示索引相同；`!` 表示两边都非 0 且不同；否则是那个非 0 索引的字形（和 `preview` 相同：`1`–`9`、`A`–`Z`、`a`–`z`、`*`） |
+| `diffRows` | 一行一个字符串。`.` 表示索引相同；`!` 表示两边都非 0 且不同；否则是那个非 0 索引的字形（和 `preview` 相同：`1`–`9`、`A`–`Z`、`a`–`z`、`*`）。蒙版外是 `#` |
 | `panels` | `["frame", "with", "onion"]` |
 | `pngWidth`, `pngHeight` | PNG 像素尺寸。宽是三格并排 |
 | `png` | Base64 RGBA PNG。左是 `frame`，中是 `with`，右是洋葱皮 |
+| `scope`, `mask`, `protected` | 与 `previewFrame` 相同。只在限定范围时出现 |
 
-洋葱皮只存在于这张视图里：索引相同就用那一个调色板颜色；只有一边非 0 就用那边的颜色；两边都非 0 且不同时，把两个调色板颜色各通道取平均。平均色不写回工程，也不进调色板。
+限定范围时，`changed`、`bounds`、`kinds`、`changes` 只数蒙版内。蒙版外不是 `same`，也不是一处变化。三格 PNG 在蒙版外都涂只用于查看的 RGBA `[80, 64, 112, 255]`。
 
-*Read-only. Compares indices and does not write onion skin back into pixels. `diffRows`: `.` same index, `!` both non-zero and different, otherwise the glyph of the only non-zero index. The PNG is three panels: `frame`, `with`, then the onion. The onion uses the shared palette color when indices match, the only ink when one side is transparent, and the average of the two palette colors when both differ. That average is a view. It is not stored and it is not a new palette entry.*
+洋葱皮只存在于这张视图里：索引相同就用那一个调色板颜色；只有一边非 0 就用那边的颜色；两边都非 0 且不同时，把两个调色板颜色各通道取平均。平均色不写回工程，也不进调色板。保护色同样只在视图里。
+
+*Read-only. Compares indices and does not write onion skin back into pixels. `diffRows`: `.` same index, `!` both non-zero and different, otherwise the glyph of the only non-zero index. `#` is outside the mask and is neither `same` nor a change. The PNG is three panels: `frame`, `with`, then the onion. The onion uses the shared palette color when indices match, the only ink when one side is transparent, and the average of the two palette colors when both differ. Cells outside the mask are RGBA `[80, 64, 112, 255]` on every panel. Those colors are a view. They are not stored and they are not palette entries.*
 
 `!` 不带两边的索引。要索引就读 `changes`。
 
-CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png`），并在 stdout 里附上两帧的 ASCII `rows` / `withRows`。`bounds`、`kinds`、`changes` 仍在这条 JSON 里。
+CLI 的 `pixelforge diff` 把 PNG 写到 `result.path`（默认 `<stem>.diff.png`），并在 stdout 里附上两帧的 ASCII `rows` / `withRows`。`bounds`、`kinds`、`changes` 仍在这条 JSON 里。范围旗标与 `preview` 相同。stderr 在限定范围时会写 `# = protect`。内核拒绝时退出码 `2`。
 
 *The `!` glyph does not carry either index. Read `changes` for `left` and `right`. The CLI keeps `bounds`, `kinds`, and `changes` on the JSON line.*
 
-错误：`FrameIndex`、`LayerIndex`、`ExportScale`。缺 `frame` 或 `with` 是 `InvalidParams`。
+错误：`FrameIndex`、`LayerIndex`、`ExportScale`、`MaskMissing`、`OutOfBounds`。缺 `frame` 或 `with`，或同时给了两种范围，是 `InvalidParams`。
 
 ### `flipHorizontal`
 
@@ -1146,7 +1177,7 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 `params`：`width`、`height`（`1..=256`）。可选 `offsetX`、`offsetY`（`i32`，可负）。两个偏移都省略时居中：`offset = (new - old) / 2`，向 0 取整。只给一个是 `InvalidParams`。
 
-把每一帧的索引拷进新画布。旧原点落在 `(offsetX, offsetY)`。没有源的格子是索引 0。落在新画布外的旧格子被裁掉。时长、调色板、锁定和当前帧不变。工程仍是 version 1，只是 `width`、`height` 和各帧 `pixels` 变了。一步撤销能回到原来的缓冲。尺寸和索引都没变时不进栈。选区跟着同一个偏移平移；平移后不能整块留在新画布上，就在这一步里清掉。像素本身不按选区裁切。
+把每一帧的索引拷进新画布。旧原点落在 `(offsetX, offsetY)`。没有源的格子是索引 0。落在新画布外的旧格子被裁掉。时长、调色板、锁定和当前帧不变。工程仍是 version 1，只是 `width`、`height` 和各帧 `pixels` 变了。一步撤销能回到原来的缓冲。尺寸和索引都没变时不进栈。选区的每一块矩形跟着同一个偏移平移；只要有一块会离开新画布，整份蒙版就在这一步里清掉。像素本身不按选区裁切。
 
 *Copies every frame's indices onto the new canvas. The old origin lands at `(offsetX, offsetY)`. Omit both offsets to center with `offset = (new - old) / 2`, truncating toward zero. Cells without a source stay index 0. Old cells that fall outside are clipped. Delays, the palette, the lock, and the active frame stay. The file stays version 1. One undo restores the previous buffers. A resize that leaves every index in place is not recorded.*
 
@@ -1229,7 +1260,7 @@ CLI：`layer list`、`layer add --name gear`、`layer remove`（别名 `delete`�
 - 改像素、调色板、帧和时长只通过 `Document` 的公开方法。Tool API 不写第二份缓冲。
 - 这些修改记在同一条撤销栈上。界面随后 `undo`，撤销的是 Agent 的那一步。
 - 非法下标、锁定的调色板、坏的工程文件都返回上表里的 `error`，并且不留下半次修改。
-- 洋葱皮只是视图。`diffFrames` 会返回一张，但不会把它写回像素。这个接口没有可编辑的洋葱层。
+- 洋葱皮只是视图。`diffFrames` 会返回一张，但不会把它写回像素。这个接口没有可编辑的洋葱层。限定范围时，蒙版外不参与比较，视图里标成保护色。
 
 *Pixel, palette, frame, and delay edits go through `Document`'s public methods only. The Tool API does not keep a second buffer.*
 
@@ -1237,4 +1268,4 @@ CLI：`layer list`、`layer add --name gear`、`layer remove`（别名 `delete`�
 
 *A bad index, a locked palette, and a bad project file return an `error` from the tables above and do not leave a partial edit.*
 
-*Onion skin is a view. `diffFrames` returns one and does not write it back into pixels. This API has no tool that stores an onion layer.*
+*Onion skin is a view. `diffFrames` returns one and does not write it back into pixels. This API has no tool that stores an onion layer. A scope leaves cells outside the mask out of the compare and marks them protected in the view.*
