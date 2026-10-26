@@ -61,6 +61,9 @@ fn quarter_turn_around_the_grip_is_reversible_and_keeps_indices() {
         assert_eq!(turned["alignment"], json!("center-on-anchor"));
         assert_eq!(turned["degreesCenti"], json!(9000));
         assert_eq!(turned["dropped"], json!(0));
+        assert_eq!(turned["conflicts"], json!(0));
+        assert_eq!(turned["sealed"], json!(0));
+        assert_eq!(turned["breaks"], json!(0));
         assert_eq!(turned["pivot"]["anchor"], json!("grip"));
         assert!(turned["changed"].as_u64().unwrap() > 0);
         assert!(turned.get("anchors").is_some());
@@ -218,6 +221,8 @@ fn non_quarter_angles_quantize_and_collisions_keep_the_later_cell() {
     );
     assert_eq!(before["degreesCenti"], json!(2000));
     assert_eq!(before["dropped"], json!(1));
+    assert_eq!(before["conflicts"], json!(1));
+    assert_eq!(before["sealed"], json!(0));
     assert_eq!(cell(&crowded, 0, 0, 6, 2), 2);
     assert_eq!(cell(&crowded, 0, 0, 5, 1), 0);
     assert_eq!(cell(&crowded, 0, 0, 5, 2), 0);
@@ -420,4 +425,121 @@ fn unattached_part_translates_without_touching_ink() {
     document.undo().unwrap();
     assert_eq!(document.parts()[1].x, 1);
     assert_eq!(cell(&document, 0, 0, 5, 3), 2);
+}
+
+fn ink_count(document: &Document, frame: usize) -> usize {
+    document
+        .layer_pixels(frame, 0)
+        .unwrap()
+        .iter()
+        .filter(|pixel| **pixel != 0)
+        .count()
+}
+
+#[test]
+fn coverage_seal_reports_on_rotate_and_bake() {
+    let mut document = Document::new(32, 32).unwrap();
+    tool(
+        &mut document,
+        "fillRect",
+        json!({"x": 8, "y": 8, "width": 7, "height": 3, "colorIndex": 1}),
+    );
+    tool(
+        &mut document,
+        "addPart",
+        json!({"name": "block", "x": 11, "y": 9, "layer": 0}),
+    );
+    let turned = tool(
+        &mut document,
+        "rotatePart",
+        json!({"name": "block", "degrees": 20}),
+    );
+    assert_eq!(turned["grid"], json!("nearest"));
+    assert_eq!(turned["sampling"], json!("nearest"));
+    assert_eq!(turned["dropped"], json!(2));
+    assert_eq!(turned["conflicts"], json!(2));
+    assert_eq!(turned["sealed"], json!(2));
+    assert_eq!(turned["breaks"], json!(0));
+    assert_eq!(ink_count(&document, 0), 21);
+
+    document.undo().unwrap();
+    assert_eq!(ink_count(&document, 0), 21);
+    tool(&mut document, "addFrame", json!({}));
+    tool(
+        &mut document,
+        "setCurveKey",
+        json!({"part": "block", "channel": "rotation", "frame": 0, "value": 0}),
+    );
+    tool(
+        &mut document,
+        "setCurveKey",
+        json!({"part": "block", "channel": "rotation", "frame": 1, "value": 20}),
+    );
+    let baked = tool(&mut document, "bake", json!({"from": 0, "to": 1}));
+    assert_eq!(baked["dropped"], json!(2));
+    assert_eq!(baked["conflicts"], json!(2));
+    assert_eq!(baked["sealed"], json!(2));
+    assert_eq!(baked["breaks"], json!(0));
+    assert_eq!(baked["frames"][0]["dropped"], json!(0));
+    assert_eq!(baked["frames"][0]["sealed"], json!(0));
+    assert_eq!(baked["frames"][1]["dropped"], json!(2));
+    assert_eq!(baked["frames"][1]["conflicts"], json!(2));
+    assert_eq!(baked["frames"][1]["sealed"], json!(2));
+    assert_eq!(baked["frames"][1]["breaks"], json!(0));
+    assert_eq!(baked["frames"][1]["parts"][0]["dropped"], json!(2));
+    assert_eq!(baked["frames"][1]["parts"][0]["sealed"], json!(2));
+    assert_eq!(ink_count(&document, 0), 21);
+    assert_eq!(ink_count(&document, 1), 21);
+
+    let mut barrel = Document::new(32, 32).unwrap();
+    tool(
+        &mut barrel,
+        "fillRect",
+        json!({"x": 8, "y": 8, "width": 2, "height": 12, "colorIndex": 1}),
+    );
+    tool(
+        &mut barrel,
+        "addPart",
+        json!({"name": "barrel", "x": 8, "y": 13, "layer": 0}),
+    );
+    let turned = tool(
+        &mut barrel,
+        "rotatePart",
+        json!({"name": "barrel", "degrees": 20}),
+    );
+    assert_eq!(turned["dropped"], json!(1));
+    assert_eq!(turned["sealed"], json!(1));
+    assert_eq!(turned["breaks"], json!(0));
+    assert_eq!(ink_count(&barrel, 0), 24);
+
+    let mut line = Document::new(32, 32).unwrap();
+    tool(
+        &mut line,
+        "fillRect",
+        json!({"x": 16, "y": 10, "width": 1, "height": 9, "colorIndex": 1}),
+    );
+    tool(
+        &mut line,
+        "addPart",
+        json!({"name": "strip", "x": 16, "y": 14, "layer": 0}),
+    );
+    let turned = tool(
+        &mut line,
+        "rotatePart",
+        json!({"name": "strip", "degrees": 20}),
+    );
+    assert_eq!(turned["dropped"], json!(0));
+    assert_eq!(turned["sealed"], json!(0));
+    assert!(turned["breaks"].as_u64().unwrap() > 0);
+    assert_eq!(ink_count(&line, 0), 9);
+    line.undo().unwrap();
+
+    let steep = tool(
+        &mut line,
+        "rotatePart",
+        json!({"name": "strip", "degrees": 45}),
+    );
+    assert!(steep["dropped"].as_u64().unwrap() > 0);
+    assert_eq!(steep["sealed"], json!(0));
+    assert!(ink_count(&line, 0) < 9);
 }

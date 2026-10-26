@@ -4,8 +4,9 @@
 //! canvas cell. A cell center rotated around that pivot lands on another cell
 //! by nearest neighbor. Multiples of 90° (after 0.01° quantization) use an
 //! integer map, so they are exact and reversible when every ink cell stays on
-//! the canvas. Rectangle `flipHorizontal` / `rotate` are a different pivot
-//! and do not move parts.
+//! the canvas. Any other angle keeps that forward snap, then a coverage seal
+//! may fill a notch the snap left empty. Rectangle `flipHorizontal` / `rotate`
+//! are a different pivot and do not move parts.
 
 use crate::error::KernelError;
 
@@ -66,8 +67,18 @@ pub struct PartPose {
     pub dx: Option<i32>,
     pub dy: Option<i32>,
     pub direction: Option<&'static str>,
-    /// Ink cells that lost a nearest-neighbor collision. Exact maps report 0.
+    /// Source ink cells that lost a nearest-neighbor collision. Exact maps
+    /// report 0. A coverage seal does not clear this: the collision still
+    /// happened, even when `sealed` puts the ink count back.
     pub dropped: u32,
+    /// Destination cells that two or more source cells snapped onto.
+    pub conflicts: u32,
+    /// Empty cells filled because the rotated source covered them. Never more
+    /// than `dropped`, and 0 for an exact map.
+    pub sealed: u32,
+    /// Bare diagonal joins in the warped ink: two ink cells that touch only
+    /// at a corner, with both orthogonal bridges empty.
+    pub breaks: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -253,12 +264,53 @@ fn overflow_axis(delta: i32) -> i32 {
     }
 }
 
+/// Continuous inverse of [`map_point`], without snapping to a cell.
+///
+/// Quarter turns, flips, and translates undo exactly. A nearest rotation
+/// undoes the clockwise matrix. `None` when the result is not finite.
+pub(crate) fn unmap_continuous(
+    map: &CellMap,
+    x: f64,
+    y: f64,
+    px: i32,
+    py: i32,
+) -> Option<(f64, f64)> {
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    let px_f = f64::from(px);
+    let py_f = f64::from(py);
+    let dx = x - px_f;
+    let dy = y - py_f;
+    let (dx, dy) = match *map {
+        CellMap::Translate { dx, dy } => {
+            return Some((x - f64::from(dx), y - f64::from(dy)));
+        }
+        CellMap::Quarter(turns) => match (4 - (turns % 4)) % 4 {
+            0 => (dx, dy),
+            1 => (-dy, dx),
+            2 => (-dx, -dy),
+            _ => (dy, -dx),
+        },
+        CellMap::FlipHorizontal => (-dx, dy),
+        CellMap::FlipVertical => (dx, -dy),
+        CellMap::Nearest { cos, sin } => (dx * cos + dy * sin, -dx * sin + dy * cos),
+    };
+    let nx = px_f + dx;
+    let ny = py_f + dy;
+    if nx.is_finite() && ny.is_finite() {
+        Some((nx, ny))
+    } else {
+        None
+    }
+}
+
 /// Nearest integer, ties away from zero.
 ///
 /// A value within `1e-9` of a half-integer is treated as that half-integer
 /// first, so a Taylor residue on an exact tie (30° of a one-cell offset)
 /// still rounds away from the pivot.
-fn round_half_away(value: f64) -> Option<i32> {
+pub(crate) fn round_half_away(value: f64) -> Option<i32> {
     if !value.is_finite() {
         return None;
     }
@@ -383,6 +435,53 @@ mod tests {
         assert_eq!(map_point(&map, 3, 2, 2, 2).unwrap(), (3, 3));
         let (sin, _cos) = sin_cos_centi(3_000);
         assert!((sin - 0.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn continuous_inverse_undoes_an_exact_cell_and_a_nearest_center() {
+        let pivot = (4, 3);
+        let cell = (6, 1);
+        for degrees in [90.0, 180.0, -90.0] {
+            let map = classify_degrees(degrees).unwrap().map;
+            let mapped = map_point(&map, cell.0, cell.1, pivot.0, pivot.1).unwrap();
+            let back = unmap_continuous(
+                &map,
+                f64::from(mapped.0),
+                f64::from(mapped.1),
+                pivot.0,
+                pivot.1,
+            )
+            .unwrap();
+            assert_eq!((back.0, back.1), (f64::from(cell.0), f64::from(cell.1)));
+        }
+        let flip = CellMap::FlipHorizontal;
+        let mapped = map_point(&flip, cell.0, cell.1, pivot.0, pivot.1).unwrap();
+        let back = unmap_continuous(
+            &flip,
+            f64::from(mapped.0),
+            f64::from(mapped.1),
+            pivot.0,
+            pivot.1,
+        )
+        .unwrap();
+        assert_eq!((back.0, back.1), (f64::from(cell.0), f64::from(cell.1)));
+        let shift = CellMap::Translate { dx: 3, dy: -2 };
+        let mapped = map_point(&shift, cell.0, cell.1, 0, 0).unwrap();
+        let back =
+            unmap_continuous(&shift, f64::from(mapped.0), f64::from(mapped.1), 0, 0).unwrap();
+        assert_eq!((back.0, back.1), (f64::from(cell.0), f64::from(cell.1)));
+
+        let map = classify_degrees(20.0).unwrap().map;
+        let CellMap::Nearest { cos, sin } = map else {
+            panic!("20° is a nearest map");
+        };
+        let dx = f64::from(cell.0 - pivot.0);
+        let dy = f64::from(cell.1 - pivot.1);
+        let fx = f64::from(pivot.0) + dx * cos - dy * sin;
+        let fy = f64::from(pivot.1) + dx * sin + dy * cos;
+        let back = unmap_continuous(&map, fx, fy, pivot.0, pivot.1).unwrap();
+        assert!((back.0 - f64::from(cell.0)).abs() < 1e-9);
+        assert!((back.1 - f64::from(cell.1)).abs() < 1e-9);
     }
 
     #[test]

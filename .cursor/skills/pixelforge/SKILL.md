@@ -385,7 +385,9 @@ pixelforge scene --project soldier.json
 
 平移是整格位移，锚点的本地坐标不变。翻转是绕枢轴格的镜像：`x` 收到 `2 * pivotX - x`（垂直则是 `y`）。这和矩形 `hflip` 不是同一个枢轴：矩形翻转绕矩形中心，宽为偶数时中心在两格之间，而且不改部件。
 
-旋转的 `--degrees` 可以不是 90。先收到 `(-180, 180]`，再量化到 0.01°，一半时远离 0。量化后是 90° 的倍数就是精确直角，四次 90° 回到原样。其它角度把每个墨水格的中心转到最近的格，一半时远离枢轴。两个格落到同一格时，行优先较后的索引留下，`dropped` 记下丢掉的格数。`result.grid` 是 `quarter` 或 `nearest`，`result.degreesCenti` 是量化后的百分之一度。
+旋转的 `--degrees` 可以不是 90。先收到 `(-180, 180]`，再量化到 0.01°，一半时远离 0。量化后是 90° 的倍数就是精确直角，四次 90° 回到原样。其它角度先把每个墨水格的中心转到最近的格，一半时远离枢轴。两个格落到同一格时，行优先较后的索引留下。`dropped` 是丢掉的源格数，`conflicts` 是被抢到的目标格数。然后做覆盖补洞：和已写入墨水四邻接、格内 4×4 采样至少一半逆映射回源墨水的空格，补上多数索引，平局取较小索引。`sealed` 不超过 `dropped`，没有碰撞就不会把 1px 线涂粗。`breaks` 是只靠斜角相接、两条正交桥都空着的像素对。`result.grid` 是 `quarter` 或 `nearest`，`result.degreesCenti` 是量化后的百分之一度。
+
+`dropped` 不会因为补上格子而变成 0。7×3 实心块绕中心转 20°：正向映射剩 19，`dropped` 为 2；补洞后是 21，`sealed` 为 2，`dropped` 仍是 2。2×12 细条在 20° 补回丢掉的那一格，`breaks` 变成 0。1px 线在 20° 不补洞，`breaks` 仍大于 0；靠近 45° 时线会变短，`sealed` 可以是 0。这些数也在 `constraint solve` 和 `bake` 的报告里，按层相加。墨水总数回到源格数不等于修好了。旋转不能代替手修。手指画在 `polish` 层。
 
 只改 `frame`（缺省当前帧）的像素。部件列表仍是整份文档一份，所以这一下的原点描述的是你刚转过的那一帧，其它帧的像素不动。枪和别的墨水不要挂在同一层：变换搬走的是这一层上全部非 0 格。有选区时，这些格和落点必须都在选区内，否则 `SelectionProtected`，一格都不写。落出画布是 `PartOffCanvas`。
 
@@ -395,7 +397,9 @@ pixelforge scene --project soldier.json
 
 *Translate is a whole-cell shift; local anchors stay. Flip mirrors through the pivot cell. Rectangle `hflip` uses the rectangle center and does not move the part.*
 
-*`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index and reports `dropped`. Read `grid` and `degreesCenti`.*
+*`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index. `dropped` is the source cells that lost. `conflicts` is the destination cells claimed more than once. A coverage seal then fills an empty cell that is 4-adjacent to that ink when at least half of a 4×4 sample inverse-maps onto source ink. The color is the majority index, and a tie keeps the smaller index. `sealed` never exceeds `dropped`, so a 1px line with no collision is not thickened. `breaks` counts bare diagonal joins. Read `grid` and `degreesCenti`.*
+
+*Sealing does not clear `dropped`. A 7×3 block rotated 20° around its center is 19 cells and `dropped` 2 before the seal, then 21 cells with `sealed` 2 and `dropped` still 2. A 2×12 strip at 20° seals the missing cell and `breaks` becomes 0. A 1px strip at 20° stays unthickened and `breaks` stays above 0. Near 45° that 1px strip can shorten, with `sealed` at 0. `constraint solve` and `bake` report the same counters, summed per layer. Ink count returning to the source count is not a finished picture. Rotation does not replace hand cleanup. Paint a finger on the `polish` layer.*
 
 *Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, or script. IK is a chain of two or three parts. There is no full tree. A keyframe curve samples a pose and does not write cells. See Part curves. A hand, a butt, and a planted foot use an explicit `constraint solve` in Constraints. That call poses one frame. A span of frames uses Bake.*
 
@@ -549,6 +553,8 @@ pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
 
 像素或时长有变化才记一步撤销。失败（出画布、缺锚点、环、两条驱动、同一层两个会动的部件、精修层上挂着被管理的部件、选区没盖住）整次不写。烘焙后的格子就是普通索引，选区、画笔、标签都认它们。工程文件仍是 version 1，没有 `bake` 字段。`role` 只有 `polish` 才写进 `layers`。
 
+报告里的 `dropped`、`conflicts`、`sealed`、`breaks` 和 `part rotate` 用同一套覆盖补洞。源帧这四个数是 0。`dropped` 仍是碰撞丢掉的格数，补洞不会把它清掉。`sealed` 小于 `dropped`，或 `breaks` 大于 0，都说明这一帧还要手修。旋转不能代替修边。
+
 *bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. `examples/soldier-raise-gun.py` draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`. `examples/soldier-walk.py` plants both feet with a short `ik` chain and footprint spans, then bakes. Selecting an `ik` end poses the whole chain. A miss is `IkUnreachable` and writes nothing.*
 
 *`--from` and `--to` are an inclusive range. The default is frame 0 through the last frame. `--source` defaults to frame 0 and is the rest ink. That frame's pixels are not rewritten, so a second bake does not stack. Reported part `x` and `y` are the posed origin. The file keeps the rest origin. Curves and constraints stay.*
@@ -559,7 +565,7 @@ pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
 
 *A layer whose `role` is `polish` is an overlay. `bake` does not write it, even when `--layer` names it. A finger fix painted there survives a raise-gun tweak and another `bake`. The cell stays where you painted it. It does not ride the part. A managed part linked to that layer is `PolishLayer` and the call writes nothing. Move the part to a `default` layer. A retouch on a managed layer that is not polish is rebuilt from the source. An appended frame copies the source frame's overlay. It does not copy polish that exists only on another frame.*
 
-*A change to pixels or delays is one undo step. A failure writes nothing: off canvas, a missing anchor, a cycle, a second driver, two moving parts on one layer, a managed part on a polish layer, or a selection that misses a cell. Baked cells are ordinary indices, so selection, paint, and tags accept them. The project stays version 1 and has no `bake` field. Only a `polish` role is written on `layers`.*
+*A change to pixels or delays is one undo step. A failure writes nothing: off canvas, a missing anchor, a cycle, a second driver, two moving parts on one layer, a managed part on a polish layer, or a selection that misses a cell. Baked cells are ordinary indices, so selection, paint, and tags accept them. The project stays version 1 and has no `bake` field. Only a `polish` role is written on `layers`. `dropped`, `conflicts`, `sealed`, and `breaks` follow the same coverage seal as `part rotate`. The source frame reports zeros. A seal does not clear `dropped`. `sealed` below `dropped`, or `breaks` above 0, means that frame still needs a hand pass. Rotation does not replace that cleanup.*
 
 ```bash
 pixelforge frame duplicate --project soldier.json --index 0
