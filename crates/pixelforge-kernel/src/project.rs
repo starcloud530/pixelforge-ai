@@ -16,7 +16,9 @@
 //! loads as `reject`; only `clamp` is written back. A file written before
 //! layers existed omits `layers` and `activeLayer` and loads as one layer
 //! named [`crate::DEFAULT_LAYER_NAME`]. A single default layer is still saved
-//! in that older shape. A file written before animation tags existed omits
+//! in that older shape, and only when its role is `default`. A `polish` role
+//! is written on that layer and omitted otherwise. A file written before
+//! roles existed loads every layer as `default`. A file written before animation tags existed omits
 //! `tags` and loads with none. An empty tag list is still saved that way. A file
 //! written before parts existed omits `parts` and loads with none. An empty
 //! part list is still saved that way. A file written before part curves existed
@@ -40,6 +42,7 @@ use crate::palette::{IndexPolicy, Palette};
 use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
 use crate::selection::{Mask, Selection};
 use crate::tag::{normalize_tag_name, LoopMode, Tag};
+use crate::LayerRole;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -259,6 +262,9 @@ struct ColorFile {
 #[serde(deny_unknown_fields)]
 struct LayerNameFile {
     name: String,
+    /// Missing means [`LayerRole::Default`]. Only `polish` is written back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -360,7 +366,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         return Err(invalid(ProjectFileError::EmptyFrames));
     }
     let expected = usize::from(width) * usize::from(height);
-    let layer_names = layer_names_from_file(file.layers)?;
+    let (layer_names, layer_roles) = layer_names_from_file(file.layers)?;
     let mut frames = Vec::with_capacity(file.frames.len());
     for (index, frame) in file.frames.into_iter().enumerate() {
         let buffers =
@@ -390,10 +396,13 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         }));
     }
     let active = usize::try_from(file.active_frame).expect("active frame was checked");
-    let names = if layer_names.is_empty() {
-        vec![DEFAULT_LAYER_NAME.to_string()]
+    let (names, roles) = if layer_names.is_empty() {
+        (
+            vec![DEFAULT_LAYER_NAME.to_string()],
+            vec![LayerRole::Default],
+        )
     } else {
-        layer_names
+        (layer_names, layer_roles)
     };
     if file.active_layer >= u64::try_from(names.len()).expect("layer count fits in u64") {
         return Err(invalid(ProjectFileError::ActiveLayer {
@@ -417,6 +426,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         frames,
         active,
         names,
+        roles,
         active_layer,
         selection,
         tags,
@@ -957,13 +967,21 @@ impl Document {
     fn stored_layer_names(&self) -> Vec<LayerNameFile> {
         let legacy = self.layer_count() == 1
             && self.layer_name(0).expect("a document has a layer") == DEFAULT_LAYER_NAME
-            && self.active_layer() == 0;
+            && self.active_layer() == 0
+            && self.layer_role(0).expect("a document has a layer") == LayerRole::Default;
         if legacy {
             Vec::new()
         } else {
             self.layer_names()
                 .iter()
-                .map(|name| LayerNameFile { name: name.clone() })
+                .enumerate()
+                .map(|(index, name)| LayerNameFile {
+                    name: name.clone(),
+                    role: match self.layer_role(index).expect("layer walks layer_count") {
+                        LayerRole::Default => None,
+                        LayerRole::Polish => Some(LayerRole::Polish.as_str().to_string()),
+                    },
+                })
                 .collect()
         }
     }
@@ -1000,12 +1018,25 @@ fn indices_to_file(pixels: &[u8]) -> Vec<u64> {
     pixels.iter().copied().map(u64::from).collect()
 }
 
-fn layer_names_from_file(layers: Vec<LayerNameFile>) -> Result<Vec<String>, KernelError> {
+fn layer_names_from_file(
+    layers: Vec<LayerNameFile>,
+) -> Result<(Vec<String>, Vec<LayerRole>), KernelError> {
     let mut names = Vec::with_capacity(layers.len());
+    let mut roles = Vec::with_capacity(layers.len());
     for (index, layer) in layers.into_iter().enumerate() {
         names.push(layer_name_from_file(index, &layer.name)?);
+        roles.push(layer_role_from_file(index, layer.role)?);
     }
-    Ok(names)
+    Ok((names, roles))
+}
+
+fn layer_role_from_file(index: usize, role: Option<String>) -> Result<LayerRole, KernelError> {
+    match role.as_deref() {
+        None => Ok(LayerRole::Default),
+        Some(text) => {
+            LayerRole::parse(text).ok_or_else(|| invalid(ProjectFileError::LayerRole { index }))
+        }
+    }
 }
 
 fn layer_name_from_file(index: usize, name: &str) -> Result<String, KernelError> {

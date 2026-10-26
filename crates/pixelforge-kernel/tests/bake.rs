@@ -558,3 +558,159 @@ fn default_bake_restores_identity_when_a_curve_returns_to_zero() {
     assert_eq!(cell(&document, 1, 3, 3, 3), 5);
     assert_eq!(part(&document, "gun").x, 4);
 }
+
+/// A finger retouch on the hand layer is rebuilt. The same index on a polish
+/// overlay stays when the raise-gun curve changes.
+#[test]
+fn polish_overlay_survives_a_raise_gun_tweak() {
+    let mut document = soldier();
+    arm(&mut document);
+    let baked = tool(&mut document, "bake", json!({"from": 0, "to": 4}));
+    assert_eq!(baked["polish"], json!([]));
+    assert_eq!(cell(&document, 4, 1, 2, 8), 4);
+
+    document.set_active_frame(4).unwrap();
+    paint_at(&mut document, 1, 2, 8, 7);
+    tool(&mut document, "bake", json!({"from": 0, "to": 4}));
+    assert_eq!(cell(&document, 4, 1, 2, 8), 4);
+
+    document.set_active_layer(2).unwrap();
+    let added = tool(
+        &mut document,
+        "addLayer",
+        json!({"name": "polish", "role": "polish"}),
+    );
+    assert_eq!(added["index"], json!(3));
+    assert_eq!(added["role"], json!("polish"));
+    document.set_active_frame(4).unwrap();
+    paint_at(&mut document, 3, 2, 8, 7);
+
+    document
+        .set_curve_key("gun", CurveChannel::Rotation, 4, 45.0, None)
+        .unwrap();
+    let tweaked = tool(&mut document, "bake", json!({"from": 0, "to": 4}));
+    assert_eq!(tweaked["wrote"], json!(true));
+    assert_eq!(tweaked["polish"], json!([3]));
+    assert!(!tweaked["frames"][4]["layers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|layer| layer == &json!(3)));
+    assert_eq!(cell(&document, 4, 3, 2, 8), 7);
+    assert_eq!(cell(&document, 0, 3, 2, 8), 0);
+    assert_eq!(document.composite_pixels(4).unwrap()[8 * 16 + 2], 7);
+
+    let mut plain = soldier();
+    arm(&mut plain);
+    plain
+        .set_curve_key("gun", CurveChannel::Rotation, 4, 45.0, None)
+        .unwrap();
+    tool(&mut plain, "bake", json!({"from": 0, "to": 4}));
+    for layer in 0..3 {
+        assert_eq!(
+            document.layer_pixels(4, layer).unwrap(),
+            plain.layer_pixels(4, layer).unwrap(),
+            "managed layer {layer}"
+        );
+    }
+    let mut raised = soldier();
+    arm(&mut raised);
+    tool(&mut raised, "bake", json!({"from": 0, "to": 4}));
+    assert_ne!(
+        document.layer_pixels(4, 0).unwrap(),
+        raised.layer_pixels(4, 0).unwrap()
+    );
+
+    let listed = tool(&mut document, "listLayers", json!({}));
+    assert_eq!(listed["layers"][3]["role"], json!("polish"));
+    assert_eq!(listed["layers"][1]["role"], json!("default"));
+    let text = document.save_project();
+    assert!(text.contains("\"role\": \"polish\""));
+    assert!(!text.contains("\"role\": \"default\""));
+    let loaded = Document::load_project(&text).unwrap();
+    assert_eq!(
+        loaded.layer_role(3).unwrap(),
+        pixelforge_kernel::LayerRole::Polish
+    );
+    assert_eq!(cell(&loaded, 4, 3, 2, 8), 7);
+
+    document
+        .set_part(
+            "hand",
+            pixelforge_kernel::PartUpdate {
+                x: None,
+                y: None,
+                layer: pixelforge_kernel::LayerAttach::Index(3),
+                rename: None,
+            },
+        )
+        .unwrap();
+    document.clear_history();
+    let blocked = tool_err(&mut document, "bake", json!({"from": 4, "to": 4}));
+    assert_eq!(blocked["code"], json!("PolishLayer"));
+    assert_eq!(cell(&document, 4, 3, 2, 8), 7);
+    assert!(!document.can_undo());
+}
+
+/// `--layer` that names a polish overlay does not reset it, and a selection
+/// that misses those cells still bakes the gun.
+#[test]
+fn bake_skips_a_named_polish_layer_outside_the_selection() {
+    let mut document = Document::new(8, 8).unwrap();
+    document.add_frame();
+    document.add_layer(Some("gun")).unwrap();
+    paint_at(&mut document, 1, 4, 4, 1);
+    document.add_part("gun", 4, 4, Some(1)).unwrap();
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    tool(&mut document, "bake", json!({"from": 1, "to": 1}));
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+
+    let polish = document
+        .add_layer_with_role(Some("polish"), pixelforge_kernel::LayerRole::Polish)
+        .unwrap();
+    document.set_active_frame(1).unwrap();
+    paint_at(&mut document, polish, 7, 7, 7);
+    document.set_selection(4, 4, 3, 1).unwrap();
+    document.clear_history();
+
+    let baked = tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "layers": [1, polish]}),
+    );
+    assert_eq!(baked["wrote"], json!(false));
+    assert_eq!(baked["frames"][0]["layers"], json!([1]));
+    assert_eq!(baked["polish"], json!([polish]));
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+    assert_eq!(cell(&document, 1, polish, 7, 7), 7);
+    assert!(!document.can_undo());
+
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 0.0, None)
+        .unwrap();
+    let restored = tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "layers": [1, polish]}),
+    );
+    assert_eq!(restored["wrote"], json!(true));
+    assert_eq!(restored["frames"][0]["layers"], json!([1]));
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 1, 6, 4), 0);
+    assert_eq!(cell(&document, 1, polish, 7, 7), 7);
+
+    document.clear_selection();
+    document.set_active_frame(0).unwrap();
+    paint_at(&mut document, polish, 1, 1, 6);
+    let appended = tool(
+        &mut document,
+        "bake",
+        json!({"from": 2, "to": 2, "layers": [1]}),
+    );
+    assert_eq!(appended["appended"], json!(1));
+    assert_eq!(cell(&document, 2, polish, 1, 1), 6);
+    assert_eq!(cell(&document, 2, polish, 7, 7), 0);
+    assert_eq!(cell(&document, 1, polish, 7, 7), 7);
+}

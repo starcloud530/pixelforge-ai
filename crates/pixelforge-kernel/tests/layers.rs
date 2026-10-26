@@ -1,7 +1,7 @@
 //! Layer stack: old files stay one layer, drawing hits one layer, views composite.
 
 use pixelforge_kernel::{
-    Document, KernelError, ProjectFileError, DEFAULT_LAYER_NAME, TRANSPARENT_INDEX,
+    Document, KernelError, LayerRole, ProjectFileError, DEFAULT_LAYER_NAME, TRANSPARENT_INDEX,
 };
 use serde_json::{json, Value};
 
@@ -335,5 +335,57 @@ fn project_file_round_trips_layers_and_rejects_a_broken_stack() {
             r#"{{"format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":{palette},"frames":[{{"pixels":[1],"layers":[{{"pixels":[1]}}]}}]}}"#
         )),
         ProjectFileError::LayerPixels { frame: 0 }
+    );
+    assert_eq!(
+        broken(&format!(
+            r#"{{"format":"pixelforge-project","version":1,"width":1,"height":1,"activeFrame":0,"palette":{palette},"layers":[{{"name":"polish","role":"overlay"}}],"frames":[{{"pixels":[0]}}]}}"#
+        )),
+        ProjectFileError::LayerRole { index: 0 }
+    );
+}
+
+#[test]
+fn polish_role_round_trips_and_undo_restores_it() {
+    let mut document = doc();
+    let index = document
+        .add_layer_with_role(Some("polish"), LayerRole::Polish)
+        .unwrap();
+    assert_eq!(document.layer_role(index).unwrap(), LayerRole::Polish);
+    assert_eq!(document.layer_role(0).unwrap(), LayerRole::Default);
+    document.paint(0, 0, 7).unwrap();
+    let saved = document.save_project();
+    assert!(saved.contains("\"role\": \"polish\""));
+    let loaded = Document::load_project(&saved).unwrap();
+    assert_eq!(loaded.layer_role(index).unwrap(), LayerRole::Polish);
+    assert_eq!(loaded.layer_pixels(0, index).unwrap()[0], 7);
+
+    document.set_layer_role(index, LayerRole::Default).unwrap();
+    assert_eq!(document.layer_role(index).unwrap(), LayerRole::Default);
+    document.undo().unwrap();
+    assert_eq!(document.layer_role(index).unwrap(), LayerRole::Polish);
+    document.reorder_layer(index, 0).unwrap();
+    assert_eq!(document.layer_role(0).unwrap(), LayerRole::Polish);
+    assert_eq!(document.layer_name(0).unwrap(), "polish");
+    document.undo().unwrap();
+    assert_eq!(document.layer_role(index).unwrap(), LayerRole::Polish);
+
+    document.flatten().unwrap();
+    assert_eq!(document.layer_role(0).unwrap(), LayerRole::Default);
+    assert_eq!(document.layer_pixels(0, 0).unwrap()[0], 7);
+    document.undo().unwrap();
+    assert_eq!(document.layer_role(index).unwrap(), LayerRole::Polish);
+    assert_eq!(document.layer_pixels(0, index).unwrap()[0], 7);
+
+    document.clear_history();
+    let same = tool(
+        &mut document,
+        "setLayerRole",
+        json!({"index": index, "role": "polish"}),
+    );
+    assert_eq!(same["role"], json!("polish"));
+    assert!(!document.can_undo());
+    assert_eq!(
+        tool_err(&mut document, "setLayerRole", json!({"role": "overlay"}))["code"],
+        json!("InvalidParams")
     );
 }

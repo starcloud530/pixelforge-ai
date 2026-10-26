@@ -65,6 +65,19 @@ pixelforge layer select --project hero.json --index 0
 
 `copy-rect` / `move-rect` 的 `--layer` 只读写那一层，不跨层复制。
 
+## 精修覆盖层 Polish
+
+`bake` 会把曲线或约束管着的层从源帧整层重建。手指上改过的索引画在那一层，下一次烘焙会盖掉。局部修正放在 `role: polish` 的覆盖层，不要把会动的部件挂在这层上。
+
+```bash
+pixelforge layer add --project hero.json --name polish --role polish
+pixelforge paint --project hero.json --x 26 --y 14 --color-index 7
+```
+
+`layer role --role polish` 改已经有的层。`default` 又变回普通层。压平会把覆盖层合成进 `Layer 1`，角色回到 `default`。细节见 `pixelforge` skill 的「抬枪微调不丢修过的手指」。
+
+*Bake rebuilds a layer a curve or constraint manages. A finger fix on that layer is replaced. Put the fix on a `polish` overlay, and do not link a moving part to it. `layer role` changes an existing layer. Flatten composites the overlay into `Layer 1` and clears the role.*
+
 ## Flatten
 
 需要旧的单层文件时：
