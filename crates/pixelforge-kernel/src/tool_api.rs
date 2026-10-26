@@ -1356,6 +1356,9 @@ fn bake_value(report: &crate::document::BakeReport) -> Value {
         "appended": as_u32(report.appended),
         "wrote": report.wrote,
         "dropped": report.dropped,
+        "conflicts": report.conflicts,
+        "sealed": report.sealed,
+        "breaks": report.breaks,
         "polish": report.polish.iter().copied().map(as_u32).collect::<Vec<_>>(),
         "frames": report
             .frames
@@ -1366,6 +1369,9 @@ fn bake_value(report: &crate::document::BakeReport) -> Value {
                     "rest": frame.rest,
                     "delayMs": frame.delay_ms,
                     "dropped": frame.dropped,
+                    "conflicts": frame.conflicts,
+                    "sealed": frame.sealed,
+                    "breaks": frame.breaks,
                     "layers": frame.layers.iter().copied().map(as_u32).collect::<Vec<_>>(),
                     "parts": frame.parts.iter().map(solved_part_value).collect::<Vec<_>>(),
                 })
@@ -1382,6 +1388,9 @@ fn solved_part_value(part: &crate::constraint::SolvedPart) -> Value {
         "layer": part.layer.map(as_u32),
         "ink": part.ink,
         "dropped": part.dropped,
+        "conflicts": part.conflicts,
+        "sealed": part.sealed,
+        "breaks": part.breaks,
         "anchors": part
             .anchors
             .iter()
@@ -1408,6 +1417,9 @@ fn solve_value(report: &SolveReport) -> Value {
         "apply": report.apply,
         "wrote": report.wrote,
         "dropped": report.dropped,
+        "conflicts": report.conflicts,
+        "sealed": report.sealed,
+        "breaks": report.breaks,
         "order": report.order,
         "constraints": report
             .constraints
@@ -1443,6 +1455,9 @@ fn solve_value(report: &SolveReport) -> Value {
                     "layer": part.layer.map(as_u32),
                     "ink": part.ink,
                     "dropped": part.dropped,
+                    "conflicts": part.conflicts,
+                    "sealed": part.sealed,
+                    "breaks": part.breaks,
                     "anchors": part
                         .anchors
                         .iter()
@@ -2199,6 +2214,9 @@ fn part_pose_value(document: &Document, pose: &crate::part_xform::PartPose) -> V
         dest.insert("direction".to_string(), serde_json::json!(direction));
     }
     dest.insert("dropped".to_string(), serde_json::json!(pose.dropped));
+    dest.insert("conflicts".to_string(), serde_json::json!(pose.conflicts));
+    dest.insert("sealed".to_string(), serde_json::json!(pose.sealed));
+    dest.insert("breaks".to_string(), serde_json::json!(pose.breaks));
     value
 }
 

@@ -668,7 +668,15 @@ CLI：`pixelforge part translate --name gun --dx 2 --dy -1`。`--frame` 指定�
 3. 量化后是 90° 的整数倍时，`grid` 为 `quarter`，`sampling` 为 `exact`：用整数映射，不插值。90° 顺时针把相对枢轴的 `(dx, dy)` 送到 `(-dy, dx)`。成功的 90° 再转三次回到原样；`90` 再接 `-90` 也回到原样。`degreesCenti` 为 `0`、`9000`、`18000` 或 `-9000`。
 4. 其它角度 `grid` 为 `nearest`，`sampling` 为 `nearest`。每个非 0 格用它的格心绕枢轴格心旋转，再落到最近的格。正好落在两格正中（相对枢轴的坐标是 `n+0.5`）时远离枢轴；和半整数相差小于 `1e-9` 的值先当成那个半整数，免得级数误差翻掉平局。正弦和余弦是内核里的泰勒级数，不是系统 `libm`。`degreesCenti` 是量化后的百分之一度。
 
-两个非 0 格量化到同一格时，行优先较后的那一格留下，较早的索引丢掉，源格仍清成 0。`dropped` 是丢掉的格数。精确的直角、平移和翻转不会重叠，`dropped` 为 0。非直角可以留下空洞：没有墨水落上去、又不是被搬走的源格，就保持原索引。
+两个非 0 格量化到同一格时，行优先较后的那一格留下，较早的索引丢掉，源格仍清成 0。`dropped` 是丢掉的源格数。`conflicts` 是被两个及以上源格抢到的目标格数。精确的直角、平移和翻转不会重叠，这两个数都是 0。
+
+最近邻之后做**覆盖补洞**。空格要同时满足才补上：和正向映射已经写下的墨水四邻接；格内 4×4 个采样点（相对格心 `-0.375,-0.125,0.125,0.375`）至少一半，沿整条变换的逆映射落回源墨水。颜色取这些命中里的多数索引，平局取较小索引。补上的格数是 `sealed`，并且不会超过 `dropped`，所以没有碰撞时不会把细线涂粗。选区没盖住的空格不补，也不因此让整次失败。直角、平移、翻转不补洞。
+
+`breaks` 是结果里只靠斜角相接的像素对：两格切比雪夫距离为 1、正交不相邻，而且两条正交桥都是空的。实心块补洞之后可以是 0。1px 斜线通常大于 0，那是阶梯，不是漏点。
+
+这些数在 `rotatePart`、`translatePart`、`flipPart`、`solveConstraints` 和 `bake` 里都有。`dropped` 不会因为补洞变小：碰撞仍算丢掉。7×3 实心块绕中心转 20° 时，正向映射是 19 格、`dropped` 为 2；补洞后是 21 格、`sealed` 为 2、`dropped` 仍是 2。2×12 的细条在 20° 会补回 1 格，`breaks` 从大于 0 变成 0。1px 线在 20° 不补洞，`breaks` 仍大于 0；靠近 45° 时中心叠在一起，线变短，`sealed` 可以仍是 0。
+
+旋转不能代替手修。缺口、斜接和变短的枪管要自己改像素。手指一类的修正画在 `polish` 层，下一次 `bake` 不会把它写掉。非直角仍可以留下空洞：没有墨水落上去、又不是被搬走的源格，就保持原索引。
 
 只改 `frame`（缺省为当前帧）上挂接层的索引，并改这一份原点与锚点。锚点先变成画布坐标再映射，然后重新写成相对新原点的本地格，这样握持点在整数变换里仍停在原来的画布格上。本地结果超出 `-256..=256` 时是 `AnchorCoord`，一格都不写。落点出画布是 `PartOffCanvas`。选区规则与 `translatePart` 相同。量化成 0° 时不进撤销栈。
 
@@ -692,7 +700,11 @@ CLI：`pixelforge part flip --horizontal --name gun --anchor grip`。必须恰�
 
 错误：`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`、`AnchorCoord`、`PartOffCanvas`、`SelectionProtected`、`FrameIndex`、`LayerIndex`。`direction` 不是那两个字符串时是 `InvalidParams`。
 
-*Translate, rotate, and flip a part on the indexed grid. The pivot is the center of the origin cell, or of a named anchor. Quarter turns, flips, and translates are exact integer maps. Any other angle quantizes to 0.01° (ties away from zero) and then each ink cell center snaps to the nearest cell (ties away from the pivot). Indices move; colors are not invented. One frame's linked layer moves with the origin and anchors in one undo step. Rectangle flip and rotate still leave parts where they are.*
+*Translate, rotate, and flip a part on the indexed grid. The pivot is the center of the origin cell, or of a named anchor. Quarter turns, flips, and translates are exact integer maps. Any other angle quantizes to 0.01° (ties away from zero) and then each ink cell center snaps to the nearest cell (ties away from the pivot). A collision keeps the later row-major index. `dropped` is the source cells that lost. `conflicts` is the destination cells claimed more than once. Exact maps report 0 for both.*
+
+*A nearest rotation then seals notches. An empty cell is filled only when it is 4-adjacent to ink the forward map wrote, at least half of a 4×4 sample inside it inverse-maps onto source ink, and the number of new cells does not exceed `dropped`. The color is the majority index, and a tie keeps the smaller index. `sealed` is how many cells were filled. A cell outside the selection is left empty and does not fail the call. Exact maps do not seal. `breaks` counts bare diagonal joins in the result: two ink cells at Chebyshev distance 1 that are not orthogonal neighbors, with both orthogonal bridges empty.*
+
+*Sealing does not clear `dropped`. A 7×3 block rotated 20° around its center cell is 19 cells with `dropped` 2 before the seal, and 21 cells with `sealed` 2 afterward; `dropped` stays 2. A 2×12 strip at 20° seals the missing cell and `breaks` falls to 0. A 1px strip at 20° is not thickened, and `breaks` stays above 0. Near 45° that 1px strip can still shorten, with `sealed` at 0. Rotation does not replace hand cleanup. Paint a finger fix on a `polish` layer so the next `bake` leaves it. Indices move; colors are not invented. One frame's linked layer moves with the origin and anchors in one undo step. Rectangle flip and rotate still leave parts where they are.*
 
 ### 部件曲线 Part curves
 
@@ -887,10 +899,13 @@ CLI：`pixelforge constraint list`。
 | `frame` | 传入的曲线帧，省略时是 `null` |
 | `pixelFrame` | 写入的像素帧 |
 | `apply`, `wrote` | 是否要求写入；这一次是否真的改了部件或像素 |
-| `dropped` | 各层最近邻碰撞丢掉的格数之和。直角、平移为 0 |
+| `dropped` | 各层最近邻碰撞丢掉的源格数之和。直角、平移为 0。补洞不把它清成 0 |
+| `conflicts` | 各层被两个及以上源格抢到的目标格数之和 |
+| `sealed` | 各层覆盖补洞写上的格数之和。不超过该层的 `dropped` |
+| `breaks` | 各层结果里只靠斜角相接的像素对之和 |
 | `order` | 求解顺序上的约束名 |
 | `constraints` | 按文件下标。含 `dx`、`dy`（末端或从动部件这一条加上的整格）、`satisfied`、`planted`（这一帧是否落在脚印区间里）、`from`、`to` |
-| `parts` | 解完的姿势。`anchors` 里有本地格和 `canvasX`、`canvasY`。`ink` 是 `unchanged`、`metadata` 或 `moved` |
+| `parts` | 解完的姿势。`anchors` 里有本地格和 `canvasX`、`canvasY`。`ink` 是 `unchanged`、`metadata` 或 `moved`。这一层被搬走时，`dropped`、`conflicts`、`sealed`、`breaks` 是该层的数；否则是 0 |
 
 CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint solve --apply` 用存下的姿势写入当前帧。`pixelforge constraint solve --frame 4 --apply --pixel-frame 0` 先采样再写入第 0 帧。
 
@@ -934,9 +949,12 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 | `constraints` | 这次是否求解 |
 | `appended` | 新追加的帧数 |
 | `wrote` | 像素或时长是否真的变了 |
-| `dropped` | 各帧最近邻碰撞丢掉的格数之和 |
+| `dropped` | 各帧最近邻碰撞丢掉的格数之和。补洞不把它清成 0 |
+| `conflicts` | 各帧被抢到的目标格数之和 |
+| `sealed` | 各帧覆盖补洞写上的格数之和 |
+| `breaks` | 各帧只靠斜角相接的像素对之和 |
 | `polish` | 精修覆盖层的下标，从底到顶。这些层这次没有写。没有覆盖层时是 `[]` |
-| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 为空。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件。`layers` 不含 `polish` |
+| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 为空，四个质量数都是 0。其它帧带 `dropped`、`conflicts`、`sealed`、`breaks`。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件。`layers` 不含 `polish` |
 
 CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun --part hand --layer 0`。`pixelforge bake --curves-only`。`pixelforge bake --source 0 --from 1 --to 4`。
 
@@ -952,7 +970,7 @@ CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun 
 
 *A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it too. Otherwise the call is `SelectionProtected` and writes nothing. Polish cells are not part of that write, so a polish cell outside the selection does not fail the bake. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
 
-*A change to pixels or delays is one undo step. The source frame can change its delay only. The active frame stays. The project stays version 1 and has no `bake` field. `ink` is `moved` or `unchanged`. An unattached part, or a layer that was not written, is `unchanged`, because the origin is not stored. `polish` is the overlay indices, or `[]`.*
+*A change to pixels or delays is one undo step. The source frame can change its delay only. The active frame stays. The project stays version 1 and has no `bake` field. `ink` is `moved` or `unchanged`. An unattached part, or a layer that was not written, is `unchanged`, because the origin is not stored. `polish` is the overlay indices, or `[]`. `dropped`, `conflicts`, `sealed`, and `breaks` use the same coverage-seal rules as `rotatePart`. The source frame reports zeros. A seal does not clear `dropped`. Rotation does not replace hand cleanup.*
 
 ### `beginGesture` / `endGesture`
 

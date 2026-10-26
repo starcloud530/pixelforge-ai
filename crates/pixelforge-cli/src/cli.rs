@@ -87,7 +87,10 @@ are both inside. `part translate`, `part rotate`, and `part flip` move that
 part's origin, its anchors, and the ink on its linked layer in one undo
 step. Rotation and flip pivot on `--anchor` or the origin cell. `--degrees`
 within 0.01° of a multiple of 90 is an exact quarter turn; any other angle
-quantizes to 0.01° and then to the nearest cell. Rectangle flip and rotate
+quantizes to 0.01° and then to the nearest cell, then seals covered notches
+up to the collision count. Read `dropped`, `conflicts`, `sealed`, and
+`breaks`. `dropped` stays when a notch is filled. Rotation does not replace
+hand cleanup. Rectangle flip and rotate
 do not move parts. A selection must cover every ink cell and its destination
 or the part transform writes nothing. `curve` stores keyframes of those
 parameters on frame indices and samples them. It does not write pixels.
