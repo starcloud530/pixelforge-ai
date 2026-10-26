@@ -16,7 +16,16 @@ use serde::Serialize;
 
 use crate::document::Document;
 use crate::error::KernelError;
+use crate::selection::Mask;
 use crate::Rgba;
+
+/// View-only color for a cell outside a preview or diff mask.
+///
+/// It is not a palette entry and it is not written into the document.
+pub const PROTECT_RGBA: [u8; 4] = [80, 64, 112, 255];
+
+/// ASCII mark for a cell outside a preview or diff mask.
+pub const PROTECT_GLYPH: char = '#';
 
 /// Where frames sit in an exported sprite sheet.
 ///
@@ -231,13 +240,28 @@ impl Document {
         scale: u32,
         layer: Option<usize>,
     ) -> Result<Vec<u8>, KernelError> {
+        self.export_view_png_masked(index, scale, layer, None)
+    }
+
+    /// [`Self::export_view_png`], with cells outside `mask` painted as protect.
+    ///
+    /// `mask == None` is the whole canvas. The protect color is a view. It is
+    /// not stored and it is not a palette index.
+    pub fn export_view_png_masked(
+        &self,
+        index: usize,
+        scale: u32,
+        layer: Option<usize>,
+        mask: Option<&Mask>,
+    ) -> Result<Vec<u8>, KernelError> {
         let pixels = self.view_pixels(index, layer)?;
-        let (width, height, rgba) = frame_rgba_scaled(
+        let (width, height, rgba) = frame_rgba_scaled_masked(
             self.palette_colors(),
             &pixels,
             self.width(),
             self.height(),
             scale,
+            mask,
         )?;
         Ok(encode_rgba_png(width, height, &rgba))
     }
@@ -434,6 +458,22 @@ impl Document {
         scale: u32,
         layer: Option<usize>,
     ) -> Result<FrameDiff, KernelError> {
+        self.diff_frames_masked(frame, with, scale, layer, None)
+    }
+
+    /// [`Self::diff_frames_on`], ignoring cells outside `mask`.
+    ///
+    /// Those cells are `#` in `diff_rows` and [`PROTECT_RGBA`] in every PNG
+    /// panel. They are not part of `changed`. `mask == None` compares the
+    /// whole canvas. Nothing is written back into the frames.
+    pub fn diff_frames_masked(
+        &self,
+        frame: usize,
+        with: usize,
+        scale: u32,
+        layer: Option<usize>,
+        mask: Option<&Mask>,
+    ) -> Result<FrameDiff, KernelError> {
         let left = self.view_pixels(frame, layer)?;
         let right = self.view_pixels(with, layer)?;
         let scale = require_scale(scale)?;
@@ -442,11 +482,19 @@ impl Document {
         let changed = left
             .iter()
             .zip(right.iter())
-            .filter(|(a, b)| a != b)
+            .enumerate()
+            .filter(|(offset, (a, b))| a != b && cell_in_mask(mask, *offset, width))
             .count();
-        let diff_rows = diff_rows(&left, &right, width);
-        let (png_width, png_height, rgba) =
-            diff_rgba(self.palette_colors(), &left, &right, width, height, scale)?;
+        let diff_rows = diff_rows(&left, &right, width, mask);
+        let (png_width, png_height, rgba) = diff_rgba(
+            self.palette_colors(),
+            &left,
+            &right,
+            width,
+            height,
+            scale,
+            mask,
+        )?;
         Ok(FrameDiff {
             frame,
             with,
@@ -460,6 +508,16 @@ impl Document {
             diff_rows,
         })
     }
+}
+
+fn cell_in_mask(mask: Option<&Mask>, offset: usize, width: u16) -> bool {
+    let Some(mask) = mask else {
+        return true;
+    };
+    let stride = usize::from(width);
+    let x = u16::try_from(offset % stride).expect("column fits in u16");
+    let y = u16::try_from(offset / stride).expect("row fits in u16");
+    mask.contains(x, y)
 }
 
 fn require_scale(scale: u32) -> Result<u32, KernelError> {
@@ -487,18 +545,40 @@ fn rgba_byte_len(width: u32, height: u32, scale: u32) -> Result<usize, KernelErr
         .ok_or(KernelError::ExportScale { scale })
 }
 
-fn frame_rgba_scaled(
+fn frame_rgba_scaled_masked(
     palette: &[Rgba],
     pixels: &[u8],
     width: u16,
     height: u16,
     scale: u32,
+    mask: Option<&Mask>,
 ) -> Result<(u32, u32, Vec<u8>), KernelError> {
     let scale = require_scale(scale)?;
     let out_width = mul_scale(u32::from(width), scale)?;
     let out_height = mul_scale(u32::from(height), scale)?;
     let indexed = nearest_indices(pixels, width, height, scale)?;
-    let rgba = expand_indexed(palette, &indexed);
+    let mut rgba = expand_indexed(palette, &indexed);
+    if let Some(mask) = mask {
+        let scale_usize = usize::try_from(scale).map_err(|_| KernelError::ExportScale { scale })?;
+        let out_stride =
+            usize::try_from(out_width).map_err(|_| KernelError::ExportScale { scale })?;
+        for y in 0..usize::from(height) {
+            for x in 0..usize::from(width) {
+                if mask.contains(x as u16, y as u16) {
+                    continue;
+                }
+                let x0 = x * scale_usize;
+                let y0 = y * scale_usize;
+                for dy in 0..scale_usize {
+                    let row = (y0 + dy) * out_stride;
+                    for dx in 0..scale_usize {
+                        let offset = (row + x0 + dx) * 4;
+                        rgba[offset..offset + 4].copy_from_slice(&PROTECT_RGBA);
+                    }
+                }
+            }
+        }
+    }
     Ok((out_width, out_height, rgba))
 }
 
@@ -588,15 +668,23 @@ fn rgba_of(palette: &[Rgba], index: u8) -> [u8; 4] {
     }
 }
 
-fn diff_rows(left: &[u8], right: &[u8], width: u16) -> Vec<String> {
+fn diff_rows(left: &[u8], right: &[u8], width: u16, mask: Option<&Mask>) -> Vec<String> {
     let stride = usize::from(width);
     left.chunks(stride)
         .zip(right.chunks(stride))
-        .map(|(row_a, row_b)| {
+        .enumerate()
+        .map(|(y, (row_a, row_b))| {
             row_a
                 .iter()
                 .zip(row_b.iter())
-                .map(|(a, b)| diff_glyph(*a, *b))
+                .enumerate()
+                .map(|(x, (a, b))| {
+                    if mask.is_some_and(|mask| !mask.contains(x as u16, y as u16)) {
+                        PROTECT_GLYPH
+                    } else {
+                        diff_glyph(*a, *b)
+                    }
+                })
                 .collect()
         })
         .collect()
@@ -642,6 +730,7 @@ fn diff_rgba(
     width: u16,
     height: u16,
     scale: u32,
+    mask: Option<&Mask>,
 ) -> Result<(u32, u32, Vec<u8>), KernelError> {
     let cell_width = mul_scale(u32::from(width), scale)?;
     let cell_height = mul_scale(u32::from(height), scale)?;
@@ -657,11 +746,16 @@ fn diff_rgba(
     for y in 0..usize::from(height) {
         for x in 0..src_width {
             let index = y * src_width + x;
-            let colors = [
-                rgba_of(palette, left[index]),
-                rgba_of(palette, right[index]),
-                onion_color(palette, left[index], right[index]),
-            ];
+            let outside = mask.is_some_and(|mask| !mask.contains(x as u16, y as u16));
+            let colors = if outside {
+                [PROTECT_RGBA, PROTECT_RGBA, PROTECT_RGBA]
+            } else {
+                [
+                    rgba_of(palette, left[index]),
+                    rgba_of(palette, right[index]),
+                    onion_color(palette, left[index], right[index]),
+                ]
+            };
             for (panel, color) in colors.into_iter().enumerate() {
                 let x0 = panel
                     * usize::try_from(cell_width)
@@ -980,6 +1074,32 @@ mod tests {
         let same = document.diff_frames(1, 1, 1).unwrap();
         assert_eq!(same.changed, 0);
         assert_eq!(same.diff_rows, vec!["....".to_string()]);
+    }
+
+    #[test]
+    fn a_mask_keeps_onion_pixels_inside_and_paints_protect_outside() {
+        let mut document = Document::new(4, 1).unwrap();
+        document.paint(0, 0, 1).unwrap();
+        document.paint(1, 0, 2).unwrap();
+        document.add_frame();
+        document.set_active_frame(1).unwrap();
+        document.paint(1, 0, 1).unwrap();
+        document.paint(3, 0, 1).unwrap();
+        let helmet = Mask::from_rect(crate::Selection {
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+        });
+        let diff = document
+            .diff_frames_masked(0, 1, 1, None, Some(&helmet))
+            .unwrap();
+        assert_eq!(diff.changed, 1);
+        assert_eq!(diff.diff_rows, vec!["#!##".to_string()]);
+        let (_, _, rgba) = decode_rgba(&diff.png);
+        assert_eq!(pixel_at(&rgba, 12, 0, 0), PROTECT_RGBA);
+        assert_eq!(pixel_at(&rgba, 12, 8, 0), PROTECT_RGBA);
+        assert_ne!(pixel_at(&rgba, 12, 1, 0), PROTECT_RGBA);
     }
 
     fn png_size_of(bytes: &[u8]) -> (u32, u32) {

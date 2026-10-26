@@ -2021,7 +2021,7 @@ fn selection_limits_a_helmet_recolor_to_the_gear_layer() {
     assert_eq!(doc.layer_pixels(0, 1).unwrap()[8], 0);
     assert_eq!(doc.active_layer(), 1);
     assert_eq!(
-        doc.selection(),
+        doc.selection_rect(),
         Some(pixelforge_kernel::Selection {
             x: 2,
             y: 0,
@@ -3385,6 +3385,236 @@ fn soldier_raise_gun_script_bakes_editable_frames() {
     let value: Value = serde_json::from_str(&fs::read_to_string(&project).unwrap()).unwrap();
     assert_eq!(value["version"], json!(1));
     assert!(value.get("bake").is_none());
+}
+
+#[test]
+fn selection_scope_diffs_the_helmet_and_subtracts_the_feet_before_fill() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "8",
+            "--height",
+            "6",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "layer",
+            "add",
+            "--project",
+            project_arg,
+            "--name",
+            "gear",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "layer",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "add",
+            "--project",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--layer",
+            "1",
+            "--x",
+            "2",
+            "--y",
+            "1",
+            "--color-index",
+            "4",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--layer",
+            "1",
+            "--x",
+            "2",
+            "--y",
+            "1",
+            "--color-index",
+            "6",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--layer",
+            "0",
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--color-index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "frame",
+            "select",
+            "--project",
+            project_arg,
+            "--index",
+            "0",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "selection",
+            "set",
+            "--project",
+            project_arg,
+            "--x",
+            "2",
+            "--y",
+            "1",
+            "--width",
+            "1",
+            "--height",
+            "1",
+        ]))),
+        0
+    );
+
+    let diff = pixelforge(&arg(&[
+        "diff",
+        "--project",
+        project_arg,
+        "--frame",
+        "0",
+        "--with",
+        "1",
+        "--layer",
+        "1",
+        "--selection",
+    ]));
+    assert_eq!(status(&diff), 0, "{}", stderr(&diff));
+    let compared = &json_lines(&diff)[0]["result"];
+    assert_eq!(compared["changed"], json!(1));
+    assert_eq!(compared["scope"], json!("selection"));
+    assert_eq!(compared["activeLayer"], json!(0));
+    assert_eq!(compared["diffRows"][0], json!("########"));
+    assert_eq!(compared["diffRows"][1], json!("##!#####"));
+    assert!(stderr(&diff).contains("# = protect"));
+    let doc = load(&project);
+    assert_eq!(doc.active_layer(), 0);
+    assert_eq!(doc.active_frame(), 0);
+
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "selection",
+            "clear",
+            "--project",
+            project_arg,
+        ]))),
+        0
+    );
+    let subtracted = pixelforge(&arg(&[
+        "mask",
+        "subtract",
+        "--project",
+        project_arg,
+        "--base-x",
+        "1",
+        "--base-y",
+        "1",
+        "--base-width",
+        "4",
+        "--base-height",
+        "4",
+        "--x",
+        "2",
+        "--y",
+        "4",
+        "--width",
+        "2",
+        "--height",
+        "1",
+    ]));
+    assert_eq!(status(&subtracted), 0, "{}", stderr(&subtracted));
+    assert_eq!(json_lines(&subtracted)[0]["result"]["cells"], json!(14));
+    assert_eq!(
+        json_lines(&subtracted)[0]["result"]["op"],
+        json!("subtract")
+    );
+
+    let filled = pixelforge(&arg(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--layer",
+        "1",
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--width",
+        "8",
+        "--height",
+        "6",
+        "--color-index",
+        "3",
+        "--dirty",
+    ]));
+    assert_eq!(status(&filled), 0, "{}", stderr(&filled));
+    assert_eq!(json_lines(&filled)[0]["result"]["changed"], json!(14));
+    assert_eq!(
+        json_lines(&filled)[0]["result"]["regions"][0]["layer"],
+        json!(1)
+    );
+    let doc = load(&project);
+    assert_eq!(doc.active_layer(), 0);
+    assert_eq!(index_at(&doc, 0, 1, 2, 2), 3);
+    assert_eq!(index_at(&doc, 0, 1, 2, 4), 0);
+    assert_eq!(index_at(&doc, 0, 1, 3, 4), 0);
+    assert_eq!(index_at(&doc, 0, 0, 2, 2), 0);
 }
 
 fn index_at(document: &Document, frame: usize, layer: usize, x: u16, y: u16) -> u8 {

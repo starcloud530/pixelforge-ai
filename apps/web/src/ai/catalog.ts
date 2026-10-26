@@ -135,7 +135,7 @@ const BY_NAME = {
   ),
   setSelection: tool(
     "setSelection",
-    "Store one rectangle in the project file. Later paint, erase, fillRect, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex skip cells outside it. flipVertical and rotate also require the source cell to sit inside. moveRect requires both rectangles inside it. Does not change pixels or the active layer. There is no lasso.",
+    "Store one rectangle in the project file. Later paint, erase, fillRect, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex skip cells outside it. flipVertical and rotate also require the source cell to sit inside. moveRect requires both rectangles inside it. combineMask can turn this rectangle into a mask. Does not change pixels or the active layer. There is no lasso.",
     {
       x: int("Left column, 0-based.", 0, 65535),
       y: int("Top row, 0-based.", 0, 65535),
@@ -146,7 +146,27 @@ const BY_NAME = {
   ),
   clearSelection: tool(
     "clearSelection",
-    "Remove the rectangle so the whole canvas is writable. The project file omits selection. Does not change pixels. Already clear is not recorded.",
+    "Remove the mask so the whole canvas is writable. The project file omits selection. Does not change pixels. Already clear is not recorded. An empty mask is not the same as no selection.",
+  ),
+  combineMask: tool(
+    "combineMask",
+    "Combine axis-aligned rectangles with union, intersect, or subtract and store the mask. Pass x, y, width, and height for one rectangle. Omit baseX, baseY, baseWidth, and baseHeight to use the stored selection. Union with no selection stores the operand. Intersect or subtract with no selection is MaskMissing. An empty result protects every cell. Does not change pixels or the active layer. There is no lasso.",
+    {
+      op: {
+        type: "string",
+        description: "union, intersect, or subtract.",
+        enum: ["union", "intersect", "subtract"],
+      },
+      x: int("Left column of the operand.", 0, 65535),
+      y: int("Top row of the operand.", 0, 65535),
+      width: int("Operand width in cells, at least 1.", 1, 65535),
+      height: int("Operand height in cells, at least 1.", 1, 65535),
+      baseX: int("Left column of the other mask. Omit all four base edges to use the selection.", 0, 65535),
+      baseY: int("Top row of the other mask.", 0, 65535),
+      baseWidth: int("Width of the other mask, at least 1.", 1, 65535),
+      baseHeight: int("Height of the other mask, at least 1.", 1, 65535),
+    },
+    ["op"],
   ),
   replaceIndex: tool(
     "replaceIndex",
@@ -611,21 +631,37 @@ const BY_NAME = {
   ),
   previewFrame: tool(
     "previewFrame",
-    "Read-only view of one frame. Returns ink, bounds, index counts, the row-major index buffer, and a scaled color PNG as standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Does not change the document or the undo stack.",
+    "Read-only view of one frame. Returns ink, bounds, index counts, the row-major index buffer, and a scaled color PNG as standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Pass selection true to count only the stored mask, or x, y, width, and height for one rectangle. Omit both for the whole canvas. Pass only one scope. Cells outside are protected in the view and are not ink. Does not change the document or the undo stack.",
     {
       frame: int("Frame index to draw. Omit for the active frame.", 0, 4294967295),
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
       layer: int("Draw this layer only. Omit for the composite.", 0, 4294967295),
+      selection: {
+        type: "boolean",
+        description: "When true, count only the stored selection. Missing selection is MaskMissing.",
+      },
+      x: int("Left column of an explicit rectangle. Pass y, width, and height too.", 0, 65535),
+      y: int("Top row of an explicit rectangle.", 0, 65535),
+      width: int("Width of an explicit rectangle, at least 1.", 1, 65535),
+      height: int("Height of an explicit rectangle, at least 1.", 1, 65535),
     },
   ),
   diffFrames: tool(
     "diffFrames",
-    "Read-only comparison of two frames. Returns changed, bounds, kinds, changes (left and right indices), diff rows, and a base64 PNG with three panels: frame, with, and an onion blend. Shared indices stay one palette color. Differing indices are averaged only in the view. Does not change the document.",
+    "Read-only comparison of two frames. Returns changed, bounds, kinds, changes (left and right indices), diff rows, and a base64 PNG with three panels: frame, with, and an onion blend. Shared indices stay one palette color. Differing indices are averaged only in the view. Pass selection true to compare only the stored mask, or x, y, width, and height for one rectangle. Omit both for the whole canvas. Pass only one scope. Cells outside are not changes. Does not change the document.",
     {
       frame: int("First frame, left panel.", 0, 4294967295),
       with: int("Second frame, middle panel.", 0, 4294967295),
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
       layer: int("Compare this layer only. Omit for the composite.", 0, 4294967295),
+      selection: {
+        type: "boolean",
+        description: "When true, compare only the stored selection. Missing selection is MaskMissing.",
+      },
+      x: int("Left column of an explicit rectangle. Pass y, width, and height too.", 0, 65535),
+      y: int("Top row of an explicit rectangle.", 0, 65535),
+      width: int("Width of an explicit rectangle, at least 1.", 1, 65535),
+      height: int("Height of an explicit rectangle, at least 1.", 1, 65535),
     },
     ["frame", "with"],
   ),

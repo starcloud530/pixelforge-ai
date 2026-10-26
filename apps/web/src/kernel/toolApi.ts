@@ -21,6 +21,7 @@ export const TOOL_NAMES = [
   "moveRect",
   "setSelection",
   "clearSelection",
+  "combineMask",
   "replaceIndex",
   "setPaletteColor",
   "addPaletteColor",

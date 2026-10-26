@@ -18,7 +18,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use pixelforge_kernel::{TOOL_API_VERSION, TOOL_NAMES};
+use pixelforge_kernel::{Mask, Selection, TOOL_API_VERSION, TOOL_NAMES};
 use serde_json::{json, Value};
 
 use base64::engine::general_purpose::STANDARD;
@@ -26,8 +26,9 @@ use base64::Engine;
 
 use crate::cli::{
     AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EraseRectArgs,
-    ExportCmd, FillRectArgs, FlipArgs, FrameCmd, ImportMode, LayerCmd, PaintArgs, PaletteCmd,
-    PartCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, SelectionCmd, TagCmd,
+    ExportCmd, FillRectArgs, FlipArgs, FrameCmd, ImportMode, LayerCmd, MaskArgs, MaskCmd,
+    PaintArgs, PaletteCmd, PartCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs,
+    ScopeArgs, SelectionCmd, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -66,7 +67,8 @@ fn execute(cli: Cli) -> i32 {
             scale,
             output,
             layer,
-        } => cmd_preview(&doc, frame, scale, output.as_deref(), layer),
+            scope,
+        } => cmd_preview(&doc, frame, scale, output.as_deref(), layer, &scope),
         Command::Diff {
             doc,
             frame,
@@ -74,7 +76,8 @@ fn execute(cli: Cli) -> i32 {
             scale,
             output,
             layer,
-        } => cmd_diff(&doc, frame, with, scale, output.as_deref(), layer),
+            scope,
+        } => cmd_diff(&doc, frame, with, scale, output.as_deref(), layer, &scope),
         Command::Call {
             doc,
             request,
@@ -102,6 +105,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Rotate(args) => cmd_rotate(args),
         Command::Resize(args) => cmd_resize(args),
         Command::Selection { command } => cmd_selection(command),
+        Command::Mask { command } => cmd_mask(command),
         Command::ReplaceIndex(args) => cmd_replace_index(args),
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
@@ -138,6 +142,132 @@ fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
         return 2;
     }
     0
+}
+
+fn cmd_mask(command: MaskCmd) -> i32 {
+    let (op, args) = match command {
+        MaskCmd::Union(args) => ("union", args),
+        MaskCmd::Intersect(args) => ("intersect", args),
+        MaskCmd::Subtract(args) => ("subtract", args),
+    };
+    apply(
+        &args.doc,
+        vec![request("combineMask", mask_params(op, &args))],
+    )
+}
+
+fn mask_params(op: &str, args: &MaskArgs) -> Value {
+    let mut params = json!({ "op": op });
+    put_rect(
+        &mut params,
+        args.x,
+        args.y,
+        args.width,
+        args.height,
+        "x",
+        "y",
+        "width",
+        "height",
+    );
+    if !args.mask.is_empty() {
+        params["mask"] = rect_list(&args.mask);
+    }
+    put_rect(
+        &mut params,
+        args.base_x,
+        args.base_y,
+        args.base_width,
+        args.base_height,
+        "baseX",
+        "baseY",
+        "baseWidth",
+        "baseHeight",
+    );
+    if !args.base_mask.is_empty() {
+        params["base"] = rect_list(&args.base_mask);
+    }
+    params
+}
+
+fn put_rect(
+    params: &mut Value,
+    x: Option<u16>,
+    y: Option<u16>,
+    width: Option<u16>,
+    height: Option<u16>,
+    x_key: &str,
+    y_key: &str,
+    width_key: &str,
+    height_key: &str,
+) {
+    let Some(object) = params.as_object_mut() else {
+        return;
+    };
+    if let Some(x) = x {
+        object.insert(x_key.to_string(), json!(x));
+    }
+    if let Some(y) = y {
+        object.insert(y_key.to_string(), json!(y));
+    }
+    if let Some(width) = width {
+        object.insert(width_key.to_string(), json!(width));
+    }
+    if let Some(height) = height {
+        object.insert(height_key.to_string(), json!(height));
+    }
+}
+
+fn rect_list(rects: &[crate::cli::CellRect]) -> Value {
+    json!(rects
+        .iter()
+        .map(|rect| json!({
+            "x": rect.x,
+            "y": rect.y,
+            "width": rect.width,
+            "height": rect.height,
+        }))
+        .collect::<Vec<_>>())
+}
+
+fn scope_params(params: &mut Value, scope: &ScopeArgs) {
+    if scope.selection {
+        params["selection"] = json!(true);
+    }
+    put_rect(
+        params,
+        scope.x,
+        scope.y,
+        scope.width,
+        scope.height,
+        "x",
+        "y",
+        "width",
+        "height",
+    );
+    if !scope.mask.is_empty() {
+        params["mask"] = rect_list(&scope.mask);
+    }
+}
+
+fn scope_mask(result: &Value) -> Option<Mask> {
+    let mask = result.get("mask")?;
+    if mask.is_null() {
+        return None;
+    }
+    if let Some(rects) = mask.get("rects").and_then(Value::as_array) {
+        let parsed = rects.iter().filter_map(json_rect).collect::<Vec<_>>();
+        return Mask::try_from_rects(parsed).ok();
+    }
+    json_rect(mask).map(Mask::from_rect)
+}
+
+fn json_rect(value: &Value) -> Option<Selection> {
+    Some(Selection {
+        x: value.get("x")?.as_u64()? as u16,
+        y: value.get("y")?.as_u64()? as u16,
+        width: value.get("width")?.as_u64()? as u16,
+        height: value.get("height")?.as_u64()? as u16,
+    })
 }
 
 fn cmd_selection(command: SelectionCmd) -> i32 {
@@ -434,6 +564,7 @@ fn cmd_preview(
     scale: u32,
     output: Option<&Path>,
     layer: Option<u32>,
+    scope: &ScopeArgs,
 ) -> i32 {
     let mut session = match Session::open(&doc.project) {
         Ok(session) => session,
@@ -446,6 +577,7 @@ fn cmd_preview(
     if let Some(layer) = layer {
         params["layer"] = json!(layer);
     }
+    scope_params(&mut params, scope);
     let response = session.call(&request("previewFrame", params));
     if let Some((code, message)) = tool_refusal(&response) {
         return emit(CliFailure::new(code, message));
@@ -458,7 +590,8 @@ fn cmd_preview(
     let layer = value["result"]["layer"]
         .as_u64()
         .map(|layer| layer as usize);
-    let ascii = match preview::render_view(session.document(), index, layer) {
+    let mask = scope_mask(&value["result"]);
+    let ascii = match preview::render_view_scoped(session.document(), index, layer, mask.as_ref()) {
         Ok(frame) => frame,
         Err(err) => return emit(CliFailure::kernel(err)),
     };
@@ -485,8 +618,18 @@ fn cmd_preview(
         );
         object.insert("path".to_string(), json!(path_text));
         object.insert("bytes".to_string(), json!(bytes));
-        for key in ["ink", "bounds", "indices", "pixels"] {
-            object.insert(key.to_string(), value["result"][key].clone());
+        for key in [
+            "ink",
+            "bounds",
+            "indices",
+            "pixels",
+            "scope",
+            "mask",
+            "protected",
+        ] {
+            if let Some(field) = value["result"].get(key) {
+                object.insert(key.to_string(), field.clone());
+            }
         }
     }
     let body = json!({
@@ -511,6 +654,7 @@ fn cmd_diff(
     scale: u32,
     output: Option<&Path>,
     layer: Option<u32>,
+    scope: &ScopeArgs,
 ) -> i32 {
     let mut session = match Session::open(&doc.project) {
         Ok(session) => session,
@@ -520,6 +664,7 @@ fn cmd_diff(
     if let Some(layer) = layer {
         params["layer"] = json!(layer);
     }
+    scope_params(&mut params, scope);
     let response = session.call(&request("diffFrames", params));
     if let Some((code, message)) = tool_refusal(&response) {
         return emit(CliFailure::new(code, message));
@@ -545,13 +690,16 @@ fn cmd_diff(
     let frame_index = usize::try_from(frame).expect("u32 fits in usize");
     let with_index = usize::try_from(with).expect("u32 fits in usize");
     let view_layer = result["layer"].as_u64().map(|layer| layer as usize);
-    let left = preview::render_view(session.document(), frame_index, view_layer);
-    let right = preview::render_view(session.document(), with_index, view_layer);
+    let mask = scope_mask(result);
+    let left =
+        preview::render_view_scoped(session.document(), frame_index, view_layer, mask.as_ref());
+    let right =
+        preview::render_view_scoped(session.document(), with_index, view_layer, mask.as_ref());
     let (left, right) = match (left, right) {
         (Ok(left), Ok(right)) => (left, right),
         (Err(err), _) | (_, Err(err)) => return emit(CliFailure::kernel(err)),
     };
-    let summary = json!({
+    let mut summary = json!({
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
         "tool": "diffFrames",
@@ -579,6 +727,13 @@ fn cmd_diff(
             "bytes": bytes,
         },
     });
+    if let Some(object) = summary["result"].as_object_mut() {
+        for key in ["scope", "mask", "protected"] {
+            if let Some(field) = result.get(key) {
+                object.insert(key.to_string(), field.clone());
+            }
+        }
+    }
     let line = serde_json::to_string(&summary).expect("diff is JSON");
     if !print_line(&line) {
         return 2;
@@ -594,9 +749,15 @@ fn cmd_diff(
             }
         }
     }
-    eprintln!(
-        "pixelforge: diff legend . = same index, ! = both differ, other glyphs are the only ink"
-    );
+    if result.get("scope").is_some() {
+        eprintln!(
+            "pixelforge: diff legend . = same index, ! = both differ, other glyphs are the only ink, # = protect"
+        );
+    } else {
+        eprintln!(
+            "pixelforge: diff legend . = same index, ! = both differ, other glyphs are the only ink"
+        );
+    }
     eprintln!("pixelforge: wrote {}", path.display());
     0
 }
