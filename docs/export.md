@@ -121,6 +121,24 @@ pixelforge validate-atlas --atlas hero-sheet.json --rules pack-rules.json
 
 *Run `validate-atlas` after `export sheet --atlas` and before the sheet is imported. It reads the same `pixelforge-atlas` version 1 object and does not edit pixels or invent a second format. Exit 0 means no errors. Exit 1 means the checklist has an error. Warnings alone stay exit 0 in both modes. `--loose` downgrades canvas tier, four-direction names, an empty tag list, the image file name, delay range, and pivot drift. Overlap, out-of-bounds frames, a broken grid, and opaque padding stay errors. Canvas edges are `frameWidth / scale` and `frameHeight / scale`, defaulting to 64, 96, and 128. Pivot is checked only when the atlas or the rules file already has one. This is the tool-side gate in front of #18: fix those errors in PixelForge and re-export, then let the game record whatever it still rejects.*
 
+### 本仓库的 #18 包
+
+[examples/game-pack-zombie](../examples/game-pack-zombie/README.md) 是上面三步的一份结果，不是游戏工程。丧尸是 64×64、四行朝向的 idle + walk。据点道具是路障、木箱、发电机、医疗箱，规则里 `fourDirection` 为 `off`、`tagPolicy` 为 `optional`。
+
+```bash
+python3 examples/game-pack-zombie/build.py
+pixelforge export sheet --project examples/game-pack-zombie/zombie/zombie.json \
+  --output examples/game-pack-zombie/zombie/zombie-sheet.png --cols 4 \
+  --atlas examples/game-pack-zombie/zombie/zombie-sheet.json
+pixelforge validate-atlas --atlas examples/game-pack-zombie/zombie/zombie-sheet.json \
+  --rules examples/game-pack-zombie/zombie/zombie-rules.json --strict
+python3 examples/game-pack-zombie/validate.py
+```
+
+道具把路径里的 `zombie` 换成 `props`。`validate.py` 和 `cargo test -p pixelforge-cli game_pack_zombie` 都要求 strict 退出码 0。失败模式、以及 Godot / Unity 仍要手接的过滤、轴心和 `idle_*` / `walk_*`，写在 [FAILURES.md](../examples/game-pack-zombie/FAILURES.md)。下面两节是那份清单用的导入约定。
+
+*The worked #18 pack is [examples/game-pack-zombie](../examples/game-pack-zombie/README.md). `validate.py` re-runs the strict gate. Godot and Unity import steps below are what the pack's failure log still has to do by hand.*
+
 ## Godot 4
 
 这些是导入约定，不是编辑器技术栈。
