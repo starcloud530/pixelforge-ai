@@ -1,0 +1,20 @@
+{
+  "format": "pixelforge-atlas-rules",
+  "version": 1,
+  "mode": "strict",
+  "sizes": [
+    64
+  ],
+  "requireTags": [
+    "barricade",
+    "crate",
+    "generator",
+    "medkit"
+  ],
+  "fourDirection": "off",
+  "tagPolicy": "optional",
+  "pivot": {
+    "x": 32,
+    "y": 57
+  }
+}

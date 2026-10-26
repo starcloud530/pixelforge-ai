@@ -98,7 +98,9 @@ pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --s
 
 导出之后、进游戏之前先跑 `pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png`；有 error 时退出码不是 0，不要把这份表交进游戏。
 
-*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only. After export, run `validate-atlas` before game import. An error is a non-zero exit; do not hand that sheet to the game.*
+这条路径的一份 64×64 结果在 `examples/game-pack-zombie/`：丧尸表 `--cols 4`，再 `validate-atlas --rules zombie/zombie-rules.json --strict`。静态道具换 `props/`，规则里关掉四向。重跑门槛是 `python3 examples/game-pack-zombie/validate.py`。游戏侧仍要接的过滤、轴心和动画名写在同目录的 `FAILURES.md`，并链回 `docs/export.md` 的 Godot / Unity 两节。
+
+*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only. After export, run `validate-atlas` before game import. An error is a non-zero exit; do not hand that sheet to the game. The worked 64×64 pack is `examples/game-pack-zombie/`; `validate.py` re-runs the strict gate, and `FAILURES.md` lists what Godot and Unity still reject.*
 
 ## Build a facing
 
