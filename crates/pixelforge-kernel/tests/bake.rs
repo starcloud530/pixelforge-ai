@@ -403,3 +403,158 @@ fn baked_pixels_stay_editable_and_the_file_stays_version_1() {
         Err(KernelError::BakeRange { .. })
     ));
 }
+
+/// Nonzero then zero. A default bake must put managed layers back on the source
+/// pose. A part with no curve and no constraint, and a layer with no part, stay.
+#[test]
+fn default_bake_restores_identity_when_a_curve_returns_to_zero() {
+    let mut document = Document::new(16, 16).unwrap();
+    document.add_frame();
+    document.add_layer(Some("gun")).unwrap();
+    document.add_layer(Some("hand")).unwrap();
+    document.add_layer(Some("badge")).unwrap();
+    paint_at(&mut document, 1, 4, 4, 1);
+    paint_at(&mut document, 2, 6, 4, 4);
+    paint_at(&mut document, 3, 2, 2, 3);
+    document.add_part("gun", 4, 4, Some(1)).unwrap();
+    document.set_anchor("gun", "grip", 2, 0).unwrap();
+    document.add_part("hand", 6, 4, Some(2)).unwrap();
+    document.set_anchor("hand", "palm", 0, 0).unwrap();
+    document.add_part("badge", 2, 2, Some(3)).unwrap();
+    document
+        .add_constraint(
+            "hand-grip",
+            pixelforge_kernel::ConstraintKind::Follow,
+            "hand",
+            Some("palm"),
+            Some("gun"),
+            Some("grip"),
+            None,
+            None,
+        )
+        .unwrap();
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 0, 0.0, None)
+        .unwrap();
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    document.set_active_frame(1).unwrap();
+    paint_at(&mut document, 0, 1, 1, 2);
+    paint_at(&mut document, 3, 3, 3, 5);
+    document.set_active_frame(0).unwrap();
+    document.clear_history();
+
+    let moved = tool(&mut document, "bake", json!({"from": 1, "to": 1}));
+    assert_eq!(moved["wrote"], json!(true));
+    assert_eq!(moved["frames"][0]["layers"], json!([1, 2]));
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+    assert_eq!(cell(&document, 1, 1, 4, 4), 0);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+    assert_eq!(cell(&document, 1, 2, 6, 4), 0);
+    assert_eq!(cell(&document, 0, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 0, 1, 1), 2);
+    assert_eq!(cell(&document, 1, 3, 2, 2), 0);
+    assert_eq!(cell(&document, 1, 3, 3, 3), 5);
+
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 0.0, None)
+        .unwrap();
+    let restored = tool(&mut document, "bake", json!({"from": 1, "to": 1}));
+    assert_eq!(restored["wrote"], json!(true));
+    assert_eq!(restored["frames"][0]["layers"], json!([1, 2]));
+    assert_eq!(restored["frames"][0]["parts"][0]["ink"], json!("unchanged"));
+    assert_eq!(restored["frames"][0]["parts"][0]["x"], json!(4));
+    assert_eq!(restored["frames"][0]["parts"][1]["ink"], json!("unchanged"));
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 1, 6, 4), 0);
+    assert_eq!(cell(&document, 1, 2, 6, 4), 4);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 0);
+    assert_eq!(cell(&document, 0, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 0, 1, 1), 2);
+    assert_eq!(cell(&document, 1, 3, 3, 3), 5);
+    assert_eq!(cell(&document, 1, 3, 2, 2), 0);
+
+    document.undo().unwrap();
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+    document.redo().unwrap();
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 2, 6, 4), 4);
+
+    let again = tool(&mut document, "bake", json!({"from": 1, "to": 1}));
+    assert_eq!(again["wrote"], json!(false));
+    assert_eq!(again["frames"][0]["layers"], json!([1, 2]));
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    tool(&mut document, "bake", json!({"from": 1, "to": 1}));
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 0.0, None)
+        .unwrap();
+    let named = tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "parts": ["gun"]}),
+    );
+    assert_eq!(named["wrote"], json!(true));
+    assert_eq!(named["frames"][0]["layers"], json!([1]));
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 1, 6, 4), 0);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+    assert_eq!(cell(&document, 1, 0, 1, 1), 2);
+
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "parts": ["gun"]}),
+    );
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 0.0, None)
+        .unwrap();
+    let layer = tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "layers": [1]}),
+    );
+    assert_eq!(layer["wrote"], json!(true));
+    assert_eq!(layer["frames"][0]["layers"], json!([1]));
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 1, 6, 4), 0);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    let curves_only = tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "constraints": false}),
+    );
+    assert_eq!(curves_only["frames"][0]["layers"], json!([1]));
+    assert_eq!(cell(&document, 1, 1, 6, 4), 1);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+    document
+        .set_curve_key("gun", CurveChannel::TranslateX, 1, 0.0, None)
+        .unwrap();
+    let curves_back = tool(
+        &mut document,
+        "bake",
+        json!({"from": 1, "to": 1, "constraints": false}),
+    );
+    assert_eq!(curves_back["wrote"], json!(true));
+    assert_eq!(curves_back["frames"][0]["layers"], json!([1]));
+    assert_eq!(cell(&document, 1, 1, 4, 4), 1);
+    assert_eq!(cell(&document, 1, 1, 6, 4), 0);
+    assert_eq!(cell(&document, 1, 2, 8, 4), 4);
+    assert_eq!(cell(&document, 1, 3, 3, 3), 5);
+    assert_eq!(part(&document, "gun").x, 4);
+}

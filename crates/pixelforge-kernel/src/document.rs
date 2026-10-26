@@ -53,8 +53,9 @@ pub struct BakeOptions {
     pub fps: Option<f64>,
     /// Pose only these parts. `None` poses every part. An empty list poses none.
     pub parts: Option<Vec<String>>,
-    /// Write only these layers. `None` writes the layers the pose moves,
-    /// or the linked layers of `parts` when that filter is set.
+    /// Write only these layers. `None` writes layers managed by the sampled
+    /// curves and solved constraints, including an identity pose, or the
+    /// linked layers of `parts` when that filter is set.
     pub layers: Option<Vec<usize>>,
     /// Sample curves, then solve constraints. `false` samples curves only.
     pub constraints: bool,
@@ -156,21 +157,36 @@ fn stored_bake_part(part: &crate::part::Part) -> SolvedPart {
     }
 }
 
+/// A solved constraint poses this part, including an IK joint that is not the end.
+fn constraint_drives(constraint: &Constraint, name: &str) -> bool {
+    if constraint.part == name {
+        return true;
+    }
+    constraint.kind == ConstraintKind::Ik && constraint.chain.iter().any(|joint| joint == name)
+}
+
+/// Layers to replace from the rest ink.
+///
+/// `managed[i]` is true when part `i` is sampled from a curve, or driven by a
+/// constraint this bake solves. An identity sample still counts: returning a
+/// curve to zero must rewrite that layer. `parts` names linked layers instead.
+/// `layers` intersects either set. A part with neither a curve nor a driving
+/// constraint does not pull its layer in, so a body with no part stays put.
 fn bake_write_layers(
     posed: &[PosedPart],
-    steps: &[Vec<MotionStep>],
+    managed: &[bool],
     parts: Option<&[String]>,
     layers: Option<&[usize]>,
     layer_count: usize,
 ) -> Vec<usize> {
-    let mut moving = Vec::new();
+    let mut managed_layers = Vec::new();
     for (index, part) in posed.iter().enumerate() {
-        if steps[index].is_empty() {
+        if !managed.get(index).copied().unwrap_or(false) {
             continue;
         }
         if let Some(layer) = part.oriented.layer {
-            if !moving.contains(&layer) {
-                moving.push(layer);
+            if !managed_layers.contains(&layer) {
+                managed_layers.push(layer);
             }
         }
     }
@@ -189,7 +205,7 @@ fn bake_write_layers(
             }
             continue;
         }
-        if layers.is_some() || moving.contains(&layer) {
+        if layers.is_some() || managed_layers.contains(&layer) {
             out.push(layer);
         }
     }
@@ -2889,10 +2905,12 @@ impl Document {
     /// [`KernelError::BakeRange`]. `fps` sets `delayMs` to `round(1000 / fps)`
     /// on every frame in the range, including the source.
     ///
-    /// On an existing frame, only layers the pose moves are replaced, unless
-    /// `parts` or `layers` names them. Duplicate the rest frame first so a
-    /// body with no part is already there. Appended frames copy every source
-    /// layer, then replace the posed ones.
+    /// On an existing frame, layers managed by the sampled curves and solved
+    /// constraints are replaced from the rest ink, even when that pose is the
+    /// identity. `parts` or `layers` name a different write set. A layer with
+    /// no curve and no driving constraint stays, so duplicate the rest frame
+    /// first when a body with no part should remain. Appended frames copy
+    /// every source layer, then replace the posed ones.
     ///
     /// A failure writes nothing. A success that changes pixels, delays, or the
     /// frame list is one undo step. The same pixels and delays are not recorded.
@@ -2924,6 +2942,8 @@ impl Document {
                 Some(names) => names.iter().any(|name| name == &part.name),
             })
             .collect();
+        let pose_included = self.bake_included(&included, options.constraints);
+        let managed = self.bake_managed(&pose_included, options.constraints);
         let source_layers: Vec<Vec<u8>> = (0..self.layer_names.len())
             .map(|layer| self.frames[source].layer_pixels(layer).to_vec())
             .collect();
@@ -2959,7 +2979,7 @@ impl Document {
             }
             let write_layers = bake_write_layers(
                 &posed,
-                &steps_per_part,
+                &managed,
                 part_filter.as_deref(),
                 layer_filter.as_deref(),
                 self.layer_names.len(),
@@ -3154,6 +3174,40 @@ impl Document {
             }
         }
         Ok(posed)
+    }
+
+    /// Parts whose linked layers a default bake rewrites, including identity.
+    ///
+    /// A part counts when this bake samples one of its curves, or when
+    /// constraint solving drives it. Zero motion is still managed. A part that
+    /// is not included, and a part with neither a curve nor a driving
+    /// constraint, does not.
+    fn bake_managed(&self, included: &[bool], solve: bool) -> Vec<bool> {
+        self.parts
+            .iter()
+            .enumerate()
+            .map(|(index, part)| {
+                if !included.get(index).copied().unwrap_or(false) {
+                    return false;
+                }
+                if self.curves.iter().any(|curve| curve.part == part.name) {
+                    return true;
+                }
+                if !solve {
+                    return false;
+                }
+                self.constraints.iter().any(|constraint| {
+                    let driver_included =
+                        self.parts
+                            .iter()
+                            .enumerate()
+                            .any(|(part_index, candidate)| {
+                                included[part_index] && candidate.name == constraint.part
+                            });
+                    driver_included && constraint_drives(constraint, &part.name)
+                })
+            })
+            .collect()
     }
 
     /// An IK chain is posed together when its end part is selected.

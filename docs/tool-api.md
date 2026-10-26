@@ -908,14 +908,14 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 | `source` | 静止墨水所在帧。缺省 0。这一帧的像素不改 |
 | `fps` | 大于 0 的有限数。区间里每一帧（含源帧）的 `delayMs` 变成 `round(1000/fps)`。12 是 83 |
 | `parts` | 只摆这些部件。省略则摆每一个。空数组是 `InvalidParams` |
-| `layers` | 只写这些层。省略则写会动的挂接层；给了 `parts` 又省略 `layers` 时，写这些部件挂着的层 |
+| `layers` | 只写这些层。省略则写受曲线或约束管理的挂接层，变换全为 0 也从源帧重写；给了 `parts` 又省略 `layers` 时，写这些部件挂着的层 |
 | `constraints` | 缺省 true。false 只采样曲线，不解约束 |
 
 每一非源帧都从源帧的墨水摆姿势，不从该帧已经有的像素接着摆，所以再烤一次不叠加。通道顺序与 `solveConstraints` 带 `frame` 时相同。存着的原点不改。曲线和约束不删。报告里的 `x`、`y` 是摆好的原点。
 
 已有帧只替换要写的层，其它层保持原样。先复制静止帧，没挂部件的身体才会留在这些帧上。追加的帧先整帧复制源帧，再盖上摆好的层。`from` 大于现有帧数是 `BakeRange`。
 
-`parts` 给定时，只摆名单里的部件，从动部件只跟同样被选中的目标。`layers` 再把写入收成交集。两个都省略时，只写这一帧里有位移的挂接层。同一层上两个会动、且这一层会被写入的部件是 `ConstraintLayer`。挂接层上每一个非 0 格都搬走。
+`parts` 给定时，只摆名单里的部件，从动部件只跟同样被选中的目标。`layers` 再把写入收成交集。两个都省略时，写这一次采样或求解管到的挂接层，不看当前位移是不是 0。曲线回到 0、约束增量也是 0 时，这些层从源帧恢复身份姿势。没挂曲线、也没被约束驱动的层不动。同一层上两个会动、且这一层会被写入的部件是 `ConstraintLayer`。挂接层上每一个非 0 格都搬走。
 
 选区必须盖住搬走的源格和落点；追加帧上新写入的非 0 格也必须在选区内。否则 `SelectionProtected`，一格都不写。出画布、缺锚点、环、第二条驱动同样整次不写。
 
@@ -942,7 +942,7 @@ CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun 
 
 *An existing frame replaces only the layers being written. Duplicate the rest frame first when a body with no part should remain. An appended frame copies every source layer, then overwrites the posed layers. `from` past the frame count is `BakeRange`.*
 
-*A `parts` list poses only those parts, and a follower tracks a target only when that target is included. `layers` intersects that write set. With neither filter, only a layer that moves on that frame is written. Two moving parts on a layer that will be written are `ConstraintLayer`. Every non-zero cell on a written linked layer moves.*
+*A `parts` list poses only those parts, and a follower tracks a target only when that target is included. `layers` intersects that write set. With neither filter, a layer linked to a part this bake samples or that a solved constraint drives is written, including when that pose is the identity, so a curve that returns to zero restores the source ink. A layer with no curve and no driving constraint stays. Two moving parts on a layer that will be written are `ConstraintLayer`. Every non-zero cell on a written linked layer moves.*
 
 *A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it too. Otherwise the call is `SelectionProtected` and writes nothing. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
 
