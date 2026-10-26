@@ -52,6 +52,7 @@ Examples:
   pixelforge part rotate --project soldier.json --name gun --degrees 90 --anchor grip
   pixelforge part flip --horizontal --project soldier.json --name gun --anchor grip
   pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4 --atlas hero-sheet.json
+  pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, palette hash, frame delays) and does not dump pixels. `visible` is
@@ -127,7 +128,15 @@ duplicate` does not select the new frame. `layer add` inserts above the
 active layer and selects the new one. `palette enforce` sets indexPolicy
 (`reject` by default, or `clamp`). `palette remap` quantizes with
 `--max-colors` or retargets a `.gpl` / hex file. `palette apply-png` crushes
-one canvas-sized PNG onto the current palette. There is no Lospec browser.";
+one canvas-sized PNG onto the current palette. There is no Lospec browser.
+`validate-atlas` reads an exported sheet PNG and its pixelforge-atlas JSON.
+It does not edit pixels. Exit 0 means the checklist has no errors. Exit 1
+means it has at least one error. Warnings alone stay exit 0, in --strict and
+in --loose. --loose turns canvas tier, four-direction names, an empty tag
+list, image file name, delay range, and pivot drift into warnings. Overlap,
+out-of-bounds frames, a broken grid, and opaque padding stay errors. Default
+canvas edges are 64, 96, and 128, checked as frameWidth / scale and
+frameHeight / scale.";
 
 #[derive(Parser)]
 #[command(
@@ -409,6 +418,11 @@ pub enum Command {
         #[command(subcommand)]
         command: ExportCmd,
     },
+    /// Check a sheet PNG against pixelforge-atlas JSON. Does not edit pixels.
+    ///
+    /// Exit 0 when the checklist has no errors. Exit 1 when it has an error.
+    /// Warnings alone stay exit 0. Exit 2 when the files cannot be read.
+    ValidateAtlas(ValidateAtlasArgs),
     /// Print the Tool API tool names as JSON.
     Tools,
 }
@@ -1100,6 +1114,64 @@ pub enum ExportCmd {
         #[arg(long, value_name = "FILE")]
         atlas: Option<PathBuf>,
     },
+}
+
+#[derive(Args)]
+pub struct ValidateAtlasArgs {
+    /// pixelforge-atlas JSON written by `export sheet --atlas`.
+    #[arg(long, value_name = "FILE")]
+    pub atlas: PathBuf,
+    /// Sheet PNG. Omit to use the atlas `image` file beside the JSON.
+    #[arg(long, value_name = "FILE")]
+    pub sheet: Option<PathBuf>,
+    /// `pixelforge-atlas-rules` JSON. Flags override the fields they set.
+    #[arg(long, value_name = "FILE")]
+    pub rules: Option<PathBuf>,
+    /// Convention misses are errors. This is the default.
+    #[arg(long, conflicts_with = "loose")]
+    pub strict: bool,
+    /// Convention misses are warnings. Overlap, bounds, grid, and padding stay errors.
+    #[arg(long)]
+    pub loose: bool,
+    /// Allowed unscaled canvas edge. Repeating replaces 64, 96, and 128.
+    #[arg(long, value_name = "PX", conflicts_with = "any_size")]
+    pub size: Vec<u32>,
+    /// Skip the 64 / 96 / 128 canvas-tier check.
+    #[arg(long)]
+    pub any_size: bool,
+    /// Tag name that must be present. Replaces `requireTags` from the rules file.
+    #[arg(long = "require-tag", value_name = "NAME")]
+    pub require_tag: Vec<String>,
+    /// Four-direction names: check automatically, always, or never.
+    #[arg(long, value_enum)]
+    pub four_direction: Option<FourDirectionArg>,
+    /// Empty tag list is an error, or it is not a finding.
+    #[arg(long, value_enum)]
+    pub tag_policy: Option<TagPolicyArg>,
+    /// Expected pivot x in frame pixels. Top-left is 0 and y grows downward.
+    #[arg(long, requires = "pivot_y", allow_hyphen_values = true)]
+    pub pivot_x: Option<f64>,
+    /// Expected pivot y in frame pixels. The bottom edge is the frame height.
+    #[arg(long, requires = "pivot_x", allow_hyphen_values = true)]
+    pub pivot_y: Option<f64>,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum FourDirectionArg {
+    /// Check when a tag is `{idle|walk}_{down|left|right|up}`.
+    Auto,
+    /// Always apply the four-direction names.
+    On,
+    /// Do not apply the four-direction names.
+    Off,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum TagPolicyArg {
+    /// An empty tag list is an error in both modes.
+    Required,
+    /// An empty tag list is not a finding.
+    Optional,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

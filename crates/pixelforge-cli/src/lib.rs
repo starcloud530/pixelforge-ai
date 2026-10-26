@@ -12,6 +12,7 @@ mod output;
 mod preview;
 mod requests;
 mod session;
+mod validate_atlas;
 
 use std::fs;
 use std::io::Read;
@@ -118,6 +119,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
+        Command::ValidateAtlas(args) => validate_atlas::run(args),
         Command::Tools => cmd_tools(),
     }
 }
