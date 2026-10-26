@@ -107,10 +107,11 @@
 | `ConstraintName` | 约束名是空的、只有空白、含控制字符，或超过 64 个字符 |
 | `ConstraintExists` | 已经有同名约束 |
 | `ConstraintMissing` | 没有这个名字的约束 |
-| `ConstraintFields` | 字段和 `follow`、`attach`、`pin` 对不上。`follow` / `attach` 要目标和目标锚点，不能带钉点。`attach` 还要自己的锚点。`pin` 要画布上的 `x` 和 `y`，不能带目标 |
+| `ConstraintFields` | 字段和 `follow`、`attach`、`pin`、`ik`、`plant` 对不上。链长不是 2 或 3、脚印重叠、或目标和钉点同时出现，也是这个码 |
 | `ConstraintCycle` | 约束自己指向自己，或几条约束绕成环。一格都不写 |
-| `ConstraintConflict` | 同一个部件被两条约束驱动。一格都不写 |
+| `ConstraintConflict` | 同一个部件被两条约束驱动。一条 `ik` 驱动链上的每一节。一格都不写 |
 | `ConstraintLayer` | 同一层上有两个会动的部件。给每个会动的部件单独一层 |
+| `IkUnreachable` | 短链 IK 不能把末端正好落到目标格。一格都不写，也不会改放到旁边的格 |
 | `BakeRange` | `bake` 的 `from` 大于 `to`，`from` 大于现有帧数，或 `to` 大于等于 4096 |
 | `BakeFps` | `bake` 的 `fps` 不是大于 0 的有限数 |
 | `NothingToUndo` | 撤销栈是空的 |
@@ -177,7 +178,7 @@
 | `tags` | `{ "index", "name", "from", "to", "loop" }` 数组，按添加顺序。没有标签时是 `[]`。见「动画标签」 |
 | `parts` | `{ "index", "name", "x", "y", "layer", "anchors" }` 数组，按添加顺序。没有部件时是 `[]`。见「部件与锚点」 |
 | `curves` | `{ "index", "part", "channel", "keys" }` 数组，按添加顺序。没有曲线时是 `[]`。见「部件曲线」 |
-| `constraints` | `{ "index", "name", "kind", "part", "anchor", "target", "targetAnchor", "x", "y" }` 数组，按添加顺序。没有约束时是 `[]`。见「约束」 |
+| `constraints` | `{ "index", "name", "kind", "part", "anchor", "target", "targetAnchor", "x", "y", "chain", "bend", "contacts" }` 数组，按添加顺序。没有约束时是 `[]`。见「约束」 |
 | `layers` | `{ "index", "name" }` 数组，从底到顶 |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
@@ -803,8 +804,16 @@ CLI：`pixelforge curve sample --part gun --frame 2`。不写 `--channel` 就是
 | `follow` | 平移 `part`，使 `anchor`（省略则原点）落到 `target` 的 `targetAnchor` | 要 `target`、`targetAnchor`。不能有 `x`、`y` |
 | `attach` | 同上，两边锚点都要。枪托贴肩 | 要 `anchor`、`target`、`targetAnchor`。不能有 `x`、`y` |
 | `pin` | 平移 `part`，使 `anchor`（省略则原点）落到画布格 `(x, y)` | 要 `x`、`y`，都在画布内。不能有 `target`、`targetAnchor` |
+| `ik` | 旋转 2 或 3 节链，使末端锚点（省略则末端原点）正好落到目标格 | `chain` 从根到末端，最后一节等于 `part`。目标是 `x`,`y`，或 `target`+`targetAnchor`，或 `contacts`。够不着是 `IkUnreachable` |
+| `plant` | 在脚印区间内平移 `part`，把锚点钉在那一格。区间外不钉，曲线照旧 | `contacts`：`{frame,to,x,y}`。`to` 可省略，等于 `frame`。不能有链、目标和钉点 |
 
-Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 只接受 `follow`、`attach`、`pin`。
+Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 接受 `follow`、`attach`、`pin`、`ik`、`plant`。
+
+`ik` 的骨长是静止姿势里相邻原点的整格差，最后一节再加末端锚点的本地偏移。求解从静止朝向出发，根部件保留曲线平移，链上其它部件在这一帧的旋转和翻转曲线不参与。`bend` 为 `1` 时第一关节在根指向目标的顺时针一侧，`-1` 是另一侧。省略时沿用静止姿势的那一侧；静止是直的则两侧都可以，取离静止角最近的一解。另一侧够得着而指定的一侧不够，是 `IkUnreachable`，不会悄悄换边。末端格必须正好是目标格。
+
+`plant` 和带 `contacts` 的 `ik` 用同一份脚印。采样帧 `f` 落在 `frame <= f <= to` 里就钉那一格。区间可以跨多帧，脚底格不变，所以不会顺着曲线滑。区间外的帧不钉。省略 `solveConstraints` 的 `frame` 时，脚印按 `pixelFrame`（缺省当前帧）取样。脚印的帧下标必须已经存在；插帧、删帧会像曲线关键帧一样挪这些下标。一条 `plant` 的脚印被删光就去掉这条约束。
+
+一条 `ik` 驱动链上的每一节，这些部件不能再被别的约束驱动。`--part` 只点了末端时，`bake` 会把整条链一起摆。每个会动的关节仍要单独一层。
 
 `rotatePart` 和 `setCurveKey` 不求解。求解是 `solveConstraints`。`frame` 给出时，先从**当前存着的姿势**采样该部件的曲线，再解约束。通道顺序：绕存着的原点旋转、水平翻转、垂直翻转，然后整格平移。平移小数取最近格，一半远离 0。曲线枢轴是原点。省略 `frame` 则不读曲线。
 
@@ -816,7 +825,11 @@ Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 只接�
 
 *`constraints` is omitted when empty. An older file loads with none. The version stays 1. A constraint is metadata. Pixels stay on layers.*
 
-*`follow` tracks `targetAnchor` with an optional follower anchor. `attach` requires both anchors. `pin` stores a canvas cell. `stick` is accepted by the tool and stored as `attach`. The file spelling is `follow`, `attach`, or `pin`.*
+*`follow` tracks `targetAnchor` with an optional follower anchor. `attach` requires both anchors. `pin` stores a canvas cell. `ik` rotates a chain of two or three parts so the end cell is exactly the target. `plant` pins an anchor on a footprint span and leaves other frames on the curve pose. `stick` is accepted by the tool and stored as `attach`. The file spelling is `follow`, `attach`, `pin`, `ik`, or `plant`.*
+
+*`ik` measures bone lengths from the rest origins, keeps the root's curve translation, and does not apply rotation or flip curves on the chain for that frame. `bend` `1` keeps the first joint on the clockwise side of root-to-target. `-1` is the other side. Omit it to keep the rest side. A straight rest accepts either side and picks the angles closest to rest. The other side is not used when the requested side misses. A miss is `IkUnreachable` and does not leave the effector on a neighbor cell.*
+
+*A footprint span `{frame,to,x,y}` pins while `frame <= f <= to`. The cell does not change inside the span, so a translate curve cannot slide the sole. Frames outside every span are not pinned. Omit `to` and the span is that one frame. Omit `frame` on `solveConstraints` and the span is sampled at `pixelFrame`. Contact frames must already exist. Inserting or deleting a frame shifts them like curve keys. A `plant` with no spans left is dropped. An `ik` drives every joint in its chain. `bake --part` on the end poses the whole chain.*
 
 *`solveConstraints` is explicit. With `frame`, each part's curves are sampled from the stored pose, then constraints run. Channel order is rotation, horizontal flip, vertical flip around the stored origin, then whole-cell translation. Fractional translation snaps to the nearest cell, ties away from zero. Omit `frame` and curves are not read. Solve order waits for a driven target. Independent constraints keep file order. A cycle is `ConstraintCycle`. A second driver is `ConstraintConflict` and is refused at add time. Two posed parts on one layer are `ConstraintLayer`. One moving part may share a layer with a stationary part; every non-zero cell on that layer moves.*
 
@@ -826,17 +839,21 @@ Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 只接�
 
 ### `addConstraint`
 
-`params`：`name`、`kind`（`follow`、`attach`、`stick`、`pin`）、`part`。按种类再给 `anchor`、`target`、`targetAnchor`、`x`、`y`。
+`params`：`name`、`kind`（`follow`、`attach`、`stick`、`pin`、`ik`、`plant`）、`part`。按种类再给 `anchor`、`target`、`targetAnchor`、`x`、`y`、`chain`、`bend`、`contacts`。
 
-不移动像素。环或第二条驱动会被拒绝，名单不变。钉点出画布是 `PartOffCanvas`。一步撤销。
+不移动像素。环或第二条驱动会被拒绝，名单不变。钉点或脚印出画布是 `PartOffCanvas`。一步撤销。
 
-`result`：`index`、`name`、`kind`（`stick` 写成 `attach`）、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`。用不到的字段是 `null`。
+`result`：`index`、`name`、`kind`（`stick` 写成 `attach`）、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`、`chain`、`bend`、`contacts`。用不到的字段是 `null` 或空数组。
 
 CLI：`pixelforge constraint add --name hand-grip --kind follow --part hand --anchor palm --target gun --target-anchor grip`。
 
 `pixelforge constraint add --name butt-shoulder --kind stick --part gun --anchor butt --target shoulder --target-anchor joint`。
 
 `pixelforge constraint add --name plant-foot --kind pin --part foot --anchor sole --x 4 --y 11`。
+
+`pixelforge constraint add --name left-leg --kind ik --part shin --anchor sole --chain thigh --chain shin --bend 1 --contact 0:1:12:12`。
+
+`pixelforge constraint add --name left-sole --kind plant --part boot --anchor sole --contact 0:1:4:12`。
 
 错误：`ConstraintName`、`ConstraintExists`、`ConstraintFields`、`ConstraintCycle`、`ConstraintConflict`、`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`、`PartOffCanvas`。`kind` 不是那四个字符串时是 `InvalidParams`。
 
@@ -871,12 +888,12 @@ CLI：`pixelforge constraint list`。
 | `apply`, `wrote` | 是否要求写入；这一次是否真的改了部件或像素 |
 | `dropped` | 各层最近邻碰撞丢掉的格数之和。直角、平移为 0 |
 | `order` | 求解顺序上的约束名 |
-| `constraints` | 按文件下标。含 `dx`、`dy`（这一条约束加上的整格，不含曲线平移）、`satisfied`、`from`、`to` |
+| `constraints` | 按文件下标。含 `dx`、`dy`（末端或从动部件这一条加上的整格）、`satisfied`、`planted`（这一帧是否落在脚印区间里）、`from`、`to` |
 | `parts` | 解完的姿势。`anchors` 里有本地格和 `canvasX`、`canvasY`。`ink` 是 `unchanged`、`metadata` 或 `moved` |
 
 CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint solve --apply` 用存下的姿势写入当前帧。`pixelforge constraint solve --frame 4 --apply --pixel-frame 0` 先采样再写入第 0 帧。
 
-错误：`CurveFrame`、`CurveValue`、`AnchorMissing`、`PartMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintFields`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`FrameIndex`。`frame` 不是有限数或 `apply` 不是布尔时是 `InvalidParams`。
+错误：`CurveFrame`、`CurveValue`、`AnchorMissing`、`PartMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintFields`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`IkUnreachable`、`FrameIndex`。`frame` 不是有限数或 `apply` 不是布尔时是 `InvalidParams`。
 
 *Solve order, cycles, a missing anchor, and a cell off the canvas are errors. The call writes nothing in those cases. `listConstraints` is read-only. `solveConstraints` with `apply` false is read-only. `apply` true is one undo step when the pose changes.*
 
@@ -919,7 +936,7 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 
 CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun --part hand --layer 0`。`pixelforge bake --curves-only`。`pixelforge bake --source 0 --from 1 --to 4`。
 
-错误：`BakeRange`、`BakeFps`、`FrameDelay`、`FrameIndex`、`LayerIndex`、`PartName`、`PartMissing`、`CurveValue`、`AnchorMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`。`fps` 不是有限数、`constraints` 不是布尔、`parts` 或 `layers` 是空数组或类型不对时是 `InvalidParams`。
+错误：`BakeRange`、`BakeFps`、`FrameDelay`、`FrameIndex`、`LayerIndex`、`PartName`、`PartMissing`、`CurveValue`、`AnchorMissing`、`PartOffCanvas`、`SelectionProtected`、`ConstraintCycle`、`ConstraintConflict`、`ConstraintLayer`、`IkUnreachable`。`fps` 不是有限数、`constraints` 不是布尔、`parts` 或 `layers` 是空数组或类型不对时是 `InvalidParams`。选了 `ik` 的末端时，链上其它关节会一起摆。
 
 *Every optional field may be omitted. Each non-source frame is posed from the source frame's ink, not from pixels already on that frame, so a second bake does not stack. Channel order matches `solveConstraints` with `frame`. Stored origins stay. Curves and constraints stay. Reported `x` and `y` are the posed origin.*
 

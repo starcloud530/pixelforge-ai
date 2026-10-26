@@ -2,8 +2,8 @@
 //!
 //! Source of truth for canvas size, indexed pixels, palette entries, frames,
 //! layers, per-frame delay, named animation tags, named parts with
-//! anchors, keyframed part-transform curves, and follow, attach, and pin
-//! constraints. Paint, erase, rectangle fill, rectangle erase,
+//! anchors, keyframed part-transform curves, and follow, attach, pin,
+//! short-chain IK, and footprint constraints. Paint, erase, rectangle fill, rectangle erase,
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
 //! indices on the active layer, never raw RGB. Preview, diff, and PNG export
 //! composite the stack: index 0 is transparent and any other index covers the
@@ -51,7 +51,7 @@ mod tool_api;
 
 pub use aseprite::AsepriteReport;
 pub use color::Rgba;
-pub use constraint::{Constraint, ConstraintKind, SolveReport};
+pub use constraint::{Constraint, ConstraintKind, Contact, SolveReport};
 pub use curve::{
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
     SampleHit,

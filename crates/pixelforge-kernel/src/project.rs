@@ -22,7 +22,8 @@
 //! part list is still saved that way. A file written before part curves existed
 //! omits `curves` and loads with none. An empty curve list is still saved that
 //! way. A file written before constraints existed omits `constraints` and loads
-//! with none. An empty constraint list is still saved that way. A missing
+//! with none. An empty constraint list is still saved that way. `ik` and
+//! `plant` are kinds on that same list. A missing
 //! `selection` loads as no mask. One rectangle is written as
 //! `{x,y,width,height}`. Several rectangles, or a mask that covers nothing,
 //! are written as `{rects:[...]}`. The field is omitted when the selection is
@@ -30,7 +31,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::constraint::{solve_order, Constraint, ConstraintKind};
+use crate::constraint::{solve_order, Constraint, ConstraintKind, Contact};
 use crate::curve::{Curve, CurveChannel, CurveKey, Ease};
 use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
@@ -183,6 +184,25 @@ struct ConstraintFile {
     /// Pin row. Missing on follow and attach.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     y: Option<i64>,
+    /// Root-first IK chain. Empty for follow, attach, pin, and plant.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    chain: Vec<String>,
+    /// `1` or `-1`. Missing keeps the rest bend.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bend: Option<i64>,
+    /// Footprint spans. Empty when this constraint has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    contacts: Vec<ContactFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ContactFile {
+    frame: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    to: Option<u64>,
+    x: i64,
+    y: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -387,7 +407,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let tags = tags_from_file(file.tags, frames.len())?;
     let parts = parts_from_file(file.parts, width, height, names.len())?;
     let curves = curves_from_file(file.curves, &parts, frames.len())?;
-    let constraints = constraints_from_file(file.constraints, &parts, width, height)?;
+    let constraints = constraints_from_file(file.constraints, &parts, width, height, frames.len())?;
     Ok(Document::from_stored(
         width,
         height,
@@ -411,6 +431,7 @@ fn constraints_from_file(
     parts: &[Part],
     width: u16,
     height: u16,
+    frame_count: usize,
 ) -> Result<Vec<Constraint>, KernelError> {
     let mut constraints = Vec::with_capacity(files.len());
     for (index, file) in files.into_iter().enumerate() {
@@ -456,21 +477,122 @@ fn constraints_from_file(
             }
             _ => return Err(invalid(ProjectFileError::ConstraintFields { index })),
         };
+        let bend = match file.bend {
+            None => None,
+            Some(1) => Some(1),
+            Some(-1) => Some(-1),
+            Some(_) => return Err(invalid(ProjectFileError::ConstraintFields { index })),
+        };
+        let mut contacts = Vec::with_capacity(file.contacts.len());
+        for contact in file.contacts {
+            let frame = u16::try_from(contact.frame)
+                .map_err(|_| invalid(ProjectFileError::ConstraintFields { index }))?;
+            let to = match contact.to {
+                None => frame,
+                Some(to) => u16::try_from(to)
+                    .map_err(|_| invalid(ProjectFileError::ConstraintFields { index }))?,
+            };
+            let x = u16::try_from(contact.x)
+                .map_err(|_| invalid(ProjectFileError::ConstraintPin { index }))?;
+            let y = u16::try_from(contact.y)
+                .map_err(|_| invalid(ProjectFileError::ConstraintPin { index }))?;
+            if frame > to || usize::from(to) >= frame_count || x >= width || y >= height {
+                return Err(invalid(ProjectFileError::ConstraintFields { index }));
+            }
+            if contacts
+                .iter()
+                .any(|earlier: &Contact| earlier.frame <= to && frame <= earlier.to)
+            {
+                return Err(invalid(ProjectFileError::ConstraintFields { index }));
+            }
+            contacts.push(Contact { frame, to, x, y });
+        }
+        let mut chain = Vec::with_capacity(file.chain.len());
+        for name in file.chain {
+            let name = normalize_part_name(&name)
+                .map_err(|()| invalid(ProjectFileError::ConstraintPart { index }))?;
+            if chain.iter().any(|existing: &String| existing == &name)
+                || !parts.iter().any(|existing| existing.name == name)
+            {
+                return Err(invalid(ProjectFileError::ConstraintPart { index }));
+            }
+            chain.push(name);
+        }
         match kind {
             ConstraintKind::Follow => {
-                if pin.is_some() || target.is_none() || target_anchor.is_none() {
+                if pin.is_some()
+                    || target.is_none()
+                    || target_anchor.is_none()
+                    || bend.is_some()
+                    || !chain.is_empty()
+                    || !contacts.is_empty()
+                {
                     return Err(invalid(ProjectFileError::ConstraintFields { index }));
                 }
             }
             ConstraintKind::Attach => {
-                if pin.is_some() || anchor.is_none() || target.is_none() || target_anchor.is_none()
+                if pin.is_some()
+                    || anchor.is_none()
+                    || target.is_none()
+                    || target_anchor.is_none()
+                    || bend.is_some()
+                    || !chain.is_empty()
+                    || !contacts.is_empty()
                 {
                     return Err(invalid(ProjectFileError::ConstraintFields { index }));
                 }
             }
             ConstraintKind::Pin => {
-                if pin.is_none() || target.is_some() || target_anchor.is_some() {
+                if pin.is_none()
+                    || target.is_some()
+                    || target_anchor.is_some()
+                    || bend.is_some()
+                    || !chain.is_empty()
+                    || !contacts.is_empty()
+                {
                     return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+            }
+            ConstraintKind::Plant => {
+                if pin.is_some()
+                    || target.is_some()
+                    || target_anchor.is_some()
+                    || bend.is_some()
+                    || !chain.is_empty()
+                    || contacts.is_empty()
+                {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+            }
+            ConstraintKind::Ik => {
+                if chain.len() < 2
+                    || chain.len() > 3
+                    || chain.last().map(String::as_str) != Some(part.as_str())
+                {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+                let has_cell = pin.is_some();
+                let has_target = target.is_some() || target_anchor.is_some();
+                if has_cell && has_target {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+                if has_target && (target.is_none() || target_anchor.is_none()) {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+                if !has_cell && !has_target && contacts.is_empty() {
+                    return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                }
+                if let Some(target_name) = target.as_deref() {
+                    if chain.iter().any(|joint| joint == target_name) {
+                        return Err(invalid(ProjectFileError::ConstraintCycle { index }));
+                    }
+                }
+                match crate::constraint::ik_bones(parts, &chain, anchor.as_deref()) {
+                    Ok(_) | Err(KernelError::AnchorMissing) => {}
+                    Err(KernelError::ConstraintFields) => {
+                        return Err(invalid(ProjectFileError::ConstraintFields { index }));
+                    }
+                    Err(_) => return Err(invalid(ProjectFileError::Malformed)),
                 }
             }
         }
@@ -487,6 +609,9 @@ fn constraints_from_file(
             target_anchor,
             x,
             y,
+            chain,
+            bend,
+            contacts,
         });
     }
     match solve_order(&constraints) {
@@ -774,6 +899,22 @@ impl Document {
                 target_anchor: constraint.target_anchor.clone(),
                 x: constraint.x.map(i64::from),
                 y: constraint.y.map(i64::from),
+                chain: constraint.chain.clone(),
+                bend: constraint.bend.map(i64::from),
+                contacts: constraint
+                    .contacts
+                    .iter()
+                    .map(|contact| ContactFile {
+                        frame: u64::from(contact.frame),
+                        to: if contact.to == contact.frame {
+                            None
+                        } else {
+                            Some(u64::from(contact.to))
+                        },
+                        x: i64::from(contact.x),
+                        y: i64::from(contact.y),
+                    })
+                    .collect(),
             })
             .collect()
     }

@@ -388,15 +388,15 @@ pixelforge scene --project soldier.json
 
 只改 `frame`（缺省当前帧）的像素。部件列表仍是整份文档一份，所以这一下的原点描述的是你刚转过的那一帧，其它帧的像素不动。枪和别的墨水不要挂在同一层：变换搬走的是这一层上全部非 0 格。有选区时，这些格和落点必须都在选区内，否则 `SelectionProtected`，一格都不写。落出画布是 `PartOffCanvas`。
 
-不做自由仿射、亚像素合成、骨骼界面、脚本或整链 IK。关键帧只采样，不把采样写进格子。见「部件曲线」。手、枪托和脚底用「约束」里的显式 `constraint solve`，一次调用解当前这一帧。整段帧用「烘焙」。
+不做自由仿射、亚像素合成、骨骼界面或脚本。短链 IK 只有 2 或 3 节，见「约束」。没有整棵 IK 树，没有自动步态，也没有物理。关键帧只采样，不把采样写进格子。见「部件曲线」。手、枪托和脚底用「约束」里的显式 `constraint solve`，一次调用解当前这一帧。整段帧用「烘焙」。
 
-*A part transform moves the linked layer's ink and the origin and anchors in one undo step. It remaps indices and does not invent colors. The pivot is the center of the origin cell, or of `--anchor`. An unattached shoulder only moves its origin.*
+*A part transform moves the linked layer's ink and the origin and anchors in one undo step. It remaps indices and does not invent colors. The pivot is the center of the origin cell, or of `--anchor`. An unattached shoulder only moves its origin. A short IK chain is two or three parts, in Constraints. There is no full IK tree, no gait generator, and no physics.*
 
 *Translate is a whole-cell shift; local anchors stay. Flip mirrors through the pivot cell. Rectangle `hflip` uses the rectangle center and does not move the part.*
 
 *`--degrees` may be other than 90. It wraps into `(-180, 180]`, quantizes to 0.01° with ties away from zero, and a multiple of 90 is an exact quarter turn. Four 90° turns restore the part. Any other angle snaps each ink-cell center to the nearest cell, ties away from the pivot. A collision keeps the later row-major index and reports `dropped`. Read `grid` and `degreesCenti`.*
 
-*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, script, or full IK chain. A keyframe curve samples a pose and does not write cells. See Part curves. A hand, a butt, and a planted foot use an explicit `constraint solve` in Constraints. That call poses one frame. A span of frames uses Bake.*
+*Only `frame` (the active frame by default) changes pixels. The part list is one pose for the document, so the origin then matches that frame. Give the gun its own layer: every non-zero cell on the linked layer moves. A selection must cover each of those cells and its destination, or the call is `SelectionProtected` and writes nothing. A cell that would leave the canvas is `PartOffCanvas`. There is no free affine warp, sub-pixel composite, bone UI, or script. IK is a chain of two or three parts. There is no full tree. A keyframe curve samples a pose and does not write cells. See Part curves. A hand, a butt, and a planted foot use an explicit `constraint solve` in Constraints. That call poses one frame. A span of frames uses Bake.*
 
 ```bash
 pixelforge part translate --project soldier.json --name gun --dx 2 --dy 0
@@ -463,11 +463,13 @@ pixelforge curve remove --project soldier.json --part gun --channel rotation --f
 
 ### 约束 Constraints
 
-约束是工程文件里的一份名单，不是第二块像素，也不是骨骼。三种：
+约束是工程文件里的一份名单，不是第二块像素，也不是骨骼。五种：
 
 - `follow`：把 `part` 的 `anchor`（省略则是原点）平移到 `target` 的 `targetAnchor`。手掌跟枪的 `grip`。
 - `attach`：同样是平移，但两边的锚点都要写。枪托 `butt` 贴肩的 `joint`。CLI 和 Tool API 的 `stick` 存成 `attach`。文件里只写 `attach`。
-- `pin`：把 `part` 的 `anchor`（省略则是原点）平移到画布格 `(x, y)`。脚的 `sole` 钉在地上。没有 `target`。
+- `pin`：把 `part` 的 `anchor`（省略则是原点）平移到画布格 `(x, y)`。脚的 `sole` 钉在地上。没有 `target`。每一帧都是同一个格。
+- `ik`：2 或 3 节，`--chain` 从根到末端，最后一节是 `--part`。末端 `--anchor`（省略则是末端原点）必须正好落到 `--x --y`、目标锚点，或 `--contact` 脚印上。够不着是 `IkUnreachable`，末端不会停在旁边的格。`bend 1` 是顺时针侧，`-1` 是另一侧。根保留曲线平移；这一帧链上的旋转曲线不参与。
+- `plant`：脚印区间。`--contact frame:x:y` 或 `frame:to:x:y`。采样落在区间里就把锚点钉在那一格，所以脚不会顺着曲线滑。区间外不钉。
 
 `part rotate`、`curve set` 都不自动解约束。要解就调用 `constraint solve` / `solveConstraints`。这样一次调用仍是一次内核操作。
 
@@ -483,7 +485,7 @@ pixelforge curve remove --project soldier.json --part gun --channel rotation --f
 
 改名会改写约束里的 `part` 和 `target`。删掉部件会丢掉提到它的约束。`resize` 把钉点按同一偏移挪走，钉点出画布或部件被裁掉时丢掉该约束。删锚点不删约束。空列表不写 `constraints`。版本仍是 1。未知字段拒绝。
 
-*A constraint is a record in the project file. It is not a second pixel buffer and not a bone. `follow` translates `part` so its anchor, or its origin, lands on `targetAnchor`. `attach` is the same translation with both anchors required; CLI and Tool API `stick` is stored as `attach`. `pin` translates an anchor or the origin onto a canvas cell and names no target.*
+*A constraint is a record in the project file. It is not a second pixel buffer and not a bone. `follow` translates `part` so its anchor, or its origin, lands on `targetAnchor`. `attach` is the same translation with both anchors required; CLI and Tool API `stick` is stored as `attach`. `pin` translates an anchor or the origin onto one canvas cell on every frame. `ik` rotates a chain of two or three parts so the end cell is exactly the target; a miss is `IkUnreachable` and does not leave the end on a neighbor. `plant` pins an anchor for a footprint span and does not pin frames outside that span.*
 
 *`part rotate` and `curve set` do not solve. `constraint solve` is the call, so the edit count stays one operation. With `--frame`, curves are sampled from the stored pose and then constraints run. Channel order is rotation, horizontal flip, vertical flip, each around the stored origin, then whole-cell translation. A fractional translation snaps to the nearest cell, and a tie goes away from zero. The curve pivot is the origin. To turn around the butt, put the origin there, or `part rotate --anchor butt` and then `constraint solve` with no `--frame`. With `--frame`, rotation is around the origin and `attach` then slides the butt back onto the shoulder. The ink keeps that rotation.*
 
@@ -519,9 +521,22 @@ pixelforge constraint solve --project soldier.json --frame 4 --apply
 { "tool": "solveConstraints", "params": { "frame": 4, "apply": true } }
 ```
 
+走路时脚底不要每帧都钉在同一个格，也不要让平移曲线把脚底悄悄挪走。先 `frame duplicate` 静止帧，再给髋部一条 `translateX` 曲线，再用 `ik` 的 `--contact` 写下接触区间。区间里的脚底格不变。下一落点是另一条 `--contact`，那是明确的一步，不是滑移。一条链驱动它的每一节，每节单独一层。`bend` 不要的那一侧不会被自动换上。`plant` 是没有链的脚：只在区间里平移脚底。外部脚本是 `examples/soldier-walk.py`。
+
+*A walk does not pin the sole to one cell on every frame, and a translate curve must not slide a planted sole. Duplicate the rest frame, put a `translateX` curve on the hip, then store the contact spans on an `ik` `--contact`. The sole cell stays inside a span. The next plant is another `--contact`, an explicit step. One chain drives every joint, and each joint has its own layer. The other bend is not substituted. `plant` is a foot with no chain: it translates the sole only inside the span. The external script is `examples/soldier-walk.py`.*
+
+```bash
+pixelforge constraint add --project soldier.json --name left-leg --kind ik \
+  --part shin-l --anchor sole --chain thigh-l --chain shin-l --bend 1 \
+  --contact 0:1:12:12 --contact 2:14:10
+pixelforge constraint add --project soldier.json --name left-sole --kind plant \
+  --part boot --anchor sole --contact 0:1:4:12
+pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
+```
+
 ### 烘焙 Bake
 
-`bake` 把曲线采样和约束求解写进普通像素帧。写完之后用现有的 `paint`、选区和 `tag` 接着改。没有内置脚本，也没有动画 DSL。外部程序驱动 CLI，例如 `examples/soldier-raise-gun.py`：画好静止姿势，复制帧，写下旋转曲线和 `follow` / `attach` / `pin`，再 `bake --fps 12`。
+`bake` 把曲线采样和约束求解写进普通像素帧。写完之后用现有的 `paint`、选区和 `tag` 接着改。没有内置脚本，也没有动画 DSL。外部程序驱动 CLI。`examples/soldier-raise-gun.py` 画好静止姿势，复制帧，写下旋转曲线和 `follow` / `attach` / `pin`，再 `bake --fps 12`。`examples/soldier-walk.py` 用短链 `ik` 和脚印把两只脚钉在接触帧上，再烤进像素。选了 `ik` 的末端时，整条链一起摆。够不着是 `IkUnreachable`，一格都不写。
 
 闭区间是 `--from` 到 `--to`，缺省从 0 到最后一帧。`--source` 缺省第 0 帧，是静止墨水。这一帧的像素不改，所以再烤一次不会叠加上去。报告里的部件 `x`、`y` 是摆好的原点；文件里的原点仍是静止姿势。曲线和约束留下，不自动删。
 
@@ -531,7 +546,7 @@ pixelforge constraint solve --project soldier.json --frame 4 --apply
 
 像素或时长有变化才记一步撤销。失败（出画布、缺锚点、环、两条驱动、同一层两个会动的部件、选区没盖住）整次不写。烘焙后的格子就是普通索引，选区、画笔、标签都认它们。工程文件仍是 version 1，没有 `bake` 字段。
 
-*bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. `examples/soldier-raise-gun.py` draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`.*
+*bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. `examples/soldier-raise-gun.py` draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`. `examples/soldier-walk.py` plants both feet with a short `ik` chain and footprint spans, then bakes. Selecting an `ik` end poses the whole chain. A miss is `IkUnreachable` and writes nothing.*
 
 *`--from` and `--to` are an inclusive range. The default is frame 0 through the last frame. `--source` defaults to frame 0 and is the rest ink. That frame's pixels are not rewritten, so a second bake does not stack. Reported part `x` and `y` are the posed origin. The file keeps the rest origin. Curves and constraints stay.*
 

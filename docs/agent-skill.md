@@ -258,13 +258,15 @@ pixelforge curve sample --project soldier.json --part gun --channel rotation --f
 pixelforge constraint add --project soldier.json --name hand-grip --kind follow --part hand --anchor palm --target gun --target-anchor grip
 pixelforge constraint add --project soldier.json --name butt-shoulder --kind stick --part gun --anchor butt --target shoulder --target-anchor joint
 pixelforge constraint add --project soldier.json --name plant-foot --kind pin --part foot --anchor sole --x 4 --y 11
+pixelforge constraint add --project soldier.json --name left-leg --kind ik --part shin-l --anchor sole --chain thigh-l --chain shin-l --bend 1 --contact 0:1:12:12 --contact 2:14:10
+pixelforge constraint add --project soldier.json --name left-sole --kind plant --part boot --anchor sole --contact 0:1:4:12
 pixelforge constraint solve --project soldier.json --frame 4
 pixelforge constraint solve --project soldier.json --frame 4 --apply
 ```
 
-`follow` 让手掌落到枪的 `grip`。`stick` 存成 `attach`，把枪托锚点贴到肩的 `joint`。`pin` 把脚的 `sole` 钉在画布格上。`solve` 不带 `--apply` 只打印报告。带 `--frame` 时先采样曲线再解约束；不带 `--frame` 时用 `part rotate` 已经写下的姿势。环、第二条驱动、缺锚点、出画布都报错并且不写。没有约束时工程文件不写 `constraints`。求解规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「约束」。
+`follow` 让手掌落到枪的 `grip`。`stick` 存成 `attach`，把枪托锚点贴到肩的 `joint`。`pin` 把脚的 `sole` 钉在画布格上。`ik` 转 2 或 3 节，末端必须正好落到目标或 `--contact` 脚印；够不着是 `IkUnreachable`，不会停在旁边的格。`plant` 只在脚印区间里钉脚底，区间外不钉，所以接触帧不会顺着曲线滑。`solve` 不带 `--apply` 只打印报告。带 `--frame` 时先采样曲线再解约束；不带 `--frame` 时用 `part rotate` 已经写下的姿势，脚印按像素帧取样。环、第二条驱动、缺锚点、出画布都报错并且不写。没有约束时工程文件不写 `constraints`。走路示例是 [examples/soldier-walk.py](../examples/soldier-walk.py)。求解规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「约束」。
 
-*A `follow` puts the palm on the gun's `grip`. `stick` is stored as `attach` and puts the butt anchor on the shoulder `joint`. A `pin` plants the foot's `sole` on a canvas cell. `solve` without `--apply` prints the report. With `--frame` it samples curves and then solves. Without `--frame` it uses the pose `part rotate` already wrote. A cycle, a second driver, a missing anchor, or a cell off the canvas is an error and writes nothing. A project with no constraints omits `constraints`. The solve rules are in the pixelforge skill.*
+*A `follow` puts the palm on the gun's `grip`. `stick` is stored as `attach` and puts the butt anchor on the shoulder `joint`. A `pin` plants the foot's `sole` on a canvas cell. `ik` turns a chain of two or three parts so the end cell is exactly the target or a `--contact` span; a miss is `IkUnreachable` and does not stop on a neighbor. `plant` pins the sole only inside a footprint span, so a contact frame cannot slide along a curve. `solve` without `--apply` prints the report. With `--frame` it samples curves and then solves. Without `--frame` it uses the pose `part rotate` already wrote, and footprint spans sample the pixel frame. A cycle, a second driver, a missing anchor, or a cell off the canvas is an error and writes nothing. A project with no constraints omits `constraints`. The walk script is `examples/soldier-walk.py`. The solve rules are in the pixelforge skill.*
 
 ```bash
 pixelforge bake --project soldier.json --from 0 --to 11 --fps 12
