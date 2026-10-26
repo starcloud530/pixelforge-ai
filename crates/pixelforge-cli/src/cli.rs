@@ -35,6 +35,7 @@ Examples:
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3 --dirty
   pixelforge resize --project hero.json --width 64 --height 64
   pixelforge layer add --project hero.json --name gear
+  pixelforge layer add --project soldier.json --name polish --role polish
   pixelforge fill-rect --project hero.json --layer 1 --x 4 --y 8 --width 8 --height 8 --color-index 5
   pixelforge preview --project hero.json --scale 4
   pixelforge layer flatten --project hero.json
@@ -94,7 +95,12 @@ parameters on frame indices and samples them. It does not write pixels.
 step that tracks them: pass `--frame` to sample curves first, and `--apply`
 to write one pixel frame. Omit `--apply` and the file stays as it was.
 Solving does not walk the timeline. `bake` does: it samples that pose onto
-each frame in a range and leaves the curves in place.
+each frame in a range and leaves the curves in place. It rebuilds every
+layer a curve or constraint manages, including a pose that returned to zero.
+A retouch on that layer is replaced. `layer add --role polish` (or
+`layer role --role polish`) is an overlay bake never writes, so a finger
+fix stays when the raise changes. Polish cells stay on the canvas cells
+where they were painted.
 `import-aseprite --file sprite.aseprite --output hero.json`
 reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
@@ -980,6 +986,20 @@ pub enum LayerCmd {
         /// Layer name. Omit for the next free `Layer N`.
         #[arg(long)]
         name: Option<String>,
+        /// `default` or `polish`. `polish` is an overlay bake never writes.
+        #[arg(long, value_enum)]
+        role: Option<LayerRoleArg>,
+    },
+    /// Set whether bake may rebuild this layer. Pixels stay.
+    Role {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+        /// `default` lets bake rebuild this layer. `polish` keeps hand-tuned cells.
+        #[arg(long, value_enum)]
+        role: LayerRoleArg,
     },
     /// Remove a layer from every frame. The last layer is refused.
     #[command(alias = "delete")]
@@ -1027,6 +1047,24 @@ pub enum LayerCmd {
         #[command(flatten)]
         doc: ProjectArgs,
     },
+}
+
+/// Bake role of one layer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum LayerRoleArg {
+    /// Ordinary pixels. Bake may rebuild this layer from the rest pose.
+    Default,
+    /// Overlay. Bake never writes these cells.
+    Polish,
+}
+
+impl LayerRoleArg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Polish => "polish",
+        }
+    }
 }
 
 #[derive(Subcommand)]

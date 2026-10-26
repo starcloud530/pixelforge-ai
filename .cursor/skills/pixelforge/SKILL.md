@@ -11,8 +11,9 @@ description: >-
   270 degrees, naming parts and anchors, translating, rotating, or flipping a
   named part on the pixel grid, keyframing that part's rotation, translation,
   or flip and sampling the curve, solving a follow, attach, or pin constraint
-  so a hand, a gun butt, or a planted foot tracks an anchor, baking those
-  sampled poses into editable pixel frames, adding or
+  so a hand, a gun butt, or a planted foot tracks an anchor,   baking those
+  sampled poses into editable pixel frames while leaving a polish overlay
+  untouched, adding or
   duplicating frames, undoing,
   running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
@@ -63,7 +64,7 @@ cargo run -p pixelforge-cli -- --help
 ## Invariants
 
 - 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的索引（从 1 起），不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
-- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。分层怎么摆见 `pixelforge-layers`。
+- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。层的 `role` 缺省是 `default`。`polish` 是精修覆盖层，`bake` 不写它。手指一类的局部修正画在这一层，不要画在曲线或约束管着的挂接层上：那一层每次烘焙都从源帧整层重建。分层怎么摆见 `pixelforge-layers`。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
 - `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
@@ -74,7 +75,7 @@ cargo run -p pixelforge-cli -- --help
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
-*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A `selection` is one rectangle or a mask of rectangles, stored in the project and omitted when clear. `combineMask` unions, intersects, or subtracts. Paint tools then skip cells outside it. `preview` and `diff` can take that mask and mark the outside `#`. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file.*
+*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A `selection` is one rectangle or a mask of rectangles, stored in the project and omitted when clear. `combineMask` unions, intersects, or subtracts. Paint tools then skip cells outside it. `preview` and `diff` can take that mask and mark the outside `#`. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file. A layer role defaults to `default`. `polish` is an overlay bake does not write. Put a local fix there. A retouch on a layer a curve or constraint manages is rebuilt from the source frame.*
 
 ## Output and exit codes
 
@@ -96,7 +97,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1
 ```
 
-`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（一块矩形、`{rects}`，或 `null`）、`layers`（`index`、`name`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）、`constraints`（`index`、`name`、`kind`、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`；没有约束时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。没有约束时工程文件也省略 `constraints`。
+`scene` 的 `result`：`width`、`height`、`activeFrame`、`activeLayer`、`selection`（一块矩形、`{rects}`，或 `null`）、`layers`（`index`、`name`、`role`、`visible`、`opacity`）、`palette`、`paletteCount`、`paletteHash`、`paletteLocked`、`indexPolicy`、`frameCount`、`delayMs`、`frames`（每帧 `index` 和 `delayMs`）、`tags`（`index`、`name`、`from`、`to`、`loop`；没有标签时是 `[]`）、`parts`（`index`、`name`、`x`、`y`、`layer`、`anchors`；没有部件时是 `[]`）、`curves`（`index`、`part`、`channel`、`keys`；没有曲线时是 `[]`）、`constraints`（`index`、`name`、`kind`、`part`、`anchor`、`target`、`targetAnchor`、`x`、`y`；没有约束时是 `[]`）。没有 `pixels`。要格子用 `inspect` 或 `preview`。`indexPolicy` 默认 `reject`。没有选区时 `selection` 是 `null`，工程文件省略该字段。没有标签时工程文件也省略 `tags`。没有部件时工程文件也省略 `parts`。没有曲线时工程文件也省略 `curves`。没有约束时工程文件也省略 `constraints`。
 
 `visible` 恒为 `true`，`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层。
 
@@ -544,7 +545,9 @@ pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
 
 `--fps` 把区间里每一帧（含源帧）的 `delayMs` 设成 `round(1000/fps)`。12 fps 是 83 毫秒。区间外的帧不动。fps 不是大于 0 的有限数是 `BakeFps`。四舍五入后的时长不在 `1..=65535` 是 `FrameDelay`。
 
-像素或时长有变化才记一步撤销。失败（出画布、缺锚点、环、两条驱动、同一层两个会动的部件、选区没盖住）整次不写。烘焙后的格子就是普通索引，选区、画笔、标签都认它们。工程文件仍是 version 1，没有 `bake` 字段。
+`role` 是 `polish` 的层是精修覆盖层。`bake` 不写它，`--layer` 点到它也不写。手指修在这一层上，再改抬枪角度、重新 `bake`，这一格还在。它是画布格，不跟着部件走。曲线或约束管着的部件如果挂在这层上，是 `PolishLayer`，整次不写。把那个部件挪到 `default` 层。没标 `polish`、又被曲线或约束管着的层，每次都从源帧整层重建，层上改过的索引会回到源帧。追加的新帧会带上源帧的覆盖层，不会带上别的帧上才有的精修。
+
+像素或时长有变化才记一步撤销。失败（出画布、缺锚点、环、两条驱动、同一层两个会动的部件、精修层上挂着被管理的部件、选区没盖住）整次不写。烘焙后的格子就是普通索引，选区、画笔、标签都认它们。工程文件仍是 version 1，没有 `bake` 字段。`role` 只有 `polish` 才写进 `layers`。
 
 *bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. `examples/soldier-raise-gun.py` draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`. `examples/soldier-walk.py` plants both feet with a short `ik` chain and footprint spans, then bakes. Selecting an `ik` end poses the whole chain. A miss is `IkUnreachable` and writes nothing.*
 
@@ -554,7 +557,9 @@ pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
 
 *`--fps` sets `delayMs` to `round(1000/fps)` on every frame in the range, including the source. 12 fps is 83 ms. Frames outside the range keep their delay. A non-finite or non-positive fps is `BakeFps`. A rounded delay outside `1..=65535` is `FrameDelay`.*
 
-*A change to pixels or delays is one undo step. A failure writes nothing: off canvas, a missing anchor, a cycle, a second driver, two moving parts on one layer, or a selection that misses a cell. Baked cells are ordinary indices, so selection, paint, and tags accept them. The project stays version 1 and has no `bake` field.*
+*A layer whose `role` is `polish` is an overlay. `bake` does not write it, even when `--layer` names it. A finger fix painted there survives a raise-gun tweak and another `bake`. The cell stays where you painted it. It does not ride the part. A managed part linked to that layer is `PolishLayer` and the call writes nothing. Move the part to a `default` layer. A retouch on a managed layer that is not polish is rebuilt from the source. An appended frame copies the source frame's overlay. It does not copy polish that exists only on another frame.*
+
+*A change to pixels or delays is one undo step. A failure writes nothing: off canvas, a missing anchor, a cycle, a second driver, two moving parts on one layer, a managed part on a polish layer, or a selection that misses a cell. Baked cells are ordinary indices, so selection, paint, and tags accept them. The project stays version 1 and has no `bake` field. Only a `polish` role is written on `layers`.*
 
 ```bash
 pixelforge frame duplicate --project soldier.json --index 0
@@ -568,7 +573,28 @@ pixelforge bake --project soldier.json --from 4 --to 4 --curves-only
 ```json
 { "tool": "bake", "params": { "from": 0, "to": 11, "fps": 12 } }
 { "tool": "bake", "params": { "parts": ["gun", "hand"], "layers": [0], "constraints": false } }
+{ "tool": "addLayer", "params": { "name": "polish", "role": "polish" } }
+{ "tool": "setLayerRole", "params": { "index": 2, "role": "polish" } }
 ```
+
+### 抬枪微调不丢修过的手指
+
+枪层上的手指格子从 1 改成 7，下一次 `bake` 会从源帧把这一层整层重建，7 回到生成出来的索引。把 7 画在 `polish` 覆盖层的同一格上，再把旋转从 90 改成 45，重新 `bake`。覆盖层上的 7 还在。枪层是新姿势。`result.polish` 是没被写入的覆盖层下标。
+
+*A finger cell changed from 1 to 7 on the gun layer comes back as the generated index on the next `bake`, because that whole layer is rebuilt from the source. Paint 7 on the polish overlay at that same cell, change the rotation from 90 to 45, and bake again. The 7 stays. The gun layer is the new pose. `result.polish` lists the overlay indices bake did not write.*
+
+```bash
+pixelforge frame select --project soldier.json --index 4
+pixelforge layer add --project soldier.json --name polish --role polish
+pixelforge paint --project soldier.json --x 4 --y 6 --color-index 7
+pixelforge curve set --project soldier.json --part gun --channel rotation --frame 4 --value 45
+pixelforge bake --project soldier.json --from 0 --to 4
+pixelforge preview --project soldier.json --frame 4 --scale 4
+```
+
+`layer add` 选中新层，所以这一笔 `paint` 落在覆盖层。`(4, 6)` 是 16×16 上、原点 `(4, 4)`、墨水 `(6, 4)`、烤到 90° 之后的枪尖。48×32 的士兵先 `preview --frame 4`，把 7 画在手指那一格。`preview --layer` 用 `layer add` 返回的 `index`。不要 `part set --layer` 把受管理的部件挂到这层上。
+
+*`layer add` selects the new layer, so this `paint` lands on the overlay. `(4, 6)` is the gun tip on a 16×16 canvas after a 90° bake: origin `(4, 4)`, ink `(6, 4)`. On the 48×32 soldier, read `preview --frame 4` and paint 7 on the finger cell. `preview --layer` uses the `index` `layer add` returned. Do not `part set --layer` a managed part onto that overlay.*
 
 ### Palette
 

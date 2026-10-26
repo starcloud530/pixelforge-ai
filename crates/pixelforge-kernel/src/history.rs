@@ -19,6 +19,7 @@ use crate::palette::IndexPolicy;
 use crate::part::Part;
 use crate::selection::Mask;
 use crate::tag::Tag;
+use crate::LayerRole;
 use crate::Rgba;
 use crate::MAX_UNDO;
 
@@ -165,6 +166,7 @@ pub(crate) enum Change {
     AddLayer {
         index: usize,
         name: String,
+        role: LayerRole,
         active_before: usize,
         active_after: usize,
     },
@@ -174,9 +176,16 @@ pub(crate) enum Change {
     RemoveLayer {
         index: usize,
         name: String,
+        role: LayerRole,
         pixels: Vec<Vec<u8>>,
         active_before: usize,
         active_after: usize,
+    },
+    /// One layer's bake role changed. Pixels stay.
+    LayerRole {
+        index: usize,
+        before: LayerRole,
+        after: LayerRole,
     },
     RenameLayer {
         index: usize,
@@ -206,6 +215,7 @@ pub(crate) enum Change {
     /// Every frame was composited into the single default layer.
     Flatten {
         before_names: Vec<String>,
+        before_roles: Vec<LayerRole>,
         before_pixels: Vec<Vec<Vec<u8>>>,
         before_active: usize,
         after_pixels: Vec<Vec<u8>>,

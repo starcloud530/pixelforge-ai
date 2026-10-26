@@ -77,6 +77,7 @@ export const TOOL_NAMES = [
   "addLayer",
   "deleteLayer",
   "renameLayer",
+  "setLayerRole",
   "setActiveLayer",
   "reorderLayer",
   "flattenLayers",

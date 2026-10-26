@@ -84,6 +84,40 @@ pub const DEFAULT_FRAME_DELAY_MS: u32 = 100;
 /// Name of the only layer when a project file has no layer stack.
 pub const DEFAULT_LAYER_NAME: &str = "Layer 1";
 
+/// Whether bake may rebuild a layer from the rest pose.
+///
+/// `default` is an ordinary paint layer. A curve or a constraint can manage
+/// it, and bake then replaces that whole layer. `polish` is an overlay for
+/// hand-tuned cells. Bake never writes it. The project file omits `role`
+/// when every layer is `default`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LayerRole {
+    /// Ordinary pixels. Bake may replace this layer from the rest pose.
+    #[default]
+    Default,
+    /// Overlay. Bake does not write these cells.
+    Polish,
+}
+
+impl LayerRole {
+    /// Stable name stored in the project file and the Tool API.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Polish => "polish",
+        }
+    }
+
+    /// Parses `default` or `polish`.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "default" => Some(Self::Default),
+            "polish" => Some(Self::Polish),
+            _ => None,
+        }
+    }
+}
+
 /// Longest layer name, in Unicode scalar values, after trimming.
 pub const MAX_LAYER_NAME_CHARS: usize = 64;
 

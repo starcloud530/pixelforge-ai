@@ -56,7 +56,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 ## 不变量 Invariants
 
 - 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的 `1..=255` 索引，不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
-- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层，文件就回到旧的单层工程。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。
+- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层，文件就回到旧的单层工程。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。`role` 缺省 `default`。`polish` 是 `bake` 不写的精修覆盖层。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
 - `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 把越界索引写成最后一项不透明色。索引 0 仍然拒绝。`import` 的 `replace` 不看这个策略。
@@ -274,9 +274,9 @@ pixelforge bake --project soldier.json --part gun --part hand --layer 1
 pixelforge bake --project soldier.json --from 4 --to 4 --curves-only
 ```
 
-`bake` 在 `--from` 到 `--to` 的闭区间上，从 `--source`（缺省第 0 帧）的静止墨水采样曲线并解约束，写成普通像素帧。源帧的像素不改。`--fps` 把区间里每一帧的 `delayMs` 设成 `round(1000/fps)`，12 是 83。`--part` 和 `--layer` 可重复。`--curves-only` 不解约束。曲线、约束和存着的原点都留下。像素或时长有变化才是一步撤销。先 `frame duplicate` 静止帧，身体那一层才会留在已有帧上。没有内置脚本。规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「烘焙」。
+`bake` 在 `--from` 到 `--to` 的闭区间上，从 `--source`（缺省第 0 帧）的静止墨水采样曲线并解约束，写成普通像素帧。源帧的像素不改。它重写曲线或约束管着的层，变换回到 0 也从源帧恢复。那一层上改过的格子会被盖掉。精修画在 `layer add --role polish` 的覆盖层上，`bake` 不写这一层；再改抬枪角度也不会丢。覆盖层是画布格，不跟着部件走。受管理的部件挂在这层上是 `PolishLayer`，整次不写。`--fps` 把区间里每一帧的 `delayMs` 设成 `round(1000/fps)`，12 是 83。`--part` 和 `--layer` 可重复。`--curves-only` 不解约束。曲线、约束和存着的原点都留下。像素或时长有变化才是一步撤销。先 `frame duplicate` 静止帧，身体那一层才会留在已有帧上。没有内置脚本。规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「烘焙」。
 
-*`bake` samples curves and solves constraints from the rest ink on `--source` (frame 0 by default) across the inclusive `--from`..`--to` range, and writes ordinary pixel frames. The source frame's pixels stay. `--fps` sets `delayMs` on every frame in the range to `round(1000/fps)`; 12 is 83. Repeat `--part` and `--layer`. `--curves-only` skips constraints. Curves, constraints, and the stored origins stay. A change to pixels or delays is one undo step. Duplicate the rest frame first so a body layer remains on frames that already exist. There is no script runtime. The rules are in the pixelforge skill.*
+*`bake` samples curves and solves constraints from the rest ink on `--source` (frame 0 by default) across the inclusive `--from`..`--to` range, and writes ordinary pixel frames. The source frame's pixels stay. It rebuilds every layer a curve or constraint manages, including a pose that returned to zero, so a retouch on that layer is replaced. Paint the fix on `layer add --role polish`. Bake does not write that overlay, so a raise-gun tweak keeps it. The cells stay where they were painted. A managed part on that layer is `PolishLayer` and the call writes nothing. `--fps` sets `delayMs` on every frame in the range to `round(1000/fps)`; 12 is 83. Repeat `--part` and `--layer`. `--curves-only` skips constraints. Curves, constraints, and the stored origins stay. A change to pixels or delays is one undo step. Duplicate the rest frame first so a body layer remains on frames that already exist. There is no script runtime. The rules are in the pixelforge skill.*
 
 握持点 `(2, 2)` 的画布格是 `(26, 14)`。肩和肘用同样的命令，可以不写 `--layer`。
 
@@ -372,7 +372,7 @@ pixelforge call --project hero.json --request-file edits.json
 
 ### 分层 pixelforge-layers
 
-`body` 在下标 0，需要单独挪的四肢可以加 `limbs`，装备放 `gear`。`layer add` 选中新层。`fill-rect --layer N` 不切换当前层。`preview` 看合成，`preview --layer N` 看一层。`export png` 写合成。`layer flatten` 压成名为 `Layer 1` 的单层。同一格不要在两层各画一个非 0 索引。
+`body` 在下标 0，需要单独挪的四肢可以加 `limbs`，装备放 `gear`。手指精修放最上面的 `polish` 覆盖层（`layer add --role polish`），`bake` 不写它。`layer add` 选中新层。`fill-rect --layer N` 不切换当前层。`preview` 看合成，`preview --layer N` 看一层。`export png` 写合成。`layer flatten` 压成名为 `Layer 1` 的单层。同一格不要在两层各画一个非 0 索引。
 
 ### 只读检查 pixelforge-critique
 

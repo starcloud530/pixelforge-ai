@@ -20,6 +20,7 @@ use crate::document::Document;
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::{IndexPolicy, Palette};
+use crate::LayerRole;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -662,7 +663,8 @@ fn assemble(mut parsed: Parsed) -> Result<(Document, AsepriteReport), KernelErro
         IndexPolicy::Reject,
         frames,
         0,
-        names,
+        names.clone(),
+        vec![LayerRole::Default; names.len()],
         0,
         None,
         Vec::new(),

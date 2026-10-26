@@ -27,6 +27,7 @@ use crate::part::{LayerAttach, PartUpdate};
 use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
 use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{LoopMode, TagUpdate};
+use crate::LayerRole;
 use crate::MAX_CANVAS_EDGE;
 
 /// Version written on every response. An omitted request version means this one.
@@ -102,6 +103,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "addLayer",
     "deleteLayer",
     "renameLayer",
+    "setLayerRole",
     "setActiveLayer",
     "reorderLayer",
     "flattenLayers",
@@ -1052,13 +1054,14 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(layers_value(document))
         }
         "addLayer" => {
-            let name = parse_add_layer(params)?;
+            let (name, role) = parse_add_layer(params)?;
             let index = document
-                .add_layer(name.as_deref())
+                .add_layer_with_role(name.as_deref(), role)
                 .map_err(ToolFailure::Kernel)?;
             Ok(serde_json::json!({
                 "index": as_u32(index),
                 "name": document.layer_name(index).expect("new layer is in range"),
+                "role": document.layer_role(index).expect("new layer is in range").as_str(),
                 "activeLayer": as_u32(document.active_layer()),
             }))
         }
@@ -1079,6 +1082,16 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(serde_json::json!({
                 "index": as_u32(index),
                 "name": document.layer_name(index).expect("renamed layer is in range"),
+            }))
+        }
+        "setLayerRole" => {
+            let (index, role) = parse_set_layer_role(params, document.active_layer())?;
+            document
+                .set_layer_role(index, role)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "role": document.layer_role(index).expect("layer role is in range").as_str(),
             }))
         }
         "setActiveLayer" => {
@@ -1209,6 +1222,7 @@ fn scene_layers(document: &Document) -> Vec<Value> {
             serde_json::json!({
                 "index": index,
                 "name": name,
+                "role": document.layer_role(index).expect("scene layer is in range").as_str(),
                 "visible": true,
                 "opacity": Value::Null,
             })
@@ -1233,6 +1247,7 @@ fn layer_entries(document: &Document) -> Vec<Value> {
             serde_json::json!({
                 "index": index,
                 "name": name,
+                "role": document.layer_role(index).expect("listed layer is in range").as_str(),
             })
         })
         .collect()
@@ -1341,6 +1356,7 @@ fn bake_value(report: &crate::document::BakeReport) -> Value {
         "appended": as_u32(report.appended),
         "wrote": report.wrote,
         "dropped": report.dropped,
+        "polish": report.polish.iter().copied().map(as_u32).collect::<Vec<_>>(),
         "frames": report
             .frames
             .iter()
@@ -3023,12 +3039,40 @@ fn aseprite_json(report: &AsepriteReport) -> Value {
     })
 }
 
-fn parse_add_layer(params: Value) -> Result<Option<String>, ToolFailure> {
+fn parse_add_layer(params: Value) -> Result<(Option<String>, LayerRole), ToolFailure> {
     let map = expect_object("addLayer", params)?;
-    reject_params("addLayer", &map, &["name"])?;
-    match map.get("name") {
+    reject_params("addLayer", &map, &["name", "role"])?;
+    let name = match map.get("name") {
+        None => None,
+        Some(_) => Some(require_string("addLayer", &map, "name")?),
+    };
+    let role = optional_layer_role("addLayer", &map)?.unwrap_or(LayerRole::Default);
+    Ok((name, role))
+}
+
+fn parse_set_layer_role(params: Value, active: usize) -> Result<(usize, LayerRole), ToolFailure> {
+    let map = expect_object("setLayerRole", params)?;
+    reject_params("setLayerRole", &map, &["index", "role"])?;
+    let index = optional_frame("setLayerRole", &map, "index")?.unwrap_or(active);
+    let role = optional_layer_role("setLayerRole", &map)?
+        .ok_or_else(|| invalid_params("setLayerRole", "role must be default or polish"))?;
+    Ok((index, role))
+}
+
+fn optional_layer_role(
+    tool: &str,
+    map: &Map<String, Value>,
+) -> Result<Option<LayerRole>, ToolFailure> {
+    match map.get("role") {
         None => Ok(None),
-        Some(_) => Ok(Some(require_string("addLayer", &map, "name")?)),
+        Some(value) => {
+            let text = value
+                .as_str()
+                .ok_or_else(|| invalid_params(tool, "role must be default or polish"))?;
+            LayerRole::parse(text)
+                .map(Some)
+                .ok_or_else(|| invalid_params(tool, "role must be default or polish"))
+        }
     }
 }
 
