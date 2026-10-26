@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use crate::curve::{sample_keys, Curve, CurveChannel, PartSample};
 use crate::error::KernelError;
 use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
-use crate::part_xform::{self, map_point, CellMap, Motion};
+use crate::part_xform::{self, map_point, round_half_away, unmap_continuous, CellMap, Motion};
 use crate::TRANSPARENT_INDEX;
 
 /// What a stored constraint asks the solver to do.
@@ -159,7 +159,15 @@ pub struct SolvedPart {
     pub y: u16,
     pub layer: Option<usize>,
     pub ink: &'static str,
+    /// Source cells on this part's layer that lost a nearest collision.
+    /// Zero when this solve did not warp that layer.
     pub dropped: u32,
+    /// Destination cells on that layer claimed by two or more sources.
+    pub conflicts: u32,
+    /// Notches filled by the coverage seal on that layer.
+    pub sealed: u32,
+    /// Bare diagonal joins left in that layer's warped ink.
+    pub breaks: u32,
     pub anchors: Vec<SolvedAnchor>,
 }
 
@@ -171,6 +179,9 @@ pub struct SolveReport {
     pub apply: bool,
     pub wrote: bool,
     pub dropped: u32,
+    pub conflicts: u32,
+    pub sealed: u32,
+    pub breaks: u32,
     /// Constraint names in solve order.
     pub order: Vec<String>,
     pub constraints: Vec<SolvedConstraint>,
@@ -572,18 +583,66 @@ pub(crate) fn total_delta(posed: &PosedPart) -> Result<(i32, i32), KernelError> 
     Ok((dx, dy))
 }
 
+/// What [`warp_ink`] measured. Exact maps leave `dropped`, `conflicts`, and
+/// `sealed` at 0. `breaks` is counted on the buffer that was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct WarpReport {
+    pub dropped: u32,
+    pub conflicts: u32,
+    pub sealed: u32,
+    pub breaks: u32,
+}
+
+impl WarpReport {
+    pub(crate) const ZERO: Self = Self {
+        dropped: 0,
+        conflicts: 0,
+        sealed: 0,
+        breaks: 0,
+    };
+
+    pub(crate) fn saturating_add(self, other: Self) -> Self {
+        Self {
+            dropped: self.dropped.saturating_add(other.dropped),
+            conflicts: self.conflicts.saturating_add(other.conflicts),
+            sealed: self.sealed.saturating_add(other.sealed),
+            breaks: self.breaks.saturating_add(other.breaks),
+        }
+    }
+}
+
 /// Maps every non-zero cell through `steps`. The final cell must lie on the
 /// canvas. The source cell and that final cell must both be accepted.
 ///
-/// A collision keeps the later row-major index. `Ok` is the new buffer and
-/// the number of dropped cells.
+/// A collision keeps the later row-major index. `dropped` is how many source
+/// cells lost that collision. `conflicts` is how many destination cells were
+/// claimed more than once.
+///
+/// When a step is a nearest rotation, a coverage seal then fills empty cells
+/// that the source still covers: a cell must be 4-adjacent to ink the forward
+/// map wrote, at least half of a 4×4 sample inside it must inverse-map onto
+/// source ink, and the number of filled cells cannot exceed `dropped`. The
+/// color is the sample majority, and a tie keeps the smaller index. A cell
+/// the mask rejects is left empty; it does not fail the warp. Exact maps do
+/// not seal. `breaks` counts bare diagonal joins in the result.
 pub(crate) fn warp_ink(
     width: u16,
     height: u16,
     old: &[u8],
     steps: &[MotionStep],
+    accepts: impl FnMut(u16, u16) -> bool,
+) -> Result<(Vec<u8>, WarpReport), KernelError> {
+    rasterize(width, height, old, steps, accepts, true)
+}
+
+fn rasterize(
+    width: u16,
+    height: u16,
+    old: &[u8],
+    steps: &[MotionStep],
     mut accepts: impl FnMut(u16, u16) -> bool,
-) -> Result<(Vec<u8>, u32), KernelError> {
+    seal: bool,
+) -> Result<(Vec<u8>, WarpReport), KernelError> {
     let mut moves = Vec::new();
     for y in 0..height {
         for x in 0..width {
@@ -605,22 +664,255 @@ pub(crate) fn warp_ink(
             moves.push((index, dest));
         }
     }
-    let mut claimed = vec![false; old.len()];
-    let mut unique = 0u32;
+    let mut claims = vec![0u8; old.len()];
     for (_, dest) in &moves {
-        if !claimed[*dest] {
-            claimed[*dest] = true;
+        claims[*dest] = claims[*dest].saturating_add(1);
+    }
+    let mut unique = 0u32;
+    let mut conflicts = 0u32;
+    for count in &claims {
+        if *count > 0 {
             unique += 1;
         }
+        if *count > 1 {
+            conflicts += 1;
+        }
     }
-    let dropped = u32::try_from(moves.len())
-        .unwrap_or(u32::MAX)
-        .saturating_sub(unique);
+    let source_count = u32::try_from(moves.len()).unwrap_or(u32::MAX);
+    let dropped = source_count.saturating_sub(unique);
     let mut next = vec![TRANSPARENT_INDEX; old.len()];
     for (index, dest) in moves {
         next[dest] = index;
     }
-    Ok((next, dropped))
+    let nearest = steps
+        .iter()
+        .any(|step| matches!(step.map, CellMap::Nearest { .. }));
+    let sealed = if seal && nearest && dropped > 0 {
+        seal_notches(
+            width,
+            height,
+            old,
+            &mut next,
+            &claims,
+            steps,
+            source_count,
+            unique,
+            &mut accepts,
+        )
+    } else {
+        0
+    };
+    let breaks = bare_diagonals(width, height, &next);
+    Ok((
+        next,
+        WarpReport {
+            dropped,
+            conflicts,
+            sealed,
+            breaks,
+        },
+    ))
+}
+
+/// Sample offsets inside one cell, each 1/8 of the way in from a corner grid.
+const SEAL_OFFSETS: [f64; 4] = [-0.375, -0.125, 0.125, 0.375];
+
+struct SealCandidate {
+    hits: u8,
+    y: u16,
+    x: u16,
+    index: u8,
+}
+
+fn seal_notches(
+    width: u16,
+    height: u16,
+    source: &[u8],
+    next: &mut [u8],
+    claims: &[u8],
+    steps: &[MotionStep],
+    source_count: u32,
+    mut written: u32,
+    accepts: &mut impl FnMut(u16, u16) -> bool,
+) -> u32 {
+    let width_us = usize::from(width);
+    let height_us = usize::from(height);
+    let mut min_x = width_us;
+    let mut min_y = height_us;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    let mut any = false;
+    for y in 0..height_us {
+        for x in 0..width_us {
+            if claims[y * width_us + x] == 0 {
+                continue;
+            }
+            any = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+    if !any {
+        return 0;
+    }
+    let x0 = min_x.saturating_sub(1);
+    let y0 = min_y.saturating_sub(1);
+    let x1 = (max_x + 1).min(width_us - 1);
+    let y1 = (max_y + 1).min(height_us - 1);
+    let mut candidates = Vec::new();
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let offset = y * width_us + x;
+            if next[offset] != TRANSPARENT_INDEX
+                || !touches_forward(claims, width_us, height_us, x, y)
+            {
+                continue;
+            }
+            let cell_x = u16::try_from(x).unwrap_or(u16::MAX);
+            let cell_y = u16::try_from(y).unwrap_or(u16::MAX);
+            if !accepts(cell_x, cell_y) {
+                continue;
+            }
+            let mut counts = [0u8; 256];
+            let mut hits = 0u8;
+            for oy in SEAL_OFFSETS {
+                for ox in SEAL_OFFSETS {
+                    let index = inverse_source(
+                        steps,
+                        f64::from(cell_x) + ox,
+                        f64::from(cell_y) + oy,
+                        width,
+                        height,
+                        source,
+                    );
+                    if index != TRANSPARENT_INDEX {
+                        counts[usize::from(index)] = counts[usize::from(index)].saturating_add(1);
+                        hits = hits.saturating_add(1);
+                    }
+                }
+            }
+            if hits < 8 {
+                continue;
+            }
+            let mut best_hits = 0u8;
+            let mut best_index = 0u8;
+            for (index, count) in counts.iter().enumerate().skip(1) {
+                if *count > best_hits {
+                    best_hits = *count;
+                    best_index = u8::try_from(index).unwrap_or(0);
+                }
+            }
+            if best_index == TRANSPARENT_INDEX {
+                continue;
+            }
+            candidates.push(SealCandidate {
+                hits,
+                y: cell_y,
+                x: cell_x,
+                index: best_index,
+            });
+        }
+    }
+    candidates.sort_by(|left, right| {
+        right
+            .hits
+            .cmp(&left.hits)
+            .then(left.y.cmp(&right.y))
+            .then(left.x.cmp(&right.x))
+    });
+    let mut sealed = 0u32;
+    for candidate in candidates {
+        if written >= source_count {
+            break;
+        }
+        let offset = usize::from(width) * usize::from(candidate.y) + usize::from(candidate.x);
+        if next[offset] != TRANSPARENT_INDEX {
+            continue;
+        }
+        next[offset] = candidate.index;
+        written += 1;
+        sealed += 1;
+    }
+    sealed
+}
+
+fn touches_forward(claims: &[u8], width: usize, height: usize, x: usize, y: usize) -> bool {
+    (x > 0 && claims[y * width + x - 1] > 0)
+        || (x + 1 < width && claims[y * width + x + 1] > 0)
+        || (y > 0 && claims[(y - 1) * width + x] > 0)
+        || (y + 1 < height && claims[(y + 1) * width + x] > 0)
+}
+
+fn inverse_source(
+    steps: &[MotionStep],
+    x: f64,
+    y: f64,
+    width: u16,
+    height: u16,
+    source: &[u8],
+) -> u8 {
+    let mut sx = x;
+    let mut sy = y;
+    for step in steps.iter().rev() {
+        let Some((nx, ny)) = unmap_continuous(&step.map, sx, sy, step.pivot_x, step.pivot_y) else {
+            return TRANSPARENT_INDEX;
+        };
+        sx = nx;
+        sy = ny;
+    }
+    let Some(cx) = round_half_away(sx) else {
+        return TRANSPARENT_INDEX;
+    };
+    let Some(cy) = round_half_away(sy) else {
+        return TRANSPARENT_INDEX;
+    };
+    if cx < 0 || cy < 0 {
+        return TRANSPARENT_INDEX;
+    }
+    let Ok(cx) = u16::try_from(cx) else {
+        return TRANSPARENT_INDEX;
+    };
+    let Ok(cy) = u16::try_from(cy) else {
+        return TRANSPARENT_INDEX;
+    };
+    if cx >= width || cy >= height {
+        return TRANSPARENT_INDEX;
+    }
+    source[usize::from(width) * usize::from(cy) + usize::from(cx)]
+}
+
+/// Pairs of ink cells that touch only at a corner.
+fn bare_diagonals(width: u16, height: u16, pixels: &[u8]) -> u32 {
+    let width = usize::from(width);
+    let height = usize::from(height);
+    let mut breaks = 0u32;
+    for y in 0..height {
+        for x in 0..width {
+            if pixels[y * width + x] == TRANSPARENT_INDEX {
+                continue;
+            }
+            for (dx, dy) in [(1isize, 1isize), (1, -1)] {
+                let nx = x as isize + dx;
+                let ny = y as isize + dy;
+                if nx < 0 || ny < 0 || nx >= width as isize || ny >= height as isize {
+                    continue;
+                }
+                let nx = nx as usize;
+                let ny = ny as usize;
+                if pixels[ny * width + nx] == TRANSPARENT_INDEX {
+                    continue;
+                }
+                let bridge_x = pixels[y * width + nx] != TRANSPARENT_INDEX;
+                let bridge_y = pixels[ny * width + x] != TRANSPARENT_INDEX;
+                if !bridge_x && !bridge_y {
+                    breaks += 1;
+                }
+            }
+        }
+    }
+    breaks
 }
 
 /// Steps that take stored ink onto the solved pose.
@@ -1607,5 +1899,167 @@ mod tests {
             solve_order(&[hand, again]),
             Err(KernelError::ConstraintConflict { .. })
         ));
+    }
+
+    struct ShapeWarp {
+        ink: usize,
+        report: WarpReport,
+        pixels: Vec<u8>,
+        width: usize,
+    }
+
+    fn warp_shape(w: u16, h: u16, degrees: f64, seal: bool) -> ShapeWarp {
+        let canvas = 48u16;
+        let mut old = vec![TRANSPARENT_INDEX; usize::from(canvas) * usize::from(canvas)];
+        let origin_x = 16u16;
+        let origin_y = 16u16;
+        for y in 0..h {
+            for x in 0..w {
+                let px = origin_x + x;
+                let py = origin_y + y;
+                old[usize::from(canvas) * usize::from(py) + usize::from(px)] = 1;
+            }
+        }
+        let pivot_x = i32::from(origin_x) + i32::from(w.saturating_sub(1) / 2);
+        let pivot_y = i32::from(origin_y) + i32::from(h.saturating_sub(1) / 2);
+        let resolved = part_xform::resolve_motion(Motion::Rotate(degrees)).unwrap();
+        let steps = [MotionStep {
+            map: resolved.map,
+            pivot_x,
+            pivot_y,
+        }];
+        let (pixels, report) = rasterize(canvas, canvas, &old, &steps, |_, _| true, seal).unwrap();
+        let ink = pixels.iter().filter(|pixel| **pixel != 0).count();
+        ShapeWarp {
+            ink,
+            report,
+            pixels,
+            width: usize::from(canvas),
+        }
+    }
+
+    fn components4(width: usize, pixels: &[u8]) -> usize {
+        let mut seen = vec![false; pixels.len()];
+        let mut count = 0usize;
+        for start in 0..pixels.len() {
+            if pixels[start] == 0 || seen[start] {
+                continue;
+            }
+            count += 1;
+            let mut stack = vec![start];
+            seen[start] = true;
+            while let Some(current) = stack.pop() {
+                let x = current % width;
+                let y = current / width;
+                let mut neighbors = Vec::new();
+                if x > 0 {
+                    neighbors.push(current - 1);
+                }
+                if x + 1 < width {
+                    neighbors.push(current + 1);
+                }
+                if y > 0 {
+                    neighbors.push(current - width);
+                }
+                if y + 1 < pixels.len() / width {
+                    neighbors.push(current + width);
+                }
+                for next in neighbors {
+                    if pixels[next] != 0 && !seen[next] {
+                        seen[next] = true;
+                        stack.push(next);
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn coverage_seal_restores_a_block_and_a_thin_strip_without_hiding_drops() {
+        let forward = warp_shape(7, 3, 20.0, false);
+        let sealed = warp_shape(7, 3, 20.0, true);
+        assert_eq!(
+            forward.ink, 19,
+            "forward nearest of the 7×3 block drops two cells"
+        );
+        assert_eq!(forward.report.dropped, 2);
+        assert_eq!(forward.report.conflicts, 2);
+        assert_eq!(forward.report.sealed, 0);
+        assert_eq!(sealed.ink, 21);
+        assert_eq!(sealed.report.dropped, 2);
+        assert_eq!(sealed.report.conflicts, 2);
+        assert_eq!(sealed.report.sealed, 2);
+        assert_eq!(sealed.report.breaks, 0);
+        assert_eq!(
+            sealed.ink,
+            forward.ink + usize::try_from(sealed.report.sealed).unwrap()
+        );
+
+        let thin_forward = warp_shape(2, 12, 20.0, false);
+        let thin = warp_shape(2, 12, 20.0, true);
+        assert_eq!(thin_forward.ink, 23);
+        assert!(thin_forward.report.breaks > 0);
+        assert!(components4(thin_forward.width, &thin_forward.pixels) > 1);
+        assert_eq!(thin.ink, 24);
+        assert_eq!(thin.report.dropped, 1);
+        assert_eq!(thin.report.sealed, 1);
+        assert_eq!(thin.report.breaks, 0);
+        assert_eq!(components4(thin.width, &thin.pixels), 1);
+
+        let line_forward = warp_shape(1, 9, 20.0, false);
+        let line = warp_shape(1, 9, 20.0, true);
+        assert_eq!(line.ink, line_forward.ink);
+        assert_eq!(line.ink, 9);
+        assert_eq!(line.report.dropped, 0);
+        assert_eq!(line.report.sealed, 0);
+        assert!(line.report.breaks > 0);
+
+        let diagonal_forward = warp_shape(1, 12, 45.0, false);
+        let diagonal = warp_shape(1, 12, 45.0, true);
+        assert_eq!(diagonal.ink, diagonal_forward.ink);
+        assert!(diagonal.report.dropped > 0);
+        assert_eq!(diagonal.report.sealed, 0);
+
+        let mut block = vec![TRANSPARENT_INDEX; 48 * 48];
+        for y in 0..3u16 {
+            for x in 0..7u16 {
+                block[48 * usize::from(16 + y) + usize::from(16 + x)] = 1;
+            }
+        }
+        let resolved = part_xform::resolve_motion(Motion::Rotate(20.0)).unwrap();
+        let steps = [
+            MotionStep {
+                map: resolved.map,
+                pivot_x: 16 + 3,
+                pivot_y: 16 + 1,
+            },
+            MotionStep {
+                map: CellMap::Translate { dx: 3, dy: -1 },
+                pivot_x: 0,
+                pivot_y: 0,
+            },
+        ];
+        let (shifted, report) = rasterize(48, 48, &block, &steps, |_, _| true, true).unwrap();
+        let shifted_ink = shifted.iter().filter(|pixel| **pixel != 0).count();
+        assert_eq!(shifted_ink, 21);
+        assert_eq!(report.dropped, 2);
+        assert_eq!(report.sealed, 2);
+
+        let mut pair = vec![TRANSPARENT_INDEX; 8 * 8];
+        pair[1 * 8 + 5] = 1;
+        pair[2 * 8 + 5] = 2;
+        let resolved = part_xform::resolve_motion(Motion::Rotate(20.0)).unwrap();
+        let steps = [MotionStep {
+            map: resolved.map,
+            pivot_x: 4,
+            pivot_y: 4,
+        }];
+        let (pixels, report) = rasterize(8, 8, &pair, &steps, |_, _| true, true).unwrap();
+        assert_eq!(report.dropped, 1);
+        assert_eq!(report.conflicts, 1);
+        assert_eq!(report.sealed, 0);
+        assert_eq!(pixels[2 * 8 + 6], 2);
+        assert_eq!(pixels.iter().filter(|pixel| **pixel != 0).count(), 1);
     }
 }

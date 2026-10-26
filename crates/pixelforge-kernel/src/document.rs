@@ -5,6 +5,7 @@ use crate::constraint::{
     constraints_after_rename, constraints_after_resize, constraints_for_parts, ink_label,
     motion_steps, orient_part, place_origin, prepare_constraint, solve_order, warp_ink, Constraint,
     ConstraintKind, Contact, MotionStep, PosedPart, SolveReport, SolvedAnchor, SolvedPart,
+    WarpReport,
 };
 use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
@@ -86,6 +87,9 @@ pub struct BakeFrame {
     pub rest: bool,
     pub delay_ms: u32,
     pub dropped: u32,
+    pub conflicts: u32,
+    pub sealed: u32,
+    pub breaks: u32,
     /// Layers whose ink was replaced from the rest pose. Empty on the source.
     pub layers: Vec<usize>,
     pub parts: Vec<SolvedPart>,
@@ -103,6 +107,9 @@ pub struct BakeReport {
     pub appended: usize,
     pub wrote: bool,
     pub dropped: u32,
+    pub conflicts: u32,
+    pub sealed: u32,
+    pub breaks: u32,
     /// Polish overlay indices. Bake did not write these layers.
     pub polish: Vec<usize>,
     pub frames: Vec<BakeFrame>,
@@ -114,8 +121,8 @@ struct BakePlan {
     delay_ms: u32,
     is_new: bool,
     new_frame: Option<Frame>,
-    writes: Vec<(usize, Vec<u8>, u32)>,
-    dropped: u32,
+    writes: Vec<(usize, Vec<u8>, WarpReport)>,
+    report: WarpReport,
     layers: Vec<usize>,
     parts: Vec<SolvedPart>,
 }
@@ -146,6 +153,9 @@ fn stored_bake_part(part: &crate::part::Part) -> SolvedPart {
         layer: part.layer,
         ink: "unchanged",
         dropped: 0,
+        conflicts: 0,
+        sealed: 0,
+        breaks: 0,
         anchors: part
             .anchors
             .iter()
@@ -246,7 +256,7 @@ fn describe_bake_parts(
     posed: &[PosedPart],
     steps: &[Vec<MotionStep>],
     written: &[usize],
-    dropped: &[(usize, u32)],
+    reports: &[(usize, WarpReport)],
     width: u16,
     height: u16,
 ) -> Result<Vec<SolvedPart>, KernelError> {
@@ -257,12 +267,17 @@ fn describe_bake_parts(
         let written_layer = layer.is_some_and(|layer| written.contains(&layer));
         let lost = layer
             .and_then(|layer| {
-                dropped
+                reports
                     .iter()
-                    .find(|(dropped_layer, _)| *dropped_layer == layer)
-                    .map(|(_, lost)| *lost)
+                    .find(|(reported_layer, _)| *reported_layer == layer)
+                    .map(|(_, report)| *report)
             })
-            .unwrap_or(0);
+            .unwrap_or(WarpReport::ZERO);
+        let lost = if moves && written_layer {
+            lost
+        } else {
+            WarpReport::ZERO
+        };
         let anchors = part
             .oriented
             .anchors
@@ -290,7 +305,10 @@ fn describe_bake_parts(
             } else {
                 "unchanged"
             },
-            dropped: if moves && written_layer { lost } else { 0 },
+            dropped: lost.dropped,
+            conflicts: lost.conflicts,
+            sealed: lost.sealed,
+            breaks: lost.breaks,
             anchors,
         });
     }
@@ -2664,8 +2682,10 @@ impl Document {
     ///
     /// The pivot is the center of that cell. See [`crate::part_xform`] for the
     /// 0.01° quantization and the nearest-neighbor rule. Quarter turns use an
-    /// integer map. One undo step on `frame` plus the part. `frame` is not
-    /// selected. A multiple of 360° that quantizes to 0 is not recorded.
+    /// integer map. Any other angle snaps cell centers, then seals notches the
+    /// snap left empty. `dropped` still counts collisions. One undo step on
+    /// `frame` plus the part. `frame` is not selected. A multiple of 360° that
+    /// quantizes to 0 is not recorded.
     pub fn rotate_part(
         &mut self,
         name: &str,
@@ -2868,28 +2888,28 @@ impl Document {
             steps_per_part.push(steps);
         }
 
-        let mut layer_buffers: Vec<(usize, Vec<u8>, u32)> = Vec::new();
+        let mut layer_buffers: Vec<(usize, Vec<u8>, WarpReport)> = Vec::new();
         for (layer, index) in &moving_layers {
             let old = self.frames[pixel_frame].layer_pixels(*layer);
-            let (next, dropped) = crate::constraint::warp_ink(
+            let (next, report) = crate::constraint::warp_ink(
                 self.width,
                 self.height,
                 old,
                 &steps_per_part[*index],
                 |x, y| self.accepts_write(x, y),
             )?;
-            layer_buffers.push((*layer, next, dropped));
+            layer_buffers.push((*layer, next, report));
         }
 
         let mut solved_parts = Vec::with_capacity(posed.len());
         for (index, part) in posed.iter().enumerate() {
             let (x, y) = place_origin(part, self.width, self.height)?;
             let moves = !steps_per_part[index].is_empty();
-            let dropped = layer_buffers
+            let report = layer_buffers
                 .iter()
                 .find(|(layer, _, _)| part.oriented.layer == Some(*layer) && moves)
-                .map(|(_, _, dropped)| *dropped)
-                .unwrap_or(0);
+                .map(|(_, _, report)| *report)
+                .unwrap_or(WarpReport::ZERO);
             let anchors = part
                 .oriented
                 .anchors
@@ -2913,7 +2933,10 @@ impl Document {
                 y,
                 layer: part.oriented.layer,
                 ink: ink_label(part.oriented.layer, moves),
-                dropped,
+                dropped: report.dropped,
+                conflicts: report.conflicts,
+                sealed: report.sealed,
+                breaks: report.breaks,
                 anchors,
             });
         }
@@ -2962,16 +2985,23 @@ impl Document {
             }
             self.history.record_group(changes);
         }
-        let dropped = solved_parts
-            .iter()
-            .map(|part| part.dropped)
-            .fold(0u32, u32::saturating_add);
+        let totals = solved_parts.iter().fold(WarpReport::ZERO, |total, part| {
+            total.saturating_add(WarpReport {
+                dropped: part.dropped,
+                conflicts: part.conflicts,
+                sealed: part.sealed,
+                breaks: part.breaks,
+            })
+        });
         Ok(SolveReport {
             frame,
             pixel_frame,
             apply,
             wrote,
-            dropped,
+            dropped: totals.dropped,
+            conflicts: totals.conflicts,
+            sealed: totals.sealed,
+            breaks: totals.breaks,
             order: order_names,
             constraints: solved,
             parts: solved_parts,
@@ -3049,7 +3079,7 @@ impl Document {
                     is_new: false,
                     new_frame: None,
                     writes: Vec::new(),
-                    dropped: 0,
+                    report: WarpReport::ZERO,
                     layers: Vec::new(),
                     parts: self.parts.iter().map(stored_bake_part).collect(),
                 });
@@ -3085,8 +3115,8 @@ impl Document {
                 exclude_polish_layers(&write_layers, &self.layer_roles, &posed, &managed)?;
             let is_new = index >= len;
             let mut writes = Vec::new();
-            let mut dropped = 0u32;
-            let mut per_layer_dropped = Vec::new();
+            let mut frame_report = WarpReport::ZERO;
+            let mut per_layer_report = Vec::new();
             for layer in &write_layers {
                 let (next, lost) = if let Some((_, part_index)) = moving
                     .iter()
@@ -3100,22 +3130,22 @@ impl Document {
                         |x, y| self.accepts_write(x, y),
                     )?
                 } else {
-                    (source_layers[*layer].clone(), 0)
+                    (source_layers[*layer].clone(), WarpReport::ZERO)
                 };
                 if is_new {
                     self.reject_ink_outside(&next)?;
                 } else {
                     self.reject_diff_outside(index, *layer, &next)?;
                 }
-                dropped = dropped.saturating_add(lost);
-                per_layer_dropped.push((*layer, lost));
+                frame_report = frame_report.saturating_add(lost);
+                per_layer_report.push((*layer, lost));
                 writes.push((*layer, next, lost));
             }
             let parts = describe_bake_parts(
                 &posed,
                 &steps_per_part,
                 &write_layers,
-                &per_layer_dropped,
+                &per_layer_report,
                 self.width,
                 self.height,
             )?;
@@ -3141,7 +3171,7 @@ impl Document {
                 is_new,
                 new_frame,
                 writes,
-                dropped,
+                report: frame_report,
                 layers: write_layers,
                 parts,
             });
@@ -3189,17 +3219,19 @@ impl Document {
         let wrote = !changes.is_empty();
         self.history.record_group(changes);
         let appended = plans.iter().filter(|plan| plan.is_new).count();
-        let dropped = plans
-            .iter()
-            .map(|plan| plan.dropped)
-            .fold(0u32, u32::saturating_add);
+        let totals = plans.iter().fold(WarpReport::ZERO, |total, plan| {
+            total.saturating_add(plan.report)
+        });
         let frames = plans
             .iter()
             .map(|plan| BakeFrame {
                 index: plan.index,
                 rest: plan.rest,
                 delay_ms: plan.delay_ms,
-                dropped: plan.dropped,
+                dropped: plan.report.dropped,
+                conflicts: plan.report.conflicts,
+                sealed: plan.report.sealed,
+                breaks: plan.report.breaks,
                 layers: plan.layers.clone(),
                 parts: plan.parts.clone(),
             })
@@ -3213,7 +3245,10 @@ impl Document {
             constraints: options.constraints,
             appended,
             wrote,
-            dropped,
+            dropped: totals.dropped,
+            conflicts: totals.conflicts,
+            sealed: totals.sealed,
+            breaks: totals.breaks,
             polish,
             frames,
         })
@@ -3438,7 +3473,7 @@ impl Document {
         )?;
         let anchors =
             self.mapped_anchors(&part, origin_x, origin_y, pivot_x, pivot_y, &resolved.map)?;
-        let (planned, dropped) =
+        let (planned, report) =
             self.plan_part_ink(&part, frame, pivot_x, pivot_y, &resolved.map)?;
         let mut next_parts = self.parts.clone();
         next_parts[index] = Part {
@@ -3489,7 +3524,10 @@ impl Document {
             dx: resolved.dx,
             dy: resolved.dy,
             direction: resolved.direction,
-            dropped,
+            dropped: report.dropped,
+            conflicts: report.conflicts,
+            sealed: report.sealed,
+            breaks: report.breaks,
         })
     }
 
@@ -3540,8 +3578,9 @@ impl Document {
 
     /// New ink buffer for the part's layer, or `None` when the part is unattached.
     ///
-    /// The returned old buffer is the layer before the transform. `dropped` is
-    /// the number of ink cells that lost a nearest-neighbor collision.
+    /// The returned old buffer is the layer before the transform. The report
+    /// counts collisions, sealed notches, and bare diagonal joins. An
+    /// unattached part reports zeros.
     fn plan_part_ink(
         &self,
         part: &Part,
@@ -3549,47 +3588,21 @@ impl Document {
         pivot_x: i32,
         pivot_y: i32,
         map: &CellMap,
-    ) -> Result<(Option<(usize, Vec<u8>, Vec<u8>)>, u32), KernelError> {
+    ) -> Result<(Option<(usize, Vec<u8>, Vec<u8>)>, WarpReport), KernelError> {
         let Some(layer) = part.layer else {
-            return Ok((None, 0));
+            return Ok((None, WarpReport::ZERO));
         };
         let layer = self.layer_or_err(layer)?;
         let old = self.frames[frame].layer_pixels(layer).to_vec();
-        let mut next = old.clone();
-        let mut moves = Vec::new();
-        for y in 0..self.height {
-            let row = pixel_len(self.width, y);
-            for x in 0..self.width {
-                let offset = row + usize::from(x);
-                let index = old[offset];
-                if index == TRANSPARENT_INDEX {
-                    continue;
-                }
-                let (dest_x, dest_y) =
-                    self.mapped_canvas_cell(i32::from(x), i32::from(y), pivot_x, pivot_y, map)?;
-                if !self.accepts_write(x, y) || !self.accepts_write(dest_x, dest_y) {
-                    return Err(KernelError::SelectionProtected);
-                }
-                let dest = pixel_len(self.width, dest_y) + usize::from(dest_x);
-                moves.push((offset, index, dest));
-            }
-        }
-        let mut claimed = vec![false; old.len()];
-        let mut unique = 0u32;
-        for (_, _, dest) in &moves {
-            if !claimed[*dest] {
-                claimed[*dest] = true;
-                unique += 1;
-            }
-        }
-        let dropped = u32::try_from(moves.len()).unwrap_or(u32::MAX) - unique;
-        for (offset, _, _) in &moves {
-            next[*offset] = TRANSPARENT_INDEX;
-        }
-        for (_, index, dest) in &moves {
-            next[*dest] = *index;
-        }
-        Ok((Some((layer, next, old)), dropped))
+        let steps = [MotionStep {
+            map: *map,
+            pivot_x,
+            pivot_y,
+        }];
+        let (next, report) = warp_ink(self.width, self.height, &old, &steps, |x, y| {
+            self.accepts_write(x, y)
+        })?;
+        Ok((Some((layer, next, old)), report))
     }
 
     fn require_canvas_cell(&self, x: i32, y: i32) -> Result<(u16, u16), KernelError> {
