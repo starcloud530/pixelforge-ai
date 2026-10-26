@@ -1,0 +1,200 @@
+{
+  "columns": 4,
+  "format": "pixelforge-atlas",
+  "frameHeight": 64,
+  "frameWidth": 64,
+  "frames": [
+    {
+      "delayMs": 200,
+      "height": 64,
+      "index": 0,
+      "width": 64,
+      "x": 0,
+      "y": 0
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 1,
+      "width": 64,
+      "x": 64,
+      "y": 0
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 2,
+      "width": 64,
+      "x": 128,
+      "y": 0
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 3,
+      "width": 64,
+      "x": 192,
+      "y": 0
+    },
+    {
+      "delayMs": 200,
+      "height": 64,
+      "index": 4,
+      "width": 64,
+      "x": 0,
+      "y": 64
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 5,
+      "width": 64,
+      "x": 64,
+      "y": 64
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 6,
+      "width": 64,
+      "x": 128,
+      "y": 64
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 7,
+      "width": 64,
+      "x": 192,
+      "y": 64
+    },
+    {
+      "delayMs": 200,
+      "height": 64,
+      "index": 8,
+      "width": 64,
+      "x": 0,
+      "y": 128
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 9,
+      "width": 64,
+      "x": 64,
+      "y": 128
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 10,
+      "width": 64,
+      "x": 128,
+      "y": 128
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 11,
+      "width": 64,
+      "x": 192,
+      "y": 128
+    },
+    {
+      "delayMs": 200,
+      "height": 64,
+      "index": 12,
+      "width": 64,
+      "x": 0,
+      "y": 192
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 13,
+      "width": 64,
+      "x": 64,
+      "y": 192
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 14,
+      "width": 64,
+      "x": 128,
+      "y": 192
+    },
+    {
+      "delayMs": 120,
+      "height": 64,
+      "index": 15,
+      "width": 64,
+      "x": 192,
+      "y": 192
+    }
+  ],
+  "image": "zombie-sheet.png",
+  "rows": 4,
+  "scale": 1,
+  "sheetHeight": 256,
+  "sheetWidth": 256,
+  "tags": [
+    {
+      "from": 0,
+      "index": 0,
+      "loop": "forward",
+      "name": "idle_down",
+      "to": 0
+    },
+    {
+      "from": 1,
+      "index": 1,
+      "loop": "forward",
+      "name": "walk_down",
+      "to": 3
+    },
+    {
+      "from": 4,
+      "index": 2,
+      "loop": "forward",
+      "name": "idle_left",
+      "to": 4
+    },
+    {
+      "from": 5,
+      "index": 3,
+      "loop": "forward",
+      "name": "walk_left",
+      "to": 7
+    },
+    {
+      "from": 8,
+      "index": 4,
+      "loop": "forward",
+      "name": "idle_right",
+      "to": 8
+    },
+    {
+      "from": 9,
+      "index": 5,
+      "loop": "forward",
+      "name": "walk_right",
+      "to": 11
+    },
+    {
+      "from": 12,
+      "index": 6,
+      "loop": "forward",
+      "name": "idle_up",
+      "to": 12
+    },
+    {
+      "from": 13,
+      "index": 7,
+      "loop": "forward",
+      "name": "walk_up",
+      "to": 15
+    }
+  ],
+  "version": 1
+}
