@@ -1183,6 +1183,27 @@ fn cmd_bake(args: BakeArgs) -> i32 {
     apply(&args.doc, vec![request("bake", Value::Object(params))])
 }
 
+fn parse_contacts(values: &[String]) -> Result<Value, String> {
+    let mut contacts = Vec::with_capacity(values.len());
+    for value in values {
+        let parts: Vec<&str> = value.split(':').collect();
+        let numbers: Result<Vec<u16>, _> = parts.iter().map(|part| part.parse::<u16>()).collect();
+        let numbers = numbers
+            .map_err(|_| format!("contact must be frame:x:y or frame:to:x:y, got {value}"))?;
+        let contact = match numbers.as_slice() {
+            [frame, x, y] => json!({"frame": frame, "x": x, "y": y}),
+            [frame, to, x, y] => json!({"frame": frame, "to": to, "x": x, "y": y}),
+            _ => {
+                return Err(format!(
+                    "contact must be frame:x:y or frame:to:x:y, got {value}"
+                ))
+            }
+        };
+        contacts.push(contact);
+    }
+    Ok(Value::Array(contacts))
+}
+
 fn cmd_constraint(command: ConstraintCmd) -> i32 {
     match command {
         ConstraintCmd::Add {
@@ -1195,6 +1216,9 @@ fn cmd_constraint(command: ConstraintCmd) -> i32 {
             target_anchor,
             x,
             y,
+            chain,
+            bend,
+            contact,
         } => {
             let mut params = json!({
                 "name": name,
@@ -1215,6 +1239,21 @@ fn cmd_constraint(command: ConstraintCmd) -> i32 {
             }
             if let Some(y) = y {
                 params["y"] = json!(y);
+            }
+            if !chain.is_empty() {
+                params["chain"] = json!(chain);
+            }
+            if let Some(bend) = bend {
+                params["bend"] = json!(bend);
+            }
+            if !contact.is_empty() {
+                match parse_contacts(&contact) {
+                    Ok(contacts) => params["contacts"] = contacts,
+                    Err(message) => {
+                        eprintln!("error: {message}");
+                        return 2;
+                    }
+                }
             }
             apply(&doc, vec![request("addConstraint", params)])
         }

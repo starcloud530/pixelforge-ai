@@ -513,20 +513,31 @@ const BY_NAME = {
   ),
   addConstraint: tool(
     "addConstraint",
-    "Store a follow, attach, or pin constraint. stick is stored as attach. follow moves part so its anchor, or its origin, lands on targetAnchor. attach requires both anchors. pin stores a canvas cell and no target. Does not move pixels. One undo step.",
+    "Store a follow, attach, pin, ik, or plant constraint. stick is stored as attach. follow moves part so its anchor, or its origin, lands on targetAnchor. attach requires both anchors. pin stores one canvas cell. ik rotates a chain of two or three parts so the end cell is exactly the target. plant pins an anchor on footprint spans. Does not move pixels. One undo step.",
     {
       name: { type: "string", description: "Constraint name, 1 to 64 characters. Unique in the file." },
       kind: {
         type: "string",
-        description: "follow, attach, stick, or pin. stick is stored as attach.",
-        enum: ["follow", "attach", "stick", "pin"],
+        description: "follow, attach, stick, pin, ik, or plant. stick is stored as attach.",
+        enum: ["follow", "attach", "stick", "pin", "ik", "plant"],
       },
-      part: { type: "string", description: "Part this constraint moves." },
-      anchor: { type: "string", description: "Follower anchor. Omit on follow or pin to use the origin. Required for attach." },
-      target: { type: "string", description: "Part that follow or attach tracks." },
-      targetAnchor: { type: "string", description: "Anchor on the target. Required for follow and attach." },
-      x: int("Pin column. Required with y for pin. Must lie on the canvas.", -2147483648, 2147483647),
-      y: int("Pin row. Required with x for pin. Must lie on the canvas.", -2147483648, 2147483647),
+      part: { type: "string", description: "Part this constraint moves. For ik, the end of the chain." },
+      anchor: { type: "string", description: "Follower anchor. Omit on follow, pin, or plant to use the origin. On ik, the end effector. Omit it to aim the end origin." },
+      target: { type: "string", description: "Part that follow, attach, or ik tracks." },
+      targetAnchor: { type: "string", description: "Anchor on the target. Required for follow, attach, and an ik part target." },
+      x: int("Pin or ik column. Required with y for pin. Must lie on the canvas.", -2147483648, 2147483647),
+      y: int("Pin or ik row. Required with x for pin. Must lie on the canvas.", -2147483648, 2147483647),
+      chain: {
+        type: "array",
+        description: "IK joint names, root first, two or three. The last name is part.",
+        items: { type: "string" },
+      },
+      bend: int("1 clockwise of root-to-target, or -1 the other side. Omit to keep the rest bend.", -1, 1),
+      contacts: {
+        type: "array",
+        description: "Footprint spans. Each item is {frame, to, x, y}. to defaults to frame. A sample inside the span uses that cell.",
+        items: { type: "object" },
+      },
     },
     ["name", "kind", "part"],
   ),
@@ -544,7 +555,7 @@ const BY_NAME = {
   ),
   solveConstraints: tool(
     "solveConstraints",
-    "Sample curves when frame is set, then translate driven parts so follow, attach, and pin points meet. Omit frame to use the stored pose. Omit apply, or send false, and nothing is written. apply true writes one pixelFrame (the active frame when omitted) as one undo step when the pose changed. A linked layer's non-zero ink moves. An unattached part moves its origin only. A second call stacks. This poses one frame. bake walks the timeline.",
+    "Sample curves when frame is set, then solve follow, attach, pin, ik, and plant. ik must land on the target cell or the call is IkUnreachable and writes nothing. A footprint span pins that cell; frames outside every span are not pinned. Omit frame to use the stored pose and to sample footprints at pixelFrame. Omit apply, or send false, and nothing is written. apply true writes one pixelFrame (the active frame when omitted) as one undo step when the pose changed. A linked layer's non-zero ink moves. An unattached part moves its origin only. A second call stacks. This poses one frame. bake walks the timeline.",
     {
       frame: {
         type: "number",

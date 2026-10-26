@@ -3388,6 +3388,51 @@ fn soldier_raise_gun_script_bakes_editable_frames() {
 }
 
 #[test]
+fn soldier_walk_script_plants_feet_before_the_step() {
+    let scratch = Scratch::new();
+    let project = scratch.child("soldier.json");
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/soldier-walk.py");
+    let output = Command::new("python3")
+        .arg(&script)
+        .arg(&project)
+        .env("PIXELFORGE", env!("CARGO_BIN_EXE_pixelforge"))
+        .output()
+        .expect("python3");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document = load(&project);
+    assert_eq!(document.frame_count(), 3);
+    assert_eq!(document.frame_delay(0).unwrap(), 83);
+    assert_eq!(document.frame_delay(2).unwrap(), 83);
+    assert_eq!(index_at(&document, 0, 1, 12, 12), 3);
+    assert_eq!(index_at(&document, 1, 1, 12, 12), 3);
+    assert_eq!(index_at(&document, 1, 1, 14, 12), 0);
+    assert_eq!(index_at(&document, 2, 1, 14, 10), 3);
+    assert_eq!(index_at(&document, 2, 1, 12, 12), 0);
+    assert_eq!(index_at(&document, 2, 3, 4, 12), 6);
+    assert_eq!(index_at(&document, 0, 4, 8, 6), 7);
+    assert_eq!(index_at(&document, 1, 4, 8, 6), 7);
+    assert_eq!(index_at(&document, 2, 4, 8, 6), 7);
+    let thigh = document
+        .parts()
+        .iter()
+        .find(|part| part.name == "thigh-l")
+        .unwrap();
+    assert_eq!((thigh.x, thigh.y), (8, 8));
+    assert_eq!(document.curves().len(), 3);
+    assert_eq!(document.constraints().len(), 2);
+    assert_eq!(document.tags()[0].name, "walk");
+    let value: Value = serde_json::from_str(&fs::read_to_string(&project).unwrap()).unwrap();
+    assert_eq!(value["version"], json!(1));
+    assert!(value.get("bake").is_none());
+}
+
+#[test]
 fn selection_scope_diffs_the_helmet_and_subtracts_the_feet_before_fill() {
     let scratch = Scratch::new();
     let project = scratch.child("hero.json");
