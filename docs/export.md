@@ -47,6 +47,80 @@
 
 *Passing `--atlas` writes `pixelforge-atlas` version 1 next to the PNG. Omitting it keeps the PNG-only result. Tool API `exportSpriteSheet` with `atlas: true` returns the same object and does not write a file. Rectangles are sheet pixels after scale. `frames` lists real frames and each one carries `delayMs`. Padding cells are absent. `tags` are inclusive frame ranges. The CLI file adds `image`, the PNG file name. Loop modes are metadata for the reader. Document playback still walks the whole timeline. Tags are not linked cels. Four-direction names live in pixelforge-sprite-4dir.*
 
+## 对接校验 validate-atlas
+
+导出之后、把表送进游戏之前先跑校验。它只读 PNG 和上面那份 `pixelforge-atlas`，不改像素，不重写 atlas，也不另起一种格式。
+
+```bash
+pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
+```
+
+`--sheet` 可以省略。省略时用 atlas 里的 `image`，路径相对 JSON 文件所在目录。
+
+stdout 是一行 JSON。`tool` 是 `validateAtlas`。`result.errors` 和 `result.warnings` 是清单，每项有 `code`、`message`，涉及某一帧或某个标签时还有 `frame` 或 `tag`。`result.checks` 写出这次用的模式、尺寸档、四向检查有没有跑、pivot 是 `checked` 还是 `skipped`。
+
+退出码：
+
+| 情况 | 退出码 |
+| --- | --- |
+| 没有 error。可以有 warning | `0` |
+| 至少一条 error。stdout 仍是这份清单 | `1` |
+| 文件打不开、PNG 读不了、或 JSON 不是 `pixelforge-atlas` version 1 | `2` |
+
+`--strict` 是默认。`--loose` 只把约定类问题降成 warning。两种模式下都是：**有 error 才退出 1**；只剩 warning 时退出码仍是 0，包括 strict 里的 `emptyFrame`。
+
+| 检查 | code | strict | loose |
+| --- | --- | --- | --- |
+| 帧矩形越界 | `outOfBounds` | error | error |
+| 帧矩形重叠 | `overlap` | error | error |
+| 矩形不在自己的格子上，或 `sheetWidth` 不是 `columns * frameWidth`（高度同理），或行数装不下这些帧 | `grid` | error | error |
+| PNG 尺寸不是 atlas 的 `sheetWidth` / `sheetHeight` | `sheetSize` | error | error |
+| 不属于任何帧的像素不透明。这就是末尾透明空位，以及帧矩形没有盖住的格子 | `padding` | error | error |
+| `frameWidth` 或 `frameHeight` 不能被 `scale` 整除 | `scale` | error | error |
+| 帧下标不连续、标签下标不连续、区间越界、`loop` 不是 `forward` / `reverse` / `pingpong` / `once`、标签重名 | `frameIndex` / `tagIndex` / `tagRange` / `loop` / `tagName` | error | error |
+| 规则 `requireTags` 里的名字不在 | `missingTags` | error | error |
+| 未缩放画布边长不在允许档里。比的是 `frameWidth / scale` 和 `frameHeight / scale`，默认 **64、96、128**。两条边都在档内才通过，所以 64×128 通过，32×64 不通过。`scale` 为 2 的 64×64 仍是 64，不是 128 | `size` | error | warning |
+| 已有 `{idle\|walk}_{down\|left\|right\|up}` 时，名字或区间不符合四向约定：行序是 `down`、`left`、`right`、`up`；idle 只占该行第一格；walk 占该行剩下的格子；这一行没有 idle 时，整行只打 `walk_{朝向}` | `naming`，缺的那一格是 `missingTags` | error | warning |
+| 一个标签都没有，而且这次没有按四向在查 | `missingTags` | error | warning |
+| `image` 和 PNG 文件名不一致 | `image` | error | warning |
+| `delayMs` 不在 `1..=65535` | `delay` | error | warning |
+| 原点。只有 atlas 或规则里已经有 `pivot` 才查。`x`、`y` 是帧局部像素，左上为原点，y 向下，远边 `x == width`、`y == height` 仍算在格子内。各帧不透明像素的最底一行到 pivot 的距离必须相同 | `pivot` | 落在格子外是 error；距离不一致是 error | 落在格子外是 error；距离不一致是 warning |
+| 一整格都透明 | `emptyFrame` | warning | warning |
+
+导出不写 `pivot`。没有这份字段、规则里也没有时，`checks.pivot` 是 `skipped`。可选的 atlas `pivot` 是 `{ "x", "y" }`，可以写在根上，也可以写在某一帧上。这仍是同一份 version 1 对象，不是第二条格式。
+
+规则文件是 `pixelforge-atlas-rules` version 1。未知字段会拒绝，避免把写错的键当成没写。命令行上出现的旗标覆盖文件里的同名字段。`sizes: []` 表示不查尺寸档。`tagPolicy: optional` 表示空标签列表不记一笔，`requireTags` 仍然要有。`fourDirection` 是 `auto`（默认：出现四向名字才查）、`on` 或 `off`。
+
+```bash
+pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png --loose
+pixelforge validate-atlas --atlas hero-sheet.json --rules pack-rules.json
+```
+
+```json
+{
+  "format": "pixelforge-atlas-rules",
+  "version": 1,
+  "mode": "strict",
+  "sizes": [64, 96, 128],
+  "requireTags": ["idle_down", "walk_down"],
+  "fourDirection": "auto",
+  "tagPolicy": "required",
+  "pivot": { "x": 32, "y": 64 }
+}
+```
+
+### 和 #18 的关系
+
+[#18](https://github.com/starcloud530/pixelforge-ai/issues/18) 是消费侧：丧尸和据点道具的精灵包要真正进游戏原型，并记下游戏才拒绝的失败。`validate-atlas` 是那张清单前面的工具侧门槛。
+
+1. `export sheet --atlas` 写出 PNG 和这份 atlas。
+2. 先跑 `validate-atlas`。清单里的 error 回到 PixelForge 改：补标签、把矩形放回格子、换成 64/96/128 画布、改四向名字、擦掉空位上的不透明像素、用规则里的 `pivot` 把各帧着地点对齐。然后重新导出。本命令不自动修图。
+3. 退出码是 0 之后，同一对 PNG 和 atlas 才送进游戏。过滤、最近点采样、动画有没有接到 `idle_*` / `walk_*`、引擎 pivot 和规则是不是同一点，这些游戏侧失败记在 #18。
+
+静态道具可以在规则里把 `sizes` 放宽（例如加上 32），`tagPolicy` 设为 `optional`，`fourDirection` 设为 `off`，并用 `pivot` 写上引擎原点。四向角色用默认 strict。
+
+*Run `validate-atlas` after `export sheet --atlas` and before the sheet is imported. It reads the same `pixelforge-atlas` version 1 object and does not edit pixels or invent a second format. Exit 0 means no errors. Exit 1 means the checklist has an error. Warnings alone stay exit 0 in both modes. `--loose` downgrades canvas tier, four-direction names, an empty tag list, the image file name, delay range, and pivot drift. Overlap, out-of-bounds frames, a broken grid, and opaque padding stay errors. Canvas edges are `frameWidth / scale` and `frameHeight / scale`, defaulting to 64, 96, and 128. Pivot is checked only when the atlas or the rules file already has one. This is the tool-side gate in front of #18: fix those errors in PixelForge and re-export, then let the game record whatever it still rejects.*
+
 ## Godot 4
 
 这些是导入约定，不是编辑器技术栈。

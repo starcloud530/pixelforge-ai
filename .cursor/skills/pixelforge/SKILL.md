@@ -15,7 +15,8 @@ description: >-
   sampled poses into editable pixel frames while leaving a polish overlay
   untouched, adding or
   duplicating frames, undoing,
-  running inspect, scene, tools, or call, or exporting a PNG sequence or sprite sheet.
+  running inspect, scene, tools, or call, exporting a PNG sequence or sprite sheet,
+  or validating that sheet with validate-atlas before game import.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
   drawing request inside one batched call.
@@ -83,7 +84,9 @@ stdout 是紧凑 JSON，一行一个响应。解析 stdout 的 `ok` 和 `error.c
 
 退出码：`0` 每个工具都是 `ok: true`。`1` 某个工具 `ok: false`（stdout 仍是那个错误对象）。`2` 工具没跑起来（文件打不开、工程损坏、请求文件不是 JSON）。`preview` 和 `diff` 在内核拒绝时也是退出码 `2`，stdout 仍是那个错误对象。clap 的用法错误也是退出码 `2`，说明在 stderr，没有 JSON 行。
 
-*`0` all ok, `1` tool error with JSON on stdout, `2` the tool did not run or clap rejected the command. `preview` and `diff` use `2` when the kernel refuses.*
+`validate-atlas` 同样是 `0` 没有 error（可以有 warning）、`1` 清单里有 error、`2` 文件打不开或不是 `pixelforge-atlas`。`--loose` 把尺寸档和四向命名降成 warning，重叠、越界和空位上的不透明像素仍是 error。
+
+*`0` all ok, `1` tool error with JSON on stdout, `2` the tool did not run or clap rejected the command. `preview` and `diff` use `2` when the kernel refuses. `validate-atlas` uses `0` when the checklist has no errors, `1` when it has an error, and `2` when the files cannot be read.*
 
 ## How to read state
 
@@ -346,8 +349,11 @@ pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop f
 pixelforge tag set --project hero.json --name walk_down --to 4 --loop pingpong
 pixelforge tag remove --project hero.json --name walk_down
 pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2 --atlas hero-sheet.json
+pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 ```
+
+导出之后、进游戏之前先跑上面的 `validate-atlas`；有 error 时退出码不是 0，不要把这份表交进游戏。
 
 `tag add` 给闭区间起名。`loop` 是 `forward`（缺省）、`reverse`、`pingpong` 或 `once`。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。标签不是 cel 链接，复制帧仍然复制像素。整条时间轴的循环预览不按标签播放。四向表的行、列、标签名和脚滑检查见 `pixelforge-sprite-4dir`。
 

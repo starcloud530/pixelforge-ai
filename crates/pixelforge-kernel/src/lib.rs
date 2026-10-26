@@ -21,6 +21,8 @@
 //! Project files are version 1 `pixelforge-project` JSON from
 //! [`Document::save_project`] and [`Document::load_project`]. PNG sequence and
 //! sprite-sheet export resolve the indexed palette to RGBA.
+//! [`validate_atlas`] checks that sheet against its `pixelforge-atlas` and does
+//! not edit pixels.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
 //! as onion skin; it is not part of the document. [`Document::call_tool`] is
 //! the stable Tool API: named JSON tools that dispatch onto this document and
@@ -30,6 +32,7 @@
 //! `docs/tool-api.md`, and `docs/agent-skill.md`.
 
 mod aseprite;
+mod atlas;
 mod color;
 mod constraint;
 mod curve;
@@ -50,6 +53,10 @@ mod tag;
 mod tool_api;
 
 pub use aseprite::AsepriteReport;
+pub use atlas::{
+    decode_sheet_png, validate_atlas, AtlasChecks, AtlasFinding, AtlasInputError, AtlasMode,
+    AtlasReport, AtlasRules, FourDirection, Pivot, SheetImage, TagPolicy, FORMAL_FRAME_EDGES,
+};
 pub use color::Rgba;
 pub use constraint::{Constraint, ConstraintKind, Contact, SolveReport};
 pub use curve::{

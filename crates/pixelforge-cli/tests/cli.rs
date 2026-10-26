@@ -115,6 +115,7 @@ fn help_lists_the_agent_commands() {
         "--horizontal",
         "--cols",
         "export",
+        "validate-atlas",
         "inspect",
         "Stdout",
         "Tool API",
@@ -3829,4 +3830,199 @@ fn raise_gun_tweak_keeps_a_polished_finger() {
 fn index_at(document: &Document, frame: usize, layer: usize, x: u16, y: u16) -> u8 {
     let width = usize::from(document.width());
     document.layer_pixels(frame, layer).unwrap()[usize::from(y) * width + usize::from(x)]
+}
+
+#[test]
+fn validate_atlas_reports_pass_fail_and_warning() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "64",
+            "--height",
+            "64",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "1",
+            "--y",
+            "63",
+            "--color-index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "tag",
+            "add",
+            "--project",
+            project_arg,
+            "--name",
+            "prop",
+            "--from",
+            "0",
+            "--to",
+            "0",
+        ]))),
+        0
+    );
+    let sheet = scratch.child("hero-sheet.png");
+    let atlas = scratch.child("hero-sheet.json");
+    let exported = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        project_arg,
+        "--output",
+        sheet.to_str().unwrap(),
+        "--atlas",
+        atlas.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&exported), 0, "{}", stderr(&exported));
+
+    let passed = pixelforge(&arg(&[
+        "validate-atlas",
+        "--atlas",
+        atlas.to_str().unwrap(),
+        "--sheet",
+        sheet.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&passed), 0, "{}", stderr(&passed));
+    let pass_body = &json_lines(&passed)[0];
+    assert_eq!(pass_body["ok"], json!(true));
+    assert_eq!(pass_body["tool"], "validateAtlas");
+    assert_eq!(pass_body["result"]["errorCount"], 0);
+    assert_eq!(pass_body["result"]["warningCount"], 0);
+    assert_eq!(pass_body["result"]["checks"]["mode"], "strict");
+    assert!(stderr(&passed).contains("validate-atlas: ok"));
+
+    let implied = pixelforge(&arg(&[
+        "validate-atlas",
+        "--atlas",
+        atlas.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&implied), 0, "{}", stderr(&implied));
+
+    let mut atlas_value: Value =
+        serde_json::from_str(&fs::read_to_string(&atlas).unwrap()).unwrap();
+    atlas_value["frames"][0]["x"] = json!(64);
+    let broken = scratch.child("broken.json");
+    fs::write(&broken, serde_json::to_string_pretty(&atlas_value).unwrap()).unwrap();
+    let failed = pixelforge(&arg(&[
+        "validate-atlas",
+        "--atlas",
+        broken.to_str().unwrap(),
+        "--sheet",
+        sheet.to_str().unwrap(),
+        "--loose",
+    ]));
+    assert_eq!(status(&failed), 1, "{}", stderr(&failed));
+    let fail_body = &json_lines(&failed)[0];
+    assert_eq!(fail_body["ok"], json!(false));
+    let errors = fail_body["result"]["errors"].as_array().unwrap();
+    assert!(
+        errors
+            .iter()
+            .any(|finding| finding["code"] == "outOfBounds"),
+        "{errors:?}"
+    );
+
+    let small = scratch.child("small.json");
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "16",
+            "--height",
+            "16",
+            "--output",
+            small.to_str().unwrap(),
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            small.to_str().unwrap(),
+            "--x",
+            "1",
+            "--y",
+            "15",
+            "--color-index",
+            "1",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "tag",
+            "add",
+            "--project",
+            small.to_str().unwrap(),
+            "--name",
+            "prop",
+            "--from",
+            "0",
+            "--to",
+            "0",
+        ]))),
+        0
+    );
+    let small_sheet = scratch.child("small-sheet.png");
+    let small_atlas = scratch.child("small-sheet.json");
+    let small_export = pixelforge(&arg(&[
+        "export",
+        "sheet",
+        "--project",
+        small.to_str().unwrap(),
+        "--output",
+        small_sheet.to_str().unwrap(),
+        "--atlas",
+        small_atlas.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&small_export), 0, "{}", stderr(&small_export));
+    let warned = pixelforge(&arg(&[
+        "validate-atlas",
+        "--atlas",
+        small_atlas.to_str().unwrap(),
+        "--loose",
+    ]));
+    assert_eq!(status(&warned), 0, "{}", stderr(&warned));
+    let warn_body = &json_lines(&warned)[0];
+    assert_eq!(warn_body["ok"], json!(true));
+    assert_eq!(warn_body["result"]["errorCount"], 0);
+    assert!(warn_body["result"]["warnings"][0]["code"] == "size");
+    assert!(stderr(&warned).contains("warning size:"));
+
+    let rules = scratch.child("rules.json");
+    fs::write(
+        &rules,
+        r#"{"format":"pixelforge-atlas-rules","version":1,"mode":"strict","sizes":[16],"tagPolicy":"required"}"#,
+    )
+    .unwrap();
+    let ruled = pixelforge(&arg(&[
+        "validate-atlas",
+        "--atlas",
+        small_atlas.to_str().unwrap(),
+        "--rules",
+        rules.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&ruled), 0, "{}", stderr(&ruled));
+    assert_eq!(
+        json_lines(&ruled)[0]["result"]["checks"]["sizes"],
+        json!([16])
+    );
 }

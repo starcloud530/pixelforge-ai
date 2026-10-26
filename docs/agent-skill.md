@@ -16,9 +16,9 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。其它创作 skill 先遵守这里。 |
+| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、validate-atlas、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
-| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
+| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。导出后先 `validate-atlas`，再进游戏。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢 | body / gear / limbs。合成预览、`--layer`、`layer flatten`。 |
 | `pixelforge-critique` | [.cursor/skills/pixelforge-critique/SKILL.md](../.cursor/skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。输出必须列缺陷，不能只说看起来不错。 |
 
@@ -223,12 +223,15 @@ pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop f
 pixelforge tag set --project hero.json --name walk_down --loop pingpong --rename walk_south
 pixelforge tag remove --project hero.json --name walk_south
 pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2 --atlas hero-sheet.json
+pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 ```
 
 `duplicateFrame` 把像素和时长复制到下一格，返回的 `index` 是新帧。**它不会把当前帧改成这份拷贝。** 当前帧仍显示原来的像素：若它的下标在插入点或之后，下标会加一；否则下标不变。要画拷贝，先 `frame select` / `setActiveFrame` 到返回的下标。网页「复制」按钮会代为选中；CLI 和 `duplicateFrame` 不会。`frame add` 在末尾追加一帧 100 毫秒的空白帧，不改变当前帧。`export png` 写出 `pixelforge-000.png` 起的文件。时长范围是 `1..=65535`。
 
-*duplicateFrame does not select the copy. `frame add` appends a blank 100 ms frame. `export png` writes `pixelforge-000.png` onward. `export sheet --cols N` keeps one facing on one row when N is the frame count of that facing. `--atlas FILE` writes `pixelforge-atlas` JSON beside the sheet. Omit it and the export result stays the PNG fields. Tag names for a four-direction sheet live in pixelforge-sprite-4dir.*
+导出之后、进游戏之前先跑 `validate-atlas`。有 error 时退出码是 1，不要把这份表交出去。只剩 warning 时退出码仍是 0。规则和 [#18](https://github.com/starcloud530/pixelforge-ai/issues/18) 的交接在 [export.md](export.md)。
+
+*duplicateFrame does not select the copy. `frame add` appends a blank 100 ms frame. `export png` writes `pixelforge-000.png` onward. `export sheet --cols N` keeps one facing on one row when N is the frame count of that facing. `--atlas FILE` writes `pixelforge-atlas` JSON beside the sheet. Omit it and the export result stays the PNG fields. After export, run `validate-atlas` before game import. An error exits 1. Warnings alone stay 0. Tag names for a four-direction sheet live in pixelforge-sprite-4dir. The #18 handoff is in export.md.*
 
 `tag add` / `addTag` 给一段闭区间起名，并写上 `loop`（`forward`、`reverse`、`pingpong`、`once`，缺省 `forward`）。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。`inspect` 和 `scene` 始终带 `tags`，空的时候是 `[]`。标签不是 cel 链接：复制帧仍然复制像素。整条时间轴的循环预览不改成按标签播放。插帧、删帧会在同一步撤销里挪已经存在的标签；复制某个标签的最后一帧时，新帧不自动进这个标签。四向名字在帧排好之后再打，见 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。
 
