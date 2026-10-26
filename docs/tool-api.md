@@ -1088,6 +1088,10 @@ CLI 的 `pixelforge export sheet --atlas hero-sheet.json` 把这个对象写成�
 
 `atlas` 不是布尔时是 `InvalidParams`。
 
+`pixelforge validate-atlas` 读的就是这个对象，再加上 CLI 写上的 `image`。可选的 `pivot`（根上或某一帧上的 `{ "x", "y" }`）只有已经写了才参与原点检查。它不是文档工具，不进 `tools`，也不改像素。退出码、尺寸档和 [#18](https://github.com/starcloud530/pixelforge-ai/issues/18) 的交接见 [export.md](export.md)。
+
+*`validate-atlas` reads this same object, plus the CLI `image` field. An optional `pivot` is checked only when it is already there. The command is not a document tool and it does not edit pixels. Exit codes and the #18 handoff are in [export.md](export.md).*
+
 ### `previewFrame`
 
 `params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）、可选 `layer`。不写 `layer` 时画合成图；写了就只画那一层，并且不改变 `activeLayer`。

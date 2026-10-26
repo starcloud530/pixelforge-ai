@@ -5,7 +5,8 @@ description: >-
   idle, walk, sprite sheet), including 96 and 128 cell sizes. Use when laying
   out rows as facings and columns as idle plus walk frames, exporting with
   export sheet --cols, tagging ranges as idle_down / walk_down, writing
-  --atlas JSON, copying a rectangle across frames, checking foot slide
+  --atlas JSON, running validate-atlas after export and before game
+  import, copying a rectangle across frames, checking foot slide
   (脚滑) with diff, or mirroring a side view with hflip and then repairing
   highlights. For a later frame of the same pose, duplicate it and edit
   the diff, or copyRect into a slot that already exists; merge scanline
@@ -95,7 +96,9 @@ pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --s
 
 `--cols` 仍等于每行帧数。`--atlas` 写出 `pixelforge-atlas` JSON：每一帧的矩形和 `delayMs`，加上上面的标签和 `columns`。不传 `--atlas` 时只出 PNG，和以前一样。Tool API 是 `addTag` / `setTag` / `removeTag`，以及 `exportSpriteSheet` 的 `atlas: true`。
 
-*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only.*
+导出之后、进游戏之前先跑 `pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png`；有 error 时退出码不是 0，不要把这份表交进游戏。
+
+*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only. After export, run `validate-atlas` before game import. An error is a non-zero exit; do not hand that sheet to the game.*
 
 ## Build a facing
 
