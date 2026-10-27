@@ -117,6 +117,7 @@ fn help_lists_the_agent_commands() {
         "export",
         "validate-atlas",
         "inspect",
+        "--checkpoint",
         "Stdout",
         "Tool API",
     ] {
@@ -322,6 +323,294 @@ fn one_process_undoes_a_gesture_and_the_next_process_cannot() {
     assert_eq!(body["ok"], false);
     assert_eq!(body["error"]["code"], "NothingToUndo");
     assert_eq!(fs::read(&project).unwrap(), original);
+}
+
+#[test]
+fn checkpoint_restores_undo_in_a_new_process() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    let ckpt = scratch.child("hero.ckpt.json");
+    let ckpt_arg = ckpt.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "4",
+            "--height",
+            "4",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+
+    let paint_a = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "1",
+    ]));
+    assert_eq!(status(&paint_a), 0, "{}", stderr(&paint_a));
+    assert!(
+        stderr(&paint_a).contains("hero.ckpt.json"),
+        "{}",
+        stderr(&paint_a)
+    );
+    assert_eq!(load(&project).pixels()[0], 1);
+    let stored = fs::read_to_string(&project).unwrap();
+    assert!(!stored.contains("pixelforge-checkpoint"));
+    assert!(!stored.contains("projectHash"));
+    let sidecar = fs::read_to_string(&ckpt).unwrap();
+    let sidecar_json: Value = serde_json::from_str(&sidecar).unwrap();
+    assert_eq!(sidecar_json["format"], "pixelforge-checkpoint");
+    assert_eq!(sidecar_json["version"], 1);
+    assert_eq!(sidecar_json["undo"].as_array().unwrap().len(), 1);
+    assert!(sidecar_json["redo"].as_array().unwrap().is_empty());
+
+    let paint_b = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--color-index",
+        "2",
+    ]));
+    assert_eq!(status(&paint_b), 0, "{}", stderr(&paint_b));
+    assert_eq!(load(&project).pixels()[1], 2);
+
+    // A fresh process. Kernel undo is empty, so this walks the checkpoint.
+    let undo_b = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--request",
+        r#"{"id":"back","tool":"undo"}"#,
+    ]));
+    assert_eq!(status(&undo_b), 0, "{}", stderr(&undo_b));
+    let undone = &json_lines(&undo_b)[0];
+    assert_eq!(undone["ok"], true);
+    assert_eq!(undone["id"], "back");
+    assert_eq!(undone["result"]["canUndo"], true);
+    assert_eq!(undone["result"]["canRedo"], true);
+    assert_eq!(load(&project).pixels()[0], 1);
+    assert_eq!(load(&project).pixels()[1], 0);
+
+    // Keep editing from the restored project, then undo only that edit.
+    let paint_c = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--x",
+        "2",
+        "--y",
+        "0",
+        "--color-index",
+        "3",
+    ]));
+    assert_eq!(status(&paint_c), 0, "{}", stderr(&paint_c));
+    assert_eq!(load(&project).pixels()[2], 3);
+    let undo_c = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&undo_c), 0, "{}", stderr(&undo_c));
+    assert_eq!(load(&project).pixels()[2], 0);
+    assert_eq!(load(&project).pixels()[0], 1);
+
+    let undo_a = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&undo_a), 0, "{}", stderr(&undo_a));
+    assert!(load(&project).pixels().iter().all(|index| *index == 0));
+    assert_eq!(json_lines(&undo_a)[0]["result"]["canUndo"], false);
+    assert_eq!(json_lines(&undo_a)[0]["result"]["canRedo"], true);
+
+    let redo = pixelforge(&arg(&[
+        "redo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&redo), 0, "{}", stderr(&redo));
+    assert_eq!(load(&project).pixels()[0], 1);
+
+    // The project file alone still has an empty stack.
+    let bare = pixelforge(&arg(&["undo", "--project", project_arg]));
+    assert_eq!(status(&bare), 1, "{}", stderr(&bare));
+    assert_eq!(json_lines(&bare)[0]["error"]["code"], "NothingToUndo");
+    assert_eq!(load(&project).pixels()[0], 1);
+
+    let stray = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "3",
+        "--y",
+        "0",
+        "--color-index",
+        "4",
+    ]));
+    assert_eq!(status(&stray), 0, "{}", stderr(&stray));
+    let before_refuse = fs::read(&project).unwrap();
+    let before_ckpt = fs::read(&ckpt).unwrap();
+    let refused = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&refused), 2, "{}", stderr(&refused));
+    assert_eq!(
+        json_lines(&refused)[0]["error"]["code"],
+        "CheckpointMismatch"
+    );
+    assert_eq!(fs::read(&project).unwrap(), before_refuse);
+    assert_eq!(fs::read(&ckpt).unwrap(), before_ckpt);
+}
+
+#[test]
+fn checkpoint_step_is_the_net_edit_of_one_process() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let project_arg = project.to_str().unwrap();
+    let ckpt = scratch.child("hero.ckpt.json");
+    let ckpt_arg = ckpt.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "4",
+            "--height",
+            "4",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+
+    let missed = scratch.child("missing.ckpt.json");
+    let inspect = pixelforge(&arg(&[
+        "inspect",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        missed.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&inspect), 0, "{}", stderr(&inspect));
+    assert!(!missed.exists());
+
+    let same = pixelforge(&arg(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "1",
+    ]));
+    assert_eq!(status(&same), 2, "{}", stderr(&same));
+    assert_eq!(json_lines(&same)[0]["error"]["code"], "Cli");
+    assert_eq!(load(&project).pixels()[0], 0);
+
+    let bad = scratch.child("bad.ckpt.json");
+    fs::write(&bad, "{").unwrap();
+    let broken = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        bad.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&broken), 2, "{}", stderr(&broken));
+    assert_eq!(json_lines(&broken)[0]["error"]["code"], "CheckpointFile");
+    assert_eq!(load(&project).pixels()[0], 0);
+
+    let gestured = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--request",
+        r#"{"tool":"beginGesture"}"#,
+        "--request",
+        r#"{"tool":"paint","params":{"x":0,"y":0,"colorIndex":1}}"#,
+        "--request",
+        r#"{"tool":"paint","params":{"x":1,"y":0,"colorIndex":2}}"#,
+    ]));
+    assert_eq!(status(&gestured), 0, "{}", stderr(&gestured));
+    assert_eq!(load(&project).pixels()[0], 1);
+    assert_eq!(load(&project).pixels()[1], 2);
+    let once = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&once), 0, "{}", stderr(&once));
+    assert!(load(&project).pixels().iter().all(|index| *index == 0));
+
+    let cancelled = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--request",
+        r#"{"tool":"paint","params":{"x":0,"y":0,"colorIndex":5}}"#,
+        "--request",
+        r#"{"tool":"undo"}"#,
+    ]));
+    assert_eq!(status(&cancelled), 0, "{}", stderr(&cancelled));
+    assert_eq!(load(&project).pixels()[0], 0);
+    let lines = json_lines(&cancelled);
+    // The paint was undone in this process. That kernel redo is not stored.
+    // The checkpoint redo of the earlier gesture is.
+    assert_eq!(lines[1]["result"]["canUndo"], false);
+    assert_eq!(lines[1]["result"]["canRedo"], true);
+
+    let redo = pixelforge(&arg(&[
+        "redo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&redo), 0, "{}", stderr(&redo));
+    assert_eq!(load(&project).pixels()[0], 1);
+    assert_eq!(load(&project).pixels()[1], 2);
 }
 
 #[test]
