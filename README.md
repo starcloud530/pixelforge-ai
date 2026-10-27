@@ -88,6 +88,10 @@ Paint, erase, palette edits, the frame list (add a blank frame, duplicate the cu
 
 ## 许可证 License
 
-尚未选定（TBD）。本仓库目前不声明任何开源许可证。
+本仓库以 [MIT 许可证](LICENSE) 发布。版权所有 © 2026 starcloud530。
 
-Not chosen yet (TBD). This repository does not claim a license.
+第三方依赖已核对，许可证与本仓库的 MIT 再分发兼容，没有 copyleft 冲突。记录见 [docs/licensing.md](docs/licensing.md)。
+
+*This repository is released under the [MIT License](LICENSE). Copyright © 2026 starcloud530.*
+
+*Third-party dependencies were checked. Their licenses are compatible with redistributing this repository under MIT, and there is no copyleft conflict. Notes: [docs/licensing.md](docs/licensing.md).*
