@@ -61,13 +61,13 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 - `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 把越界索引写成最后一项不透明色。索引 0 仍然拒绝。`import` 的 `replace` 不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
-- 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈，下一个进程是空栈，和在编辑器里重新打开这份文件一样。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
+- 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。不带 `--checkpoint` 时下一个进程是空栈，和在编辑器里重新打开这份文件一样，`pixelforge undo` 得到 `NothingToUndo`。长流程在每条会改工程的命令上带同一个 `--checkpoint FILE`，进程退出后用 `pixelforge undo --project hero.json --checkpoint FILE`（或 `redo`）恢复；检查点一步是该进程对工程文件的净修改，进程内的 `undo` 仍按内核操作逐条撤回。对不上当前工程的检查点是 `CheckpointMismatch`（退出码 2），不改文件。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip`、`vflip`、`rotate` 只搬索引，不改高光颜色。
 
 *Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A stored `selection` is one rectangle or a mask of rectangles. Paint tools skip cells outside it, and the file omits the field when the selection is clear. `preview --selection` and `diff --selection` count only that mask. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
-*One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack, so the next process starts empty, the same as reopening the file. `pixelforge undo` on a freshly opened file returns `NothingToUndo`. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip`, `vflip`, and `rotate` move indices only and do not recolor highlights.*
+*One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack. Without `--checkpoint`, the next process starts empty, the same as reopening the file, and `pixelforge undo` returns `NothingToUndo`. A long workflow passes the same `--checkpoint FILE` on every command that edits the project, then restores with `pixelforge undo --project hero.json --checkpoint FILE` (or `redo`). One checkpoint step is that process's net change to the project file, and `undo` inside the process still walks kernel operations. A checkpoint that does not match the project is `CheckpointMismatch` (exit 2) and writes nothing. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip`, `vflip`, and `rotate` move indices only and do not recolor highlights.*
 
 ## 命令速查 Command reference
 
@@ -208,9 +208,14 @@ pixelforge call --project hero.json \
   --request '{"tool":"endGesture"}'
 ```
 
-要在进程结束前撤回这一笔，把 `--request '{"tool":"undo"}'` 加在同一条命令里。进程结束之后栈就没了；需要回头时先复制文件（`cp hero.json hero.json.bak`）。
+要在进程结束前撤回这一笔，把 `--request '{"tool":"undo"}'` 加在同一条命令里。长流程在每条会改工程的命令上带同一个 `--checkpoint FILE`，进程退出后用 `pixelforge undo --project hero.json --checkpoint FILE` 恢复这一进程的净修改。
 
-*Add `--request '{"tool":"undo"}'` to that same command to revert the stroke before the process exits. After it exits the stack is gone. Copy the file first when you may need the previous pixels.*
+```bash
+pixelforge paint --project hero.json --checkpoint hero.ckpt.json --x 1 --y 2 --color-index 3
+pixelforge undo --project hero.json --checkpoint hero.ckpt.json
+```
+
+*Add `--request '{"tool":"undo"}'` to that same command to revert the stroke before the process exits. A long workflow passes the same `--checkpoint FILE` on every command that edits the project, then restores that process's net change with `pixelforge undo --project hero.json --checkpoint FILE`.*
 
 ### 帧与导出 Frames and export
 

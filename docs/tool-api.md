@@ -12,9 +12,9 @@
 
 *In the browser the same entry is wasm `callTool(request) -> string`. The typed shell helper is `apps/web/src/kernel/toolApi.ts` (`callDocumentTool`). Gestures may still call `paint` and the other methods directly; those methods and the Tool API write one document. This API does not call an external model and does not read an API key. The one-turn driver lives in the shell; see [ai-driver.md](ai-driver.md). It forwards model tool calls into this API and does not patch a pixel buffer.*
 
-本地 Agent 的首选入口是 `pixelforge` CLI（`crates/pixelforge-cli`）。它从磁盘打开 `pixelforge-project`，把下面的 JSON 交给 `Document::call_tool`，并把响应写到 stdout。一次进程是一份文档，所以同一次调用里的多个请求共享撤销栈；工程文件本身不保存撤销栈。网页面板是可选演示。见 [agent-skill.md](agent-skill.md)。
+本地 Agent 的首选入口是 `pixelforge` CLI（`crates/pixelforge-cli`）。它从磁盘打开 `pixelforge-project`，把下面的 JSON 交给 `Document::call_tool`，并把响应写到 stdout。一次进程是一份文档，所以同一次调用里的多个请求共享撤销栈；工程文件本身不保存撤销栈。`--checkpoint FILE` 把每个改过工程的进程收成检查点里的一步，下一次进程的 `undo` / `redo` 能恢复那一步。网页面板是可选演示。见 [agent-skill.md](agent-skill.md)。
 
-*The preferred local agent entry is the `pixelforge` CLI (`crates/pixelforge-cli`). It opens a `pixelforge-project` from disk, passes the JSON below to `Document::call_tool`, and writes the response to stdout. One process is one document, so several requests in that process share the undo stack; the project file does not store the stack. The web panel is an optional demo. See [agent-skill.md](agent-skill.md).*
+*The preferred local agent entry is the `pixelforge` CLI (`crates/pixelforge-cli`). It opens a `pixelforge-project` from disk, passes the JSON below to `Document::call_tool`, and writes the response to stdout. One process is one document, so several requests in that process share the undo stack; the project file does not store the stack. `--checkpoint FILE` stores one step per process that changed the project, and a later process's `undo` / `redo` restores that step. The web panel is an optional demo. See [agent-skill.md](agent-skill.md).*
 
 ## 请求与响应 Envelope
 
@@ -983,6 +983,10 @@ CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun 
 `result`：`{ "canUndo": <bool>, "canRedo": <bool> }`。
 
 错误：`NothingToUndo`、`NothingToRedo`、`OpenGesture`（重做时 gesture 里已经有改动）。
+
+CLI 的 `--checkpoint FILE` 不把栈写进工程文件。检查点一步是一次改过工程的进程。这一进程里内核栈还有操作时，`undo` 先撤回内核操作；内核栈空了才撤回检查点里的上一步。不带 `--checkpoint` 的新进程仍是 `NothingToUndo`。检查点和当前工程对不上时，命令在调用工具之前失败，码是 `CheckpointMismatch`，退出码 2，文件不动。
+
+*CLI `--checkpoint FILE` does not store the stack in the project file. One checkpoint step is one process that changed the project. While this process still has kernel operations, `undo` reverts those first; an empty kernel stack then reverts the previous checkpoint step. A fresh process without `--checkpoint` is still `NothingToUndo`. A checkpoint that does not match the project fails before the tool runs, with code `CheckpointMismatch`, exit 2, and neither file written.*
 
 ### `saveProject`
 

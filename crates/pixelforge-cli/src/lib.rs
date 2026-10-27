@@ -5,6 +5,7 @@
 //! stdout. Ergonomic subcommands only build the Tool API JSON. They do not
 //! write a second pixel buffer.
 
+mod checkpoint;
 mod cli;
 mod export_files;
 mod failure;
@@ -34,7 +35,7 @@ use crate::cli::{
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
 use crate::requests::parse_request_blob;
-use crate::session::Session;
+use crate::session::{SaveReport, Session};
 
 /// Parse argv and run one command. `0` success, `1` a tool refused, `2` the
 /// command did not finish a tool call (usage errors exit from clap itself).
@@ -136,7 +137,11 @@ fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
         Err(failure) => return emit(failure),
     };
     match session.save_if_changed() {
-        Ok(_) => eprintln!("pixelforge: wrote {}", output.display()),
+        Ok(report) => {
+            if report.project {
+                eprintln!("pixelforge: wrote {}", output.display());
+            }
+        }
         Err(failure) => return emit(failure),
     }
     let response = session.call(&request("inspect", json!({})));
@@ -568,7 +573,7 @@ fn cmd_preview(
     layer: Option<u32>,
     scope: &ScopeArgs,
 ) -> i32 {
-    let mut session = match Session::open(&doc.project) {
+    let mut session = match open_project(doc) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -658,7 +663,7 @@ fn cmd_diff(
     layer: Option<u32>,
     scope: &ScopeArgs,
 ) -> i32 {
-    let mut session = match Session::open(&doc.project) {
+    let mut session = match open_project(doc) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -862,7 +867,7 @@ fn cmd_apply_png(doc: &ProjectArgs, file: &Path, frame: Option<u32>, layer: Opti
 }
 
 fn cmd_import(doc: &ProjectArgs, mode: ImportMode, file: &Path) -> i32 {
-    let mut session = match Session::open(&doc.project) {
+    let mut session = match open_project(doc) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -1368,7 +1373,7 @@ fn cmd_export(command: ExportCmd) -> i32 {
             out_dir,
             scale,
         } => {
-            let mut session = match Session::open(&doc.project) {
+            let mut session = match open_project(&doc) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -1381,7 +1386,7 @@ fn cmd_export(command: ExportCmd) -> i32 {
             cols,
             atlas,
         } => {
-            let mut session = match Session::open(&doc.project) {
+            let mut session = match open_project(&doc) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -1454,8 +1459,12 @@ fn apply(doc: &ProjectArgs, requests: Vec<String>) -> i32 {
     apply_with(doc, requests, false)
 }
 
+fn open_project(doc: &ProjectArgs) -> Result<Session, CliFailure> {
+    Session::open_with(&doc.project, doc.checkpoint.as_deref())
+}
+
 fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
-    let mut session = match Session::open(&doc.project) {
+    let mut session = match open_project(doc) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -1477,8 +1486,7 @@ fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) ->
         }
     }
     match session.save_if_changed() {
-        Ok(true) => eprintln!("pixelforge: wrote {}", session.path().display()),
-        Ok(false) => {}
+        Ok(report) => report_saved(session, report),
         Err(failure) => return emit(failure),
     }
     if preview {
@@ -1486,6 +1494,17 @@ fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) ->
         preview::eprint_frame(&frame);
     }
     status
+}
+
+fn report_saved(session: &Session, report: SaveReport) {
+    if report.project {
+        eprintln!("pixelforge: wrote {}", session.path().display());
+    }
+    if report.checkpoint {
+        if let Some(path) = session.checkpoint_path() {
+            eprintln!("pixelforge: wrote {}", path.display());
+        }
+    }
 }
 
 fn with_layer(mut params: Value, layer: Option<u32>) -> Value {

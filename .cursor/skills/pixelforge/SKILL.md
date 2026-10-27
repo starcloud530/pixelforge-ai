@@ -70,13 +70,13 @@ cargo run -p pixelforge-cli -- --help
 - `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
-- 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。下一个进程是空栈。对刚打开的文件执行 `pixelforge undo` 会得到 `NothingToUndo`。
+- 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。不带 `--checkpoint` 时下一个进程是空栈，`pixelforge undo` 得到 `NothingToUndo`。长流程在每条会改工程的命令上带同一个 `--checkpoint FILE`，进程退出后用 `pixelforge undo --project hero.json --checkpoint FILE`（或 `redo`）恢复；检查点一步是该进程对工程文件的净修改，进程内的 `undo` 仍按内核操作逐条撤回。
 - 选区写在工程文件的 `selection` 里。一块矩形是 `{x,y,width,height}`。多块或空蒙版是 `{rects:[...]}`。没有选区时省略这个字段。它不是套索，也不是魔棒。`mask union|intersect|subtract`（Tool API `combineMask`）把矩形收成这份蒙版。空蒙版保护每一格；要整幅又可写，用 `selection clear`。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`preview` / `diff` 的 `--selection`，或一块 `--x --y --width --height`，或重复的 `--mask`，只比较蒙版内；外面是 `#`，不算 `changed`。`remapPalette` 和 `applyPng` 不看选区。
 - 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素。约束见「约束」：`constraint solve` 才把从动部件的锚点跟到目标，挂接层的墨水在 `--apply` 时一起平移。空的约束列表不写进文件。`bake` 把曲线和约束采样写进一段帧的像素里，源帧的像素留着，曲线和约束也不删。见「烘焙」。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
 
-*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. A `selection` is one rectangle or a mask of rectangles, stored in the project and omitted when clear. `combineMask` unions, intersects, or subtracts. Paint tools then skip cells outside it. `preview` and `diff` can take that mask and mark the outside `#`. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file. A layer role defaults to `default`. `polish` is an overlay bake does not write. Put a local fix there. A retouch on a layer a curve or constraint manages is rebuilt from the source frame.*
+*Cells store palette indices. Index 0 is transparent. Drawing writes the active layer, or `--layer`, and does not select that layer. `preview`, `diff`, and export show the composite. A locked palette still accepts paint of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON. One process is one document; the file does not store the undo stack. Without `--checkpoint`, the next process is empty and `pixelforge undo` returns `NothingToUndo`. A long workflow passes the same `--checkpoint FILE` on every command that edits the project, then restores with `pixelforge undo --project hero.json --checkpoint FILE` (or `redo`); one checkpoint step is that process's net change to the project file, and `undo` inside the process still walks kernel operations. A `selection` is one rectangle or a mask of rectangles, stored in the project and omitted when clear. `combineMask` unions, intersects, or subtracts. Paint tools then skip cells outside it. `preview` and `diff` can take that mask and mark the outside `#`. There is no lasso. `flip` moves indices and does not recolor. `bake` writes sampled poses into pixel frames and leaves the curves in the file. A layer role defaults to `default`. `polish` is an overlay bake does not write. Put a local fix there. A retouch on a layer a curve or constraint manages is rebuilt from the source frame.*
 
 ## Output and exit codes
 
@@ -320,7 +320,7 @@ pixelforge fill-rect --project hero.json --layer 1 \
 
 ### One undo step
 
-手势和撤销放在同一次进程里。进程结束后栈就没了；要回头先 `cp hero.json hero.json.bak`。
+手势和撤销放在同一次进程里。长流程在每条会改工程的命令上带同一个 `--checkpoint FILE`，进程退出后用 `pixelforge undo --project hero.json --checkpoint FILE` 恢复这一进程的净修改。
 
 ```bash
 pixelforge call --project hero.json \
@@ -331,7 +331,12 @@ pixelforge call --project hero.json \
   --preview
 ```
 
-要在这次进程里撤回，把 `--request '{"tool":"undo"}'` 加在同一条命令上。
+要在这次进程里撤回，把 `--request '{"tool":"undo"}'` 加在同一条命令上。进程退出之后：
+
+```bash
+pixelforge fill-rect --project hero.json --checkpoint hero.ckpt.json --x 8 --y 4 --width 16 --height 20 --color-index 1
+pixelforge undo --project hero.json --checkpoint hero.ckpt.json
+```
 
 ### Frames and export
 
