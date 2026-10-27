@@ -10,8 +10,15 @@ Notes for a person go to stderr.
 
 One process is one document. Repeat --request on `call` so a stroke, a walk
 cycle, and undo share the kernel undo stack. The project file does not store
-that stack: the next process starts empty, same as opening the file in the
-editor.
+that stack. Without --checkpoint the next process starts empty, same as
+opening the file in the editor, and `undo` returns NothingToUndo.
+
+--checkpoint FILE keeps a pixelforge-checkpoint sidecar (version 1). Each
+process that changes the project appends one undo step (100 max). A later
+process restores that step with `undo` or `redo` and the same file. Inside
+the process, `undo` still walks kernel operations first; one checkpoint
+step is the net edit of that process. A project edited without that file
+fails with CheckpointMismatch and writes nothing.
 
 Examples:
   pixelforge new --width 16 --height 16 --output hero.json
@@ -44,6 +51,8 @@ Examples:
       --request '{\"tool\":\"beginGesture\"}' \\
       --request '{\"tool\":\"fillRect\",\"params\":{\"x\":1,\"y\":2,\"width\":4,\"height\":6,\"colorIndex\":3}}' \\
       --request '{\"tool\":\"endGesture\"}'
+  pixelforge paint --project hero.json --checkpoint hero.ckpt.json --x 1 --y 2 --color-index 3
+  pixelforge undo --project hero.json --checkpoint hero.ckpt.json
   pixelforge export png --project hero.json --out-dir ./frames --scale 2
   pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
   pixelforge part add --project soldier.json --name gun --layer 1 --x 24 --y 12
@@ -399,16 +408,21 @@ pub enum Command {
     /// frame's delay to round(1000/fps) milliseconds. Curves and constraints
     /// stay. One bake is one undo step. There is no script runtime.
     Bake(BakeArgs),
-    /// Undo the last edit recorded in this process.
+    /// Undo the last edit.
     ///
-    /// A freshly opened file has an empty stack, and the file does not store
-    /// one. A separate invocation from `paint` returns NothingToUndo. Put
-    /// `{"tool":"undo"}` in the same `call` as the edit to undo it.
+    /// Without `--checkpoint`, only this process's kernel stack counts, so a
+    /// fresh process returns NothingToUndo. With `--checkpoint FILE`, a fresh
+    /// process undoes the last saved step: the net project change of one
+    /// earlier process. Put `{"tool":"undo"}` in the same `call` to undo a
+    /// kernel operation before exit.
     Undo {
         #[command(flatten)]
         doc: ProjectArgs,
     },
-    /// Redo the last undone edit recorded in this process.
+    /// Redo the last undone edit.
+    ///
+    /// Without `--checkpoint`, only this process's kernel stack counts. With
+    /// `--checkpoint FILE`, a fresh process reapplies the last restored step.
     Redo {
         #[command(flatten)]
         doc: ProjectArgs,
@@ -432,6 +446,13 @@ pub struct ProjectArgs {
     /// pixelforge-project file. Saved when a tool changes the document.
     #[arg(short, long, value_name = "FILE")]
     pub project: PathBuf,
+    /// pixelforge-checkpoint sidecar. The project file stays the pixels.
+    ///
+    /// Each process that changes the project appends one undo step. A later
+    /// `undo` or `redo` with the same file restores that step. Omit it and
+    /// the next process starts from an empty stack.
+    #[arg(long, value_name = "FILE")]
+    pub checkpoint: Option<PathBuf>,
 }
 
 #[derive(Args)]
