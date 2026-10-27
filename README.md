@@ -86,6 +86,12 @@ Local skeleton: a Rust kernel in `crates/pixelforge-kernel` (canvas size, indexe
 
 Paint, erase, palette edits, the frame list (add a blank frame, duplicate the current frame, delete the current frame but never below one), the frame timeline (scrub, per-frame delay, and loop playback), undo/redo, project open/save, and transparent PNG-sequence plus grid sprite-sheet export in the shell call the same Rust `Document` inside wasm. Paint writes palette indices. The palette can be locked (the flag is stored in the project file) and imported from a GIMP palette (`.gpl`) or a hex list, replacing or merging into the document palette as one undo step. An agent does not go through those gestures. The preferred entry is the `pixelforge` command: it opens the project file from disk and calls `Document::call_tool`. Wasm `callTool` is the same entry. Catalog: [docs/tool-api.md](docs/tool-api.md). Onion skin composites the previous and next frames under the current frame at partial opacity. Loop playback hides that overlay and shows it again when playback stops. The overlay is view-only: it is not written into pixels, the project file, or PNG export. Godot / Unity import conventions: [docs/export.md](docs/export.md). Palette file formats: [docs/dev-setup.md](docs/dev-setup.md).
 
+## 检查 Checks
+
+本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`，以及 `python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`）。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。
+
+*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, and `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets). A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service.*
+
 ## 许可证 License
 
 本仓库以 [MIT 许可证](LICENSE) 发布。版权所有 © 2026 starcloud530。
