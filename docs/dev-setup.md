@@ -24,6 +24,7 @@
 
 ```text
 Cargo.toml                 Cargo workspace
+.github/workflows/ci.yml   PR 与 main 上的测试和导出门禁（不部署）
 crates/pixelforge-kernel   索引像素、调色板、帧、画笔/橡皮、撤销栈、工程文件
 crates/pixelforge-kernel-wasm
                            wasm-bindgen 桥，生成的 pkg/ 不入库
@@ -87,6 +88,29 @@ cargo install --path crates/pixelforge-cli
 用法和配方见 [agent-skill.md](agent-skill.md)。网页里的一轮面板仍是可选演示，见 [ai-driver.md](ai-driver.md)。
 
 *From the repository root, `cargo run -p pixelforge-cli -- --help` prints the command, and `cargo install --path crates/pixelforge-cli` installs it. Usage and recipes: [agent-skill.md](agent-skill.md). The one-turn web panel remains an optional demo; see [ai-driver.md](ai-driver.md).*
+
+## CI
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在每个 pull request 上跑，也在推送到 `main` 时跑。作业在 `ubuntu-latest` 上安装 Rust stable（缓存 Cargo），并保证有 `python3`。跑的是仓库根目录的同一套门禁，没有部署，也没有多平台 Release 打包（那是 [#80](https://github.com/starcloud530/pixelforge-ai/issues/80)）。
+
+本地按这个顺序复现。任一条退出码不是 0，CI 就失败：
+
+```bash
+cargo test -p pixelforge-kernel
+cargo test -p pixelforge-cli
+cargo build -p pixelforge-cli
+python3 examples/game-pack-zombie/validate.py
+```
+
+前两条是内核和 CLI 测试。`cargo build -p pixelforge-cli` 把调试版 `pixelforge` 放到 `target/debug/`（上一条 `cargo test` 已经编过时，这一步几乎是空的）。`validate.py` 再用它对 `examples/game-pack-zombie/` 里已提交的丧尸表和道具表执行 `validate-atlas --strict`。脚本只依赖 Python 标准库。
+
+新功能要先收进上面 CI 会执行的测试或门槛脚本，再合进来。只在本地跑、工作流里没有的检查不算收录。
+
+*[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. The job uses `ubuntu-latest`, Rust stable with a Cargo cache, and `python3`. It runs the sequence above from the repository root. A non-zero exit fails CI. There is no deploy step and no multi-platform Release build (that stays in [#80](https://github.com/starcloud530/pixelforge-ai/issues/80)).*
+
+*The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `validate.py` then runs `validate-atlas --strict` on the committed zombie and prop sheets under `examples/game-pack-zombie/`. The script uses only the Python standard library.*
+
+*A new feature needs a test or gate script that this workflow already runs before it is merged. A check that exists only on a laptop does not count.*
 
 ## 网页外壳
 
