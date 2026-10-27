@@ -1,0 +1,52 @@
+# PR gate for the Rust workspace. No deploy and no CD.
+# Multi-platform Release packaging stays in #80. A later release workflow
+# can reuse the toolchain, cache, and `cargo build --release -p pixelforge-cli`
+# steps below; do not add that matrix or a service deploy here.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: test and export gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Core tests (pixelforge-kernel)
+        run: cargo test -p pixelforge-kernel
+
+      - name: Core tests (pixelforge-cli)
+        run: cargo test -p pixelforge-cli
+
+      - name: Export gate (game-pack-zombie)
+        run: |
+          cargo build -p pixelforge-cli
+          python3 examples/game-pack-zombie/validate.py
