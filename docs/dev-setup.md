@@ -39,6 +39,7 @@ docs/export.md             PNG 序列、sprite sheet，以及 Godot / Unity 导�
 docs/tool-api.md           Tool API 目录：工具名、参数、结果、错误
 docs/agent-skill.md        pixelforge CLI 的用法和配方
 docs/ai-driver.md          网页里的可选一轮演示；主路径是 CLI
+docs/licensing.md          MIT 许可证，以及第三方依赖许可核对
 ```
 
 ## Rust 内核
