@@ -62,6 +62,85 @@ Google Playground and Unity Spark aim at text → full games. We aim at text or 
 
 Early / work in progress. The M5 Tool API is a stable machine-readable surface in the Rust kernel; the catalog is [docs/tool-api.md](docs/tool-api.md). The product path is an agent outside this repository calling the local `pixelforge` CLI, which forwards Tool API JSON to the kernel. Usage: [docs/agent-skill.md](docs/agent-skill.md). The one-turn AI panel in the web shell is an optional demo; see [docs/ai-driver.md](docs/ai-driver.md). An embedded multi-turn chat ([#14](https://github.com/starcloud530/pixelforge-ai/issues/14)) is not the product.
 
+## 预编译安装 Prebuilt install
+
+不需要安装 Rust。下载与系统对应的压缩包，解压得到 `pixelforge`（Windows 是 `pixelforge.exe`），然后创建工程并预览。版本号就是 `pixelforge --version`，也是根目录 `Cargo.toml` 里的 `[workspace.package].version`。标签 `v0.1.0` 对应版本 `0.1.0`。
+
+*No Rust toolchain. Download the archive for your system, unpack `pixelforge` (`pixelforge.exe` on Windows), then create a project and preview it. `pixelforge --version` is the `[workspace.package].version` in the root `Cargo.toml`. The tag `v0.1.0` is version `0.1.0`.*
+
+仓库还是私有时，用有权限的 GitHub 账号打开 [Releases](https://github.com/starcloud530/pixelforge-ai/releases) 下载，或：
+
+```bash
+gh release download v0.1.0 --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'
+```
+
+把 `v0.1.0` 换成实际标签。`v0.1.0-rc.1` 这种预发布不是 GitHub 的 `latest`，不要用 `releases/latest`，直到打出不带预发布后缀的正式版。
+
+*While this repository is private, download from [Releases](https://github.com/starcloud530/pixelforge-ai/releases) while logged in, or use `gh release download` as above. A prerelease such as `v0.1.0-rc.1` is not GitHub `latest`.*
+
+| 系统 | 文件 |
+| --- | --- |
+| Windows x64 | `pixelforge-cli-x86_64-pc-windows-msvc.zip` |
+| macOS Intel | `pixelforge-cli-x86_64-apple-darwin.tar.gz` |
+| macOS Apple silicon | `pixelforge-cli-aarch64-apple-darwin.tar.gz` |
+| Linux x64 | `pixelforge-cli-x86_64-unknown-linux-gnu.tar.gz` |
+
+Windows 的 zip 根目录就是 `pixelforge.exe`，旁边有 `LICENSE` 和 `README.md`。macOS / Linux 的 tar.gz 先有一层同名目录，二进制在里面。每个压缩包有同名 `.sha256`，Release 上还有一份汇总 `sha256.sum`。Linux 包在 GitHub `ubuntu-22.04` 上构建，需要 glibc 2.35 或更新（Ubuntu 22.04 这一代）。Windows 包静态链接了 C 运行库，不用装 Visual C++ Redistributable，也不用装 MSVC。
+
+*The Windows zip has `pixelforge.exe` at its root, plus `LICENSE` and `README.md`. macOS and Linux tarballs nest the binary under one directory of the same name. Each archive has a `.sha256` sidecar, and the Release also has `sha256.sum`. The Linux build runs on GitHub `ubuntu-22.04` and needs glibc 2.35 or newer. The Windows build links the C runtime statically.*
+
+```powershell
+# Windows，在解压目录
+.\pixelforge.exe new --width 16 --height 16 --output hero.json
+.\pixelforge.exe preview --project hero.json --scale 4
+```
+
+```bash
+# macOS / Linux，在解压出来的目录里
+./pixelforge new --width 16 --height 16 --output hero.json
+./pixelforge preview --project hero.json --scale 4
+```
+
+要 PNG 序列而不是预览图：
+
+```bash
+./pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
+```
+
+仓库公开之后，可以用一行安装脚本，把 `pixelforge` 装进 `~/.pixelforge/bin` 并写进 PATH。正式版：
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/starcloud530/pixelforge-ai/releases/latest/download/pixelforge-cli-installer.sh | sh
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/latest/download/pixelforge-cli-installer.ps1 | iex"
+```
+
+私有仓库上这条直链会 404。那是安装脚本的限制，不是 Release 没有附件。公开后同一条工作流不用改。预发布把 URL 里的 `latest` 换成标签，例如 `v0.1.0-rc.1`。
+
+*After the repository is public, the installer scripts above install `pixelforge` to `~/.pixelforge/bin`. On a private repository those direct download URLs return 404; use the archives from the Releases page instead. The workflow does not change when the repository becomes public. For a prerelease, replace `latest` with the tag.*
+
+发版步骤（改版本、打 `v*` 标签、Actions 上传到 Releases）在 [docs/dev-setup.md](docs/dev-setup.md) 的「预编译与发版」。
+
+*How to cut a tag and publish a Release: [docs/dev-setup.md](docs/dev-setup.md).*
+
+## 源码构建 Source build
+
+这是另一条路。预编译不够用、或要改内核时才走这里。需要 Rust stable（`cargo` 1.83 或更新）。
+
+*This is a separate path, for changing the kernel or not using a prebuilt binary. Rust stable (`cargo` 1.83 or newer).*
+
+```bash
+cargo install --path crates/pixelforge-cli
+```
+
+Windows 上默认目标是 `x86_64-pc-windows-msvc`。除了 rustup，还要安装 Visual Studio Build Tools，勾选「使用 C++ 的桌面开发」，并包含 Windows 10/11 SDK。只装了 Rust、没有 SDK 时，链接器报找不到 `kernel32.lib`。这份工具链只用于源码构建。上面的 `pixelforge.exe` 不需要它。
+
+Linux 源码构建需要系统链接器（`build-essential` 或等价的 gcc）。macOS 需要 Xcode Command Line Tools。网页外壳和 wasm 另需 Node.js 与 pnpm，见 [docs/dev-setup.md](docs/dev-setup.md)。
+
+*On Windows the default target is `x86_64-pc-windows-msvc`. Install Visual Studio Build Tools with the Desktop development with C++ workload and a Windows 10/11 SDK. Without the SDK the linker reports that it cannot find `kernel32.lib`. That toolchain is only for source builds. Linux source builds need a system linker. macOS source builds need the Xcode Command Line Tools. The web shell and wasm also need Node.js and pnpm: [docs/dev-setup.md](docs/dev-setup.md).*
+
 ## Agent Skills
 
 Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。Skill 补观改流程，不代替专业画师的审美。命令速查在 [docs/agent-skill.md](docs/agent-skill.md)。本仓库不把同一份正文复制到 `.agents/skills/` 或 `.claude/skills/`；Codex 与 Claude Code 从 `AGENTS.md` / `CLAUDE.md` 打开这些文件。
@@ -78,6 +157,10 @@ Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。�
 
 ## 开发 Development
 
+预编译 CLI 不需要这一节的 Rust / Node 工具链，见上面的「预编译安装」。源码构建的 Windows MSVC 要求见「源码构建」。
+
+*The prebuilt CLI does not need the Rust or Node toolchain in this section. See Prebuilt install. Windows MSVC requirements for a source build are in Source build.*
+
 本地骨架分成三层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮/矩形填充、矩形擦除、矩形复制与移动、帧的增删复制，以及记录这些操作的撤销栈），本地 Agent 入口是 `crates/pixelforge-cli` 的 `pixelforge` 命令，TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。`crates/pixelforge-kernel-wasm` 用 wasm-bindgen 把这份内核编进浏览器。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。CLI 的配方见 [docs/agent-skill.md](docs/agent-skill.md)。
 
 外壳的画笔、橡皮、调色板编辑、帧列表（新增空白帧、复制当前帧、删除当前帧且至少留一帧）、帧时间轴（拖动选帧、每帧时长、循环播放）、撤销/重做、工程打开/保存，以及透明 PNG 序列和网格 sprite sheet 导出，都调用 wasm 里的同一份 Rust `Document`。画笔只写入调色板索引。色板可以锁定（写入工程文件），也可以从 GIMP 调色板（`.gpl`）或十六进制列表导入，替换或合并进当前色板，并记在撤销栈上。Agent 不走这些手势：首选是 `pixelforge` 命令，它打开磁盘上的工程文件并调用 `Document::call_tool`。网页里的 `callTool` 是同一入口。目录见 [docs/tool-api.md](docs/tool-api.md)。洋葱皮把前一帧和后一帧半透明叠在当前帧下面，方便补间；循环播放时先藏起，停下后再显示。它只存在于视图，不写入像素、工程文件或 PNG。导入 Godot / Unity 的约定见 [docs/export.md](docs/export.md)。格式说明见 [docs/dev-setup.md](docs/dev-setup.md)。
@@ -88,9 +171,9 @@ Paint, erase, palette edits, the frame list (add a blank frame, duplicate the cu
 
 ## 检查 Checks
 
-本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`，以及 `python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`）。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。
+本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`，以及 `python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`）。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。预编译包是另一条只在版本标签上跑的 Release 工作流，不替代这些测试。
 
-*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, and `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets). A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service.*
+*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, and `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets). A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service. Prebuilt packages are a separate Release workflow on version tags. They do not replace these tests.*
 
 ## 许可证 License
 

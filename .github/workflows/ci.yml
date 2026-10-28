@@ -1,7 +1,6 @@
 # PR gate for the Rust workspace. No deploy and no CD.
-# Multi-platform Release packaging stays in #80. A later release workflow
-# can reuse the toolchain, cache, and `cargo build --release -p pixelforge-cli`
-# steps below; do not add that matrix or a service deploy here.
+# Prebuilt CLI packages are .github/workflows/release.yml (version tags only).
+# Do not add that matrix or a service deploy to this workflow.
 
 name: CI
 

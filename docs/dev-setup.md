@@ -4,6 +4,10 @@
 
 *First skeleton of the pixel studio. The Rust kernel stores indexed pixels. The TypeScript shell scales that buffer with nearest-neighbor sampling. [tech-stack.md](tech-stack.md) is the stack decision.*
 
+用预编译 `pixelforge` 的人不需要这一页的工具链。下载、解压、`new` 和 `preview` 见 [README](../README.md) 的「预编译安装」。下面是从源码构建内核、CLI 和网页外壳。
+
+*A prebuilt `pixelforge` does not need the toolchain on this page. Download, unpack, `new`, and `preview` are in the README section 预编译安装. The rest of this page is a source build of the kernel, the CLI, and the web shell.*
+
 ## 前提 Prerequisites
 
 - Rust stable（`cargo` 1.83 或更新），并且装了 `rustup`，用来补上 `wasm32-unknown-unknown`
@@ -20,11 +24,18 @@
 
 *The repo root holds a Cargo workspace and a pnpm workspace. Each one owns its layer. The kernel in the browser is WebAssembly built from Rust.*
 
+源码构建和预编译是两条路。Windows 上源码目标 `x86_64-pc-windows-msvc` 还要 Visual Studio Build Tools 的「使用 C++ 的桌面开发」，并带上 Windows 10/11 SDK。只装了 rustup、没有 SDK 时，链接器报找不到 `kernel32.lib`。Linux 源码构建需要系统链接器（`build-essential` 或等价的 gcc）。macOS 需要 Xcode Command Line Tools。预编译的 `pixelforge.exe` 在装好 MSVC 的 CI 上编出，并静态链接 C 运行库，使用方不用装这些。
+
+*Source builds and prebuilt binaries are separate paths. A Windows source build for `x86_64-pc-windows-msvc` also needs Visual Studio Build Tools with the Desktop development with C++ workload and a Windows 10/11 SDK. Without the SDK the linker reports that it cannot find `kernel32.lib`. A Linux source build needs a system linker. macOS needs the Xcode Command Line Tools. The prebuilt `pixelforge.exe` is built on CI where MSVC is installed, links the C runtime statically, and does not ask the user to install that toolchain.*
+
 ## 布局 Layout
 
 ```text
-Cargo.toml                 Cargo workspace
+Cargo.toml                 Cargo workspace（version 与发布标签对齐）
+dist-workspace.toml        预编译 CLI 的 cargo-dist 配置（生成 release.yml）
 .github/workflows/ci.yml   PR 与 main 上的测试和导出门禁（不部署）
+.github/workflows/release.yml
+                           版本标签上的多平台 pixelforge 包（不部署服务）
 crates/pixelforge-kernel   索引像素、调色板、帧、画笔/橡皮、撤销栈、工程文件
 crates/pixelforge-kernel-wasm
                            wasm-bindgen 桥，生成的 pkg/ 不入库
@@ -78,7 +89,7 @@ cargo check --workspace
 
 *The `pixelforge` command is the local entry for an external agent. It opens a `pixelforge-project` from disk, calls `Document::call_tool`, and prints JSON on stdout. One process is one document. The undo stack is not stored in the project file. Pass `--checkpoint FILE` to keep one step per process in a `pixelforge-checkpoint` sidecar. See [agent-skill.md](agent-skill.md). `fill-rect` calls `fillRect`, `erase-rect` calls `eraseRect`, and `copy-rect` / `move-rect` call `copyRect` / `moveRect`. `preview` and `--preview` print an ASCII view on stderr; stdout stays JSON. `preview --frame N` draws that frame without changing `activeFrame` or the project file, and writes a scaled color PNG (default `<stem>.preview.png`). `export png` and `export sheet` take `--scale` for an in-kernel nearest-neighbor upscale; the default is 1. `export sheet --cols N` sets the column count.*
 
-在仓库根目录：
+预编译的 `pixelforge` 见 [README](../README.md)。在仓库里从源码跑，仍是根目录：
 
 ```bash
 cargo run -p pixelforge-cli -- --help
@@ -87,11 +98,11 @@ cargo install --path crates/pixelforge-cli
 
 用法和配方见 [agent-skill.md](agent-skill.md)。网页里的一轮面板仍是可选演示，见 [ai-driver.md](ai-driver.md)。
 
-*From the repository root, `cargo run -p pixelforge-cli -- --help` prints the command, and `cargo install --path crates/pixelforge-cli` installs it. Usage and recipes: [agent-skill.md](agent-skill.md). The one-turn web panel remains an optional demo; see [ai-driver.md](ai-driver.md).*
+*A prebuilt `pixelforge` is documented in the README. From a source checkout, `cargo run -p pixelforge-cli -- --help` prints the command, and `cargo install --path crates/pixelforge-cli` installs it. Usage and recipes: [agent-skill.md](agent-skill.md). The one-turn web panel remains an optional demo; see [ai-driver.md](ai-driver.md).*
 
 ## CI
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在每个 pull request 上跑，也在推送到 `main` 时跑。作业在 `ubuntu-latest` 上安装 Rust stable（缓存 Cargo），并保证有 `python3`。跑的是仓库根目录的同一套门禁，没有部署，也没有多平台 Release 打包（那是 [#80](https://github.com/starcloud530/pixelforge-ai/issues/80)）。
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在每个 pull request 上跑，也在推送到 `main` 时跑。作业在 `ubuntu-latest` 上安装 Rust stable（缓存 Cargo），并保证有 `python3`。跑的是仓库根目录的同一套门禁，没有部署。多平台预编译不在这条工作流里，见下一节。
 
 本地按这个顺序复现。任一条退出码不是 0，CI 就失败：
 
@@ -106,11 +117,72 @@ python3 examples/game-pack-zombie/validate.py
 
 新功能要先收进上面 CI 会执行的测试或门槛脚本，再合进来。只在本地跑、工作流里没有的检查不算收录。
 
-*[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. The job uses `ubuntu-latest`, Rust stable with a Cargo cache, and `python3`. It runs the sequence above from the repository root. A non-zero exit fails CI. There is no deploy step and no multi-platform Release build (that stays in [#80](https://github.com/starcloud530/pixelforge-ai/issues/80)).*
+*[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. The job uses `ubuntu-latest`, Rust stable with a Cargo cache, and `python3`. It runs the sequence above from the repository root. A non-zero exit fails CI. There is no deploy step. Multi-platform prebuilt packages are the next section, not this workflow.*
 
 *The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `validate.py` then runs `validate-atlas --strict` on the committed zombie and prop sheets under `examples/game-pack-zombie/`. The script uses only the Python standard library.*
 
 *A new feature needs a test or gate script that this workflow already runs before it is merged. A check that exists only on a laptop does not count.*
+
+## 预编译与发版 Prebuilt releases
+
+使用者下载的 `pixelforge` 不从自己的机器编。配置在根目录 [`dist-workspace.toml`](../dist-workspace.toml)（cargo-dist 0.33.1）。[`.github/workflows/release.yml`](../.github/workflows/release.yml) 由 `dist generate` 写出。改发布目标时改 toml，再在仓库根目录执行 `dist generate`。不要手改那份 YAML。
+
+这条工作流只构建 `pixelforge-cli` 的 `pixelforge` 二进制。内核是它的依赖。`pixelforge-kernel-wasm` 没有要发布的二进制，也不会被 `cargo build --workspace` 带进去（`precise-builds`）。`dist build` 使用 `--profile dist`。根目录 `Cargo.toml` 里的 `[profile.dist]` 继承 `release`，删掉之后发布构建会失败。它不部署服务，也不代替上一节的测试门禁。
+
+Pull request 上只跑 `dist plan`，把计划上传为 Actions artifact `artifacts-plan-dist-manifest`。不编译四个平台，也不创建 GitHub Release。本地同一条命令是仓库根目录的 `dist plan`。
+
+推送形如版本号的标签时才编译并发布。标签是 `v` 加上根目录 `Cargo.toml` 的 `[workspace.package].version`。三个 crate 都写 `version.workspace = true`，只改这一处。`pixelforge --version` 打印同一个字符串。
+
+| 标签 | `[workspace.package].version` | GitHub Release |
+| --- | --- | --- |
+| `v0.1.0` | `0.1.0` | 正式版 |
+| `v0.1.0-rc.1` | `0.1.0-rc.1` | 预发布 |
+
+版本和工作区对不上时，这个标签不会被发布成 CLI 包。
+
+| 平台 | Rust 目标 | CI runner |
+| --- | --- | --- |
+| Windows x64 | `x86_64-pc-windows-msvc` | `windows-2022`（镜像自带 MSVC 和 Windows SDK，所以不缺 `kernel32.lib`） |
+| macOS Intel | `x86_64-apple-darwin` | `macos-15-intel` |
+| macOS Apple silicon | `aarch64-apple-darwin` | `macos-15`（不用即将停用的 `macos-14`） |
+| Linux x64 | `x86_64-unknown-linux-gnu` | `ubuntu-22.04`（glibc 2.35；更老的发行版用源码构建） |
+
+Release 上的文件：上表四个压缩包、每个压缩包的 `.sha256`、汇总 `sha256.sum`、`pixelforge-cli-installer.sh`、`pixelforge-cli-installer.ps1`，以及一份源码 `source.tar.gz`。Windows zip 的根目录是 `pixelforge.exe`。Unix tar.gz 解压后有一层同名目录，里面是 `pixelforge`。压缩包带 `LICENSE` 和 `README.md`。Windows 二进制静态链接 C 运行库。安装脚本把命令放进 `~/.pixelforge/bin`。
+
+仓库还是私有时，附件在 Releases 页面下载（需登录），或 `gh release download <tag> --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'`。安装脚本用的直链在私有仓库上会 404。这是 [cargo-dist 的已知限制](https://github.com/axodotdev/cargo-dist/issues/2248)，不是工作流没有上传。仓库公开后不用改工作流，直链和安装脚本会生效。预发布不是 GitHub 的 `latest`。在打出不带预发布后缀的正式版之前，安装脚本的 URL 要写具体标签，例如 `.../releases/download/v0.1.0-rc.1/pixelforge-cli-installer.sh`。
+
+下载后的第一条命令见 [README](../README.md) 的「预编译安装」。
+
+### 切一版
+
+不在日常 PR 里推 `v*` 标签。第一版候选：
+
+1. 把 `[workspace.package].version` 改成 `0.1.0-rc.1`，提交并合进 `main`。标签必须指向已经写着这个版本的提交。
+2. 在那个提交上打标签并推送：
+
+```bash
+git checkout main
+git pull
+git tag v0.1.0-rc.1
+git push origin v0.1.0-rc.1
+```
+
+3. Actions 的 Release 工作流构建四个平台，并创建 GitHub Release。带预发布后缀的版本会标成 prerelease。
+4. 稳定版把 version 设为 `0.1.0`，再推 `v0.1.0`。
+
+*Users download `pixelforge`; they do not build it. [`dist-workspace.toml`](../dist-workspace.toml) is the cargo-dist 0.33.1 config. [`.github/workflows/release.yml`](../.github/workflows/release.yml) is the output of `dist generate`. Change the toml, then run `dist generate` from the repository root. Do not hand-edit the YAML.*
+
+*The workflow builds the `pixelforge` binary from `pixelforge-cli` only. The kernel is a dependency. `pixelforge-kernel-wasm` is not a published binary and is not pulled in by a workspace build (`precise-builds`). `dist build` uses `--profile dist`. `[profile.dist]` in the root `Cargo.toml` inherits `release`; removing it makes the release build fail. There is no service deploy, and this workflow does not replace the test gate above.*
+
+*A pull request runs `dist plan` only and uploads the Actions artifact `artifacts-plan-dist-manifest`. It does not compile the four platforms and it does not create a GitHub Release. Locally that command is `dist plan` from the repository root.*
+
+*A tag push publishes. The tag is `v` plus `[workspace.package].version` in the root `Cargo.toml`. Every crate sets `version.workspace = true`, so that field is the only edit. `pixelforge --version` prints the same string. A tag that does not match the workspace version does not publish a CLI package. The runner table above is what `dist plan` selects. The Windows image already has MSVC and the Windows SDK, which is why the link does not miss `kernel32.lib`. The Linux binary needs glibc 2.35 or newer.*
+
+*The Release contains the four archives, a `.sha256` next to each, `sha256.sum`, `pixelforge-cli-installer.sh`, `pixelforge-cli-installer.ps1`, and `source.tar.gz`. The Windows zip has `pixelforge.exe` at its root. A Unix tarball has one top directory and `pixelforge` inside it. Archives include `LICENSE` and `README.md`. The Windows binary links the C runtime statically. The installer scripts place the command in `~/.pixelforge/bin`.*
+
+*While the repository is private, download from the Releases page or `gh release download`. The installer script's direct URL returns 404 on a private repository ([cargo-dist#2248](https://github.com/axodotdev/cargo-dist/issues/2248)). Making the repository public does not require a workflow change. A prerelease is not GitHub `latest`; until a stable tag exists, the installer URL must name the tag, for example `.../releases/download/v0.1.0-rc.1/pixelforge-cli-installer.sh`.*
+
+*The first commands after download are in the README section 预编译安装. Do not push a `v*` tag from an ordinary PR. For the first candidate, set `[workspace.package].version` to `0.1.0-rc.1`, merge that commit to `main`, tag that commit `v0.1.0-rc.1`, and push the tag. The Release workflow then builds the four platforms and opens a GitHub Release marked prerelease. A stable cut sets the version to `0.1.0` and pushes `v0.1.0`.*
 
 ## 网页外壳
 
