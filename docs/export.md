@@ -115,11 +115,11 @@ pixelforge validate-atlas --atlas hero-sheet.json --rules pack-rules.json
 
 1. `export sheet --atlas` 写出 PNG 和这份 atlas。
 2. 先跑 `validate-atlas`。清单里的 error 回到 PixelForge 改：补标签、把矩形放回格子、换成 64/96/128 画布、改四向名字、擦掉空位上的不透明像素、用规则里的 `pivot` 把各帧着地点对齐。然后重新导出。本命令不自动修图。
-3. 退出码是 0 之后，同一对 PNG 和 atlas 才送进游戏。过滤、最近点采样、动画有没有接到 `idle_*` / `walk_*`、引擎 pivot 和规则是不是同一点，这些游戏侧失败记在 #18。
+3. 退出码是 0 之后，同一对 PNG 和 atlas 才送进游戏。过滤、最近点采样、动画有没有接到 `idle_*` / `walk_*`、引擎 pivot 和规则是不是同一点，这些游戏侧失败记在 #18。退出码 0，以及 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。画面好不好看、引擎里有没有接上，都不在这次检查里。和精修、旋转、IK 一起写在 [README](../README.md) 的「已知限制」。
 
 静态道具可以在规则里把 `sizes` 放宽（例如加上 32），`tagPolicy` 设为 `optional`，`fourDirection` 设为 `off`，并用 `pivot` 写上引擎原点。四向角色用默认 strict。
 
-*Run `validate-atlas` after `export sheet --atlas` and before the sheet is imported. It reads the same `pixelforge-atlas` version 1 object and does not edit pixels or invent a second format. Exit 0 means no errors. Exit 1 means the checklist has an error. Warnings alone stay exit 0 in both modes. `--loose` downgrades canvas tier, four-direction names, an empty tag list, the image file name, delay range, and pivot drift. Overlap, out-of-bounds frames, a broken grid, and opaque padding stay errors. Canvas edges are `frameWidth / scale` and `frameHeight / scale`, defaulting to 64, 96, and 128. Pivot is checked only when the atlas or the rules file already has one. This is the tool-side gate in front of #18: fix those errors in PixelForge and re-export, then let the game record whatever it still rejects.*
+*Run `validate-atlas` after `export sheet --atlas` and before the sheet is imported. It reads the same `pixelforge-atlas` version 1 object and does not edit pixels or invent a second format. Exit 0 means no errors. Exit 1 means the checklist has an error. Warnings alone stay exit 0 in both modes. `--loose` downgrades canvas tier, four-direction names, an empty tag list, the image file name, delay range, and pivot drift. Overlap, out-of-bounds frames, a broken grid, and opaque padding stay errors. Canvas edges are `frameWidth / scale` and `frameHeight / scale`, defaulting to 64, 96, and 128. Pivot is checked only when the atlas or the rules file already has one. This is the tool-side gate in front of #18: fix those errors in PixelForge and re-export, then let the game record whatever it still rejects. Exit 0, including `examples/game-pack-zombie/validate.py`, means the checklist has no error. It does not accept the picture, and it does not mean the engine import is done. Polish, rotation, IK, and this check are the README section 已知限制.*
 
 ### 本仓库的 #18 包
 
