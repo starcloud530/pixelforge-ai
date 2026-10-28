@@ -4,10 +4,16 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 description = "Local pixelforge command: open a pixelforge-project and call the kernel Tool API."
+repository = "https://github.com/starcloud530/pixelforge-ai"
 
 [[bin]]
 name = "pixelforge"
 path = "src/main.rs"
+
+# Workspace `publish = false` keeps this crate off crates.io. `dist = true`
+# opts the pixelforge binary into GitHub Release builds. See dist-workspace.toml.
+[package.metadata.dist]
+dist = true
 
 [dependencies]
 # Pinned for the repo's Rust 1.83 floor. Newer clap releases may raise MSRV.
