@@ -1,0 +1,46 @@
+# Source of truth for the pixelforge CLI release pipeline.
+# `.github/workflows/release.yml` is generated from this file by `dist generate`.
+# Do not hand-edit the workflow; change this file and regenerate.
+# Cutting a tag is documented in docs/dev-setup.md.
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# Exact dist version CI installs. Not a range.
+cargo-dist-version = "0.33.1"
+ci = "github"
+# GitHub Releases. Same workflow for this private repo and after it is public.
+hosting = "github"
+# Shell and PowerShell installers, plus zip/tar.gz archives. No npm, Homebrew, or MSI.
+installers = ["shell", "powershell"]
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+]
+# The CLI crate only. The kernel is a library dependency. The wasm crate is not a binary.
+packages = ["pixelforge-cli"]
+# Build that one package. Do not `cargo build --workspace` (that also builds the wasm cdylib).
+precise-builds = true
+# PR check is a plan only. Tag pushes build and publish. `workflow_dispatch` is not
+# enabled: dist's dispatch mode replaces tag triggers.
+pr-run-mode = "plan"
+checksum = "sha256"
+unix-archive = ".tar.gz"
+windows-archive = ".zip"
+# Static CRT so the Windows exe does not need the VC++ redistributable.
+msvc-crt-static = true
+install-updater = false
+# Users do not need a Rust toolchain. Avoid installing into ~/.cargo/bin.
+install-path = "~/.pixelforge/bin"
+display-name = "pixelforge"
+# Release notes name the binary. The Cargo package stays pixelforge-cli.
+install-success-msg = "pixelforge is installed. Try: pixelforge --help"
+
+# dist 0.33.1 defaults Apple silicon to macos-14. That image is unsupported
+# after 2026-11-02. macos-15 is the current arm64 image and is available on
+# private repositories. Intel stays on dist's macos-15-intel.
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
