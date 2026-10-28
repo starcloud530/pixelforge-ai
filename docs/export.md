@@ -137,7 +137,9 @@ python3 examples/game-pack-zombie/validate.py
 
 道具把路径里的 `zombie` 换成 `props`。`validate.py` 和 `cargo test -p pixelforge-cli game_pack_zombie` 都要求 strict 退出码 0。失败模式、以及 Godot / Unity 仍要手接的过滤、轴心和 `idle_*` / `walk_*`，写在 [FAILURES.md](../examples/game-pack-zombie/FAILURES.md)。下面两节是那份清单用的导入约定。
 
-*The worked #18 pack is [examples/game-pack-zombie](../examples/game-pack-zombie/README.md). `validate.py` re-runs the strict gate. Godot and Unity import steps below are what the pack's failure log still has to do by hand.*
+[#81](https://github.com/starcloud530/pixelforge-ai/issues/81) 的产品案例在 [examples/workflow-cases](../examples/workflow-cases/README.md)，不是这份丧尸包。三条都是外部 Agent 写的 CLI 脚本：四向走、锁色板换装、同一调色板的道具。`python3 examples/workflow-cases/validate.py` 和 `cargo test -p pixelforge-cli workflow_cases` 检查已提交的表。退出码 0 同样不是审美或进游戏验收。
+
+*The worked #18 pack is [examples/game-pack-zombie](../examples/game-pack-zombie/README.md). `validate.py` re-runs the strict gate. Godot and Unity import steps below are what the pack's failure log still has to do by hand. The #81 product cases live in [examples/workflow-cases](../examples/workflow-cases/README.md) and are not this zombie pack.*
 
 ## Godot 4
 

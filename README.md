@@ -137,7 +137,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 - **IK 解的是关节位置。** 短链是 2 或 3 节，加上 `pin` 和 `plant` 把脚钉在接触点上。它不自动编写自然步态，也不从一条静止姿势生成走路循环。没有整棵 IK 树，没有步态生成器，也没有物理。见 [#68](https://github.com/starcloud530/pixelforge-ai/issues/68)。`examples/soldier-walk.py` 钉的是接触帧。走路帧仍要自己关键帧，或同姿复制后改差，再 `bake`。
 
-- **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
+- **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 与 `examples/workflow-cases/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
 
 *A `polish` overlay is not written by `bake`, so a fix painted there survives another bake. Those cells stay on the canvas cell where they were painted (canvas / world coordinates). They do not follow the part. A layer a curve or constraint manages is rebuilt from the source frame, so an edit on that generated layer is replaced on the next `bake`. That is the shipped [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) boundary: the overlay is kept, and the fix is not stored in part-local coordinates. Bake commands: [docs/agent-skill.md](docs/agent-skill.md).*
 
@@ -145,7 +145,19 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 *Short-chain IK is two or three parts. `pin` and `plant` hold a foot on a contact. The solve places joints. It does not author a natural gait, and it does not turn one rest pose into a walk cycle. There is no full IK tree, no gait generator, and no physics. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). `examples/soldier-walk.py` plants contact frames. Walk frames are still keyed, or duplicated and edited, then baked.*
 
-*`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. See [docs/export.md](docs/export.md) and [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md).*
+*`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py` or `examples/workflow-cases/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. See [docs/export.md](docs/export.md) and [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md).*
+
+## 工作流案例 Workflow cases
+
+三份可跟跑的产品演示在 [examples/workflow-cases](examples/workflow-cases/README.md)。装好上面的预编译 `pixelforge`，再有 Python 3 标准库，就可以按各目录的 `build.py` 重画并导出。它们不是 [#18](https://github.com/starcloud530/pixelforge-ai/issues/18) 的丧尸消费包，也不是无人值守的 L4（[#16](https://github.com/starcloud530/pixelforge-ai/issues/16)）。仓库里没有内置生图。像素是外部 Agent 写成的 CLI 脚本，重跑脚本得到同一份工程和同一张表。
+
+| 案例 | 目录 |
+| --- | --- |
+| 四向行走 | [examples/workflow-cases/01-four-dir-walk](examples/workflow-cases/01-four-dir-walk/README.md) |
+| 同角色换装（锁色板） | [examples/workflow-cases/02-outfit-change](examples/workflow-cases/02-outfit-change/README.md) |
+| 统一风格道具包 | [examples/workflow-cases/03-style-pack](examples/workflow-cases/03-style-pack/README.md) |
+
+*Three reproducible product demos live in [examples/workflow-cases](examples/workflow-cases/README.md). A prebuilt `pixelforge` plus the Python 3 standard library is enough to rerun each `build.py`. They are not the [#18](https://github.com/starcloud530/pixelforge-ai/issues/18) zombie consumer pack, and they are not unsupervised L4 ([#16](https://github.com/starcloud530/pixelforge-ai/issues/16)). This repository does not generate images. An external agent authored the CLI script; rerunning that script reproduces the project and the sheet.*
 
 ## 源码构建 Source build
 
@@ -193,9 +205,9 @@ Paint, erase, palette edits, the frame list (add a blank frame, duplicate the cu
 
 ## 检查 Checks
 
-本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`，以及 `python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`）。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。预编译包是另一条只在版本标签上跑的 Release 工作流，不替代这些测试。
+本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`、`python3 examples/game-pack-zombie/validate.py`，以及 `python3 examples/workflow-cases/validate.py`（两条都对已提交的表跑 `validate-atlas --strict`）。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。预编译包是另一条只在版本标签上跑的 Release 工作流，不替代这些测试。
 
-*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, and `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets). A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service. Prebuilt packages are a separate Release workflow on version tags. They do not replace these tests.*
+*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, `python3 examples/game-pack-zombie/validate.py`, and `python3 examples/workflow-cases/validate.py` (both run `validate-atlas --strict` on the committed sheets). A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service. Prebuilt packages are a separate Release workflow on version tags. They do not replace these tests.*
 
 ## 许可证 License
 

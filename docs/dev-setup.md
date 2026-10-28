@@ -111,15 +111,16 @@ cargo test -p pixelforge-kernel
 cargo test -p pixelforge-cli
 cargo build -p pixelforge-cli
 python3 examples/game-pack-zombie/validate.py
+python3 examples/workflow-cases/validate.py
 ```
 
-前两条是内核和 CLI 测试。`cargo build -p pixelforge-cli` 把调试版 `pixelforge` 放到 `target/debug/`（上一条 `cargo test` 已经编过时，这一步几乎是空的）。`validate.py` 再用它对 `examples/game-pack-zombie/` 里已提交的丧尸表和道具表执行 `validate-atlas --strict`。脚本只依赖 Python 标准库。
+前两条是内核和 CLI 测试。`cargo build -p pixelforge-cli` 把调试版 `pixelforge` 放到 `target/debug/`（上一条 `cargo test` 已经编过时，这一步几乎是空的）。`examples/game-pack-zombie/validate.py` 对已提交的丧尸表和道具表执行 `validate-atlas --strict`。`examples/workflow-cases/validate.py` 对 [#81](https://github.com/starcloud530/pixelforge-ai/issues/81) 的三份产品案例做同一件事，并核对三份工程的调色板哈希。两条脚本都只依赖 Python 标准库。丧尸包是 #18 的消费侧门槛，不是这三份案例。
 
 新功能要先收进上面 CI 会执行的测试或门槛脚本，再合进来。只在本地跑、工作流里没有的检查不算收录。
 
 *[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. The job uses `ubuntu-latest`, Rust stable with a Cargo cache, and `python3`. It runs the sequence above from the repository root. A non-zero exit fails CI. There is no deploy step. Multi-platform prebuilt packages are the next section, not this workflow.*
 
-*The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `validate.py` then runs `validate-atlas --strict` on the committed zombie and prop sheets under `examples/game-pack-zombie/`. The script uses only the Python standard library.*
+*The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `examples/game-pack-zombie/validate.py` runs `validate-atlas --strict` on the committed zombie and prop sheets. `examples/workflow-cases/validate.py` does the same for the three [#81](https://github.com/starcloud530/pixelforge-ai/issues/81) product cases and checks that those projects share one palette hash. Both scripts use only the Python standard library. The zombie pack is the #18 consumer gate, not those three cases.*
 
 *A new feature needs a test or gate script that this workflow already runs before it is merged. A check that exists only on a laptop does not count.*
 

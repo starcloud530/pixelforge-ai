@@ -1,0 +1,19 @@
+{
+  "format": "pixelforge-case-record",
+  "case": "02-outfit-change",
+  "paletteHashBefore": "eee61aba3bbf619c",
+  "paletteHashAfter": "eee61aba3bbf619c",
+  "paletteLocked": true,
+  "lockRefusal": {
+    "tool": "addPaletteColor",
+    "code": "PaletteLocked"
+  },
+  "bodyLayerUnchanged": true,
+  "framesCompared": 16,
+  "gearCellsChanged": 5944,
+  "hoodRectsSkipped": [],
+  "reservedIndices": {
+    "cloak": 7,
+    "cloakShade": 8
+  }
+}

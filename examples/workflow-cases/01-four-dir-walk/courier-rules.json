@@ -1,0 +1,24 @@
+{
+  "format": "pixelforge-atlas-rules",
+  "version": 1,
+  "mode": "strict",
+  "sizes": [
+    64
+  ],
+  "requireTags": [
+    "idle_down",
+    "walk_down",
+    "idle_left",
+    "walk_left",
+    "idle_right",
+    "walk_right",
+    "idle_up",
+    "walk_up"
+  ],
+  "fourDirection": "on",
+  "tagPolicy": "required",
+  "pivot": {
+    "x": 32,
+    "y": 57
+  }
+}

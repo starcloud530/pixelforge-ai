@@ -4361,3 +4361,67 @@ fn game_pack_zombie_sheets_pass_strict_validate_atlas() {
         );
     }
 }
+
+/// The committed #81 workflow cases must keep passing strict validate-atlas.
+/// These are product demos, separate from the #18 game pack above.
+#[test]
+fn workflow_cases_sheets_pass_strict_validate_atlas() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/workflow-cases");
+    let cases = [
+        ("01-four-dir-walk/courier-sheet.json", None, "skipped", true),
+        (
+            "01-four-dir-walk/courier-sheet.json",
+            Some("01-four-dir-walk/courier-rules.json"),
+            "checked",
+            true,
+        ),
+        (
+            "02-outfit-change/courier-cloak-sheet.json",
+            None,
+            "skipped",
+            true,
+        ),
+        (
+            "02-outfit-change/courier-cloak-sheet.json",
+            Some("02-outfit-change/courier-cloak-rules.json"),
+            "checked",
+            true,
+        ),
+        (
+            "03-style-pack/harbor-props-sheet.json",
+            None,
+            "skipped",
+            false,
+        ),
+        (
+            "03-style-pack/harbor-props-sheet.json",
+            Some("03-style-pack/harbor-props-rules.json"),
+            "checked",
+            false,
+        ),
+    ];
+    for (atlas, rules, pivot, four_direction) in cases {
+        let mut args = vec![
+            "validate-atlas".to_string(),
+            "--atlas".to_string(),
+            root.join(atlas).to_string_lossy().into_owned(),
+            "--strict".to_string(),
+        ];
+        if let Some(rules) = rules {
+            args.push("--rules".to_string());
+            args.push(root.join(rules).to_string_lossy().into_owned());
+        }
+        let output = pixelforge(&args);
+        assert_eq!(status(&output), 0, "{atlas}: {}", stderr(&output));
+        let body = &json_lines(&output)[0];
+        assert_eq!(body["ok"], json!(true), "{atlas}");
+        assert_eq!(body["result"]["errorCount"], json!(0), "{atlas}");
+        assert_eq!(body["result"]["checks"]["mode"], json!("strict"));
+        assert_eq!(body["result"]["checks"]["pivot"], json!(pivot), "{atlas}");
+        assert_eq!(
+            body["result"]["checks"]["fourDirection"],
+            json!(four_direction),
+            "{atlas}"
+        );
+    }
+}
