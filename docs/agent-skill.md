@@ -45,6 +45,19 @@ cargo run -p pixelforge-cli -- --help
 
 *From this repository, `cargo install --path crates/pixelforge-cli` puts `pixelforge` on the path. `cargo run -p pixelforge-cli -- --help` runs it without installing. Rust stable (`cargo` 1.83 or newer) is enough. There is no Python service.*
 
+## 已知限制 Known limitations
+
+和 [README](../README.md) 的「已知限制」是同一份边界，放在安装和 `new` / `preview` 之后。测试通过或校验退出码 0 都停在这里。
+
+*Same bounds as the README section 已知限制, placed after install and `new` / `preview`. A green test or exit code 0 stays inside them.*
+
+- **精修固定在画布坐标。** `polish` 覆盖层 `bake` 不写，格子留在画下的画布格，不跟随部件。直接改曲线或约束管着的生成层，下一次 `bake` 会从源帧整层盖掉。这是 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) 的语义。
+- **旋转补洞不是无损。** 覆盖补洞让缺口变少，质量有改进，仍然有损。单像素细线仍可能断开或在接近 45° 时变短。`dropped` 不会被补洞清成 0。见 [#73](https://github.com/starcloud530/pixelforge-ai/issues/73)。
+- **IK 解关节位置。** 短链（2 或 3 节）加 `pin` / `plant` 钉接触点。它不编写自然步态，也不生成走路循环。见 [#68](https://github.com/starcloud530/pixelforge-ai/issues/68)。`examples/soldier-walk.py` 只钉接触帧。
+- **校验通过不是验收。** `export`、`validate-atlas` 退出码 0、`examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。画面质量和 Godot / Unity 接入都不在这次检查里。见 [export.md](export.md)。
+
+*Polish stays on the canvas cell where it was painted and does not follow the part. An edit on a generated layer is replaced when `bake` rebuilds that layer from the source. That is [#72](https://github.com/starcloud530/pixelforge-ai/issues/72). Rotation sealing is lossy: a one-pixel line can still break or shorten, and `dropped` stays. See [#73](https://github.com/starcloud530/pixelforge-ai/issues/73). IK places joints on a short chain plus `pin` / `plant`. It does not author a gait. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). Export and `validate-atlas` exit 0, including the game-pack script, mean the checklist has no error. They do not accept the picture or the engine import. See [export.md](export.md).*
+
 ## 输出 Output
 
 stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人看的短句，例如 `pixelforge: wrote hero.json`。`preview` 和 `--preview` 还会把当前帧的 ASCII 图画到 stderr，那一块要读，用来看形状；其余 stderr 不要当接口解析。`preview` 的 stdout 里，`result.rows` 是同一张图，一行一个字符串。
