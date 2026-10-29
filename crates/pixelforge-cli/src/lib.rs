@@ -1590,6 +1590,29 @@ fn cmd_export(command: ExportCmd) -> i32 {
             };
             export_files::export_sprite_sheet(&mut session, &output, scale, cols, atlas.as_deref())
         }
+        ExportCmd::Apng {
+            doc,
+            output,
+            scale,
+            tag,
+            from,
+            to,
+            loop_mode,
+        } => {
+            let mut session = match open_project(&doc) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
+            export_files::export_apng(
+                &mut session,
+                &output,
+                scale,
+                tag.as_deref(),
+                from,
+                to,
+                loop_mode.map(|mode| mode.as_str()),
+            )
+        }
     }
 }
 

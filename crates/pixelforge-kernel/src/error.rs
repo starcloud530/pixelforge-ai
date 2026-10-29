@@ -164,6 +164,11 @@ pub enum KernelError {
     ExportScale { scale: u32 },
     /// Sprite-sheet column count is 0, or that many columns do not fit a PNG.
     SheetColumns { columns: u32 },
+    /// A playable-preview range is empty or outside the frame list.
+    ///
+    /// `from` and `to` are inclusive. `len` is the frame count. A missing tag
+    /// is [`Self::TagMissing`], not this error.
+    PreviewRange { from: usize, to: usize, len: usize },
     /// Bytes are not a readable indexed `.aseprite` file in the supported subset.
     AsepriteFile { reason: &'static str },
     /// The file's canvas is outside `1..=MAX_CANVAS_EDGE`.
@@ -365,6 +370,7 @@ impl KernelError {
             Self::SelectionProtected => "SelectionProtected",
             Self::ExportScale { .. } => "ExportScale",
             Self::SheetColumns { .. } => "SheetColumns",
+            Self::PreviewRange { .. } => "PreviewRange",
             Self::AsepriteFile { .. } => "AsepriteFile",
             Self::AsepriteSize { .. } => "AsepriteSize",
             Self::AsepriteColorMode { .. } => "AsepriteColorMode",
@@ -535,6 +541,10 @@ impl fmt::Display for KernelError {
             Self::SheetColumns { columns } => write!(
                 f,
                 "sprite sheet columns {columns} must be at least 1 and fit the canvas"
+            ),
+            Self::PreviewRange { from, to, len } => write!(
+                f,
+                "preview frames {from}..={to} must have from <= to and lie inside 0..{len}"
             ),
             Self::AsepriteFile { reason } => write!(f, "aseprite: {reason}"),
             Self::AsepriteSize { width, height } => write!(
@@ -807,6 +817,24 @@ mod tests {
         assert_eq!(
             KernelError::SheetColumns { columns: 0 }.code(),
             "SheetColumns"
+        );
+        assert_eq!(
+            KernelError::PreviewRange {
+                from: 2,
+                to: 1,
+                len: 1
+            }
+            .code(),
+            "PreviewRange"
+        );
+        assert_eq!(
+            KernelError::PreviewRange {
+                from: 2,
+                to: 1,
+                len: 1
+            }
+            .to_string(),
+            "preview frames 2..=1 must have from <= to and lie inside 0..1"
         );
         assert_eq!(
             KernelError::ExportScale { scale: 0 }.to_string(),

@@ -8,7 +8,8 @@ description: >-
   --atlas JSON, running validate-atlas after export and before game
   import, copying a rectangle across frames, checking foot slide
   (脚滑) with diff, or mirroring a side view with hflip and then repairing
-  highlights. For a later frame of the same pose, duplicate it and edit
+  highlights, or exporting one tag as a playable APNG preview. For a later
+  frame of the same pose, duplicate it and edit
   the diff, or copyRect into a slot that already exists; merge scanline
   fillRects into one taller rect. Follow the pixelforge
   skill's index-color invariants first. Draw a new body with pixelforge-draw's
@@ -92,15 +93,16 @@ pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --s
 pixelforge tag add --project hero.json --name idle_down --from 0 --to 0 --loop forward
 pixelforge tag add --project hero.json --name walk_down --from 1 --to 3 --loop forward
 pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2 --atlas hero-sheet.json
+pixelforge export apng --project hero.json --output walk_down.apng --tag walk_down
 ```
 
-`--cols` 仍等于每行帧数。`--atlas` 写出 `pixelforge-atlas` JSON：每一帧的矩形和 `delayMs`，加上上面的标签和 `columns`。不传 `--atlas` 时只出 PNG，和以前一样。Tool API 是 `addTag` / `setTag` / `removeTag`，以及 `exportSpriteSheet` 的 `atlas: true`。
+`--cols` 仍等于每行帧数。`--atlas` 写出 `pixelforge-atlas` JSON：每一帧的矩形和 `delayMs`，加上上面的标签和 `columns`。不传 `--atlas` 时只出 PNG，和以前一样。`export apng --tag walk_down` 按这个标签的循环和每帧时长播放，用来看这一段走循环。进游戏仍用上面的 sheet，再 `validate-atlas`。Tool API 是 `addTag` / `setTag` / `removeTag`，以及 `exportSpriteSheet` 的 `atlas: true`。`exportApng` 是那张预览。
 
 导出之后、进游戏之前先跑 `pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png`；有 error 时退出码不是 0，不要把这份表交进游戏。
 
 这条路径的一份 64×64 结果在 `examples/game-pack-zombie/`：丧尸表 `--cols 4`，再 `validate-atlas --rules zombie/zombie-rules.json --strict`。静态道具换 `props/`，规则里关掉四向。重跑门槛是 `python3 examples/game-pack-zombie/validate.py`。游戏侧仍要接的过滤、轴心和动画名写在同目录的 `FAILURES.md`，并链回 `docs/export.md` 的 Godot / Unity 两节。
 
-*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only. After export, run `validate-atlas` before game import. An error is a non-zero exit; do not hand that sheet to the game. The worked 64×64 pack is `examples/game-pack-zombie/`; `validate.py` re-runs the strict gate, and `FAILURES.md` lists what Godot and Unity still reject.*
+*Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only. `export apng --tag walk_down` plays that tag with each frame's delay. It is a preview, not the sheet. After export, run `validate-atlas` before game import. An error is a non-zero exit; do not hand that sheet to the game. The worked 64×64 pack is `examples/game-pack-zombie/`; `validate.py` re-runs the strict gate, and `FAILURES.md` lists what Godot and Unity still reject.*
 
 ## Build a facing
 

@@ -15,6 +15,7 @@
 use serde::Serialize;
 use serde_json::{Map, Number, Value};
 
+use crate::apng::{ApngExport, ApngSource};
 use crate::aseprite::AsepriteReport;
 use crate::constraint::{Constraint, ConstraintKind, Contact, SolveReport};
 use crate::curve::{CurveChannel, CurveSample, Ease, PartSample};
@@ -100,6 +101,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "importAseprite",
     "exportPngSequence",
     "exportSpriteSheet",
+    "exportApng",
     "previewFrame",
     "diffFrames",
     "flipHorizontal",
@@ -1017,6 +1019,13 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                     .expect("sprite atlas fields are JSON numbers and strings");
             }
             Ok(result)
+        }
+        "exportApng" => {
+            let (scale, source) = parse_apng(params)?;
+            let export = document
+                .export_apng(scale, source)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(apng_value(export))
         }
         "previewFrame" => {
             let (frame, scale, layer, scope) = parse_preview(params, document)?;
@@ -2425,6 +2434,65 @@ fn parse_sheet(params: Value) -> Result<(u32, Option<u32>, bool), ToolFailure> {
         Some(_) => require_bool("exportSpriteSheet", &map, "atlas")?,
     };
     Ok((scale, columns, atlas))
+}
+
+fn parse_apng(params: Value) -> Result<(u32, ApngSource), ToolFailure> {
+    let map = expect_object("exportApng", params)?;
+    reject_params("exportApng", &map, &["scale", "tag", "from", "to", "loop"])?;
+    let scale = match map.get("scale") {
+        None => 1,
+        Some(_) => require_u32_at_least("exportApng", &map, "scale", 1)?,
+    };
+    let tag = optional_string("exportApng", &map, "tag")?;
+    let from = optional_frame("exportApng", &map, "from")?;
+    let to = optional_frame("exportApng", &map, "to")?;
+    let loop_mode = match map.get("loop") {
+        None => None,
+        Some(value) => Some(parse_loop_mode("exportApng", value)?),
+    };
+    if tag.is_some() && (from.is_some() || to.is_some() || loop_mode.is_some()) {
+        return Err(invalid_params(
+            "exportApng",
+            "pass tag or from, to, and loop, not both",
+        ));
+    }
+    let source = match tag {
+        Some(tag) => ApngSource::Tag(tag),
+        None => ApngSource::Range {
+            from,
+            to,
+            loop_mode: loop_mode.unwrap_or(LoopMode::Forward),
+        },
+    };
+    Ok((scale, source))
+}
+
+fn apng_value(export: ApngExport) -> Value {
+    let frames = export
+        .frames
+        .iter()
+        .map(|frame| {
+            serde_json::json!({
+                "index": frame.index,
+                "delayMs": frame.delay_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut result = serde_json::json!({
+        "apng": encode_base64(&export.bytes),
+        "format": "apng",
+        "scale": export.scale,
+        "width": export.width,
+        "height": export.height,
+        "loop": export.loop_mode.as_str(),
+        "plays": export.plays,
+        "frameCount": as_u32(export.frames.len()),
+        "frames": frames,
+    });
+    if let Some(tag) = export.tag {
+        result["tag"] = serde_json::json!(tag);
+    }
+    result
 }
 
 fn parse_add_part(params: Value) -> Result<(String, u16, u16, Option<usize>), ToolFailure> {
