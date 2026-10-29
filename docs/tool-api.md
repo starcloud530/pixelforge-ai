@@ -141,13 +141,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改层角色、改可见性、改透明度、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，结果相同的 `combineMask`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改层角色、改可见性、改透明度、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，结果相同的 `combineMask` 和 `selectConnected`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, layer rename, layer role, layer visibility, layer opacity, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, layer rename, layer role, layer visibility, layer opacity, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` or `selectConnected` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -244,9 +244,9 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 ### 选区 Selection
 
-选区是文档状态，不是套索，也不是魔棒。`setSelection` 写入一块轴对齐矩形。`combineMask` 用并、交、差把它收成一组互不相交的轴对齐矩形。`clearSelection` 清掉它。没有选区（`selection` 为 `null`）时，画布上每一格都可以写。差集或交集得到空蒙版时，`selection` 是 `{ "rects": [] }`，每一格都受保护，接下来的 `fillRect` 不会把整幅涂满。
+选区是文档状态，不是套索。`setSelection` 写入一块轴对齐矩形。`selectConnected` 把种子格的索引色连通域收成同一份蒙版。`combineMask` 用并、交、差把它收成一组互不相交的轴对齐矩形。`clearSelection` 清掉它。没有选区（`selection` 为 `null`）时，画布上每一格都可以写。差集或交集得到空蒙版时，`selection` 是 `{ "rects": [] }`，每一格都受保护，接下来的 `fillRect` 不会把整幅涂满。
 
-选区**写在工程文件里**。一块矩形仍是 `{ "x", "y", "width", "height" }`。多块或空蒙版是 `{ "rects": [ { "x", "y", "width", "height" }, ... ] }`。清掉之后文件省略这个字段。旧文件没有这个字段时按没有选区读入。相邻的矩形在写入时并成一块，所以文件里的划分是确定的。撤销栈仍然不进文件：同一次进程里 `undo` 能撤回 `setSelection` 和 `combineMask`，重新打开文件不能。这和 `activeLayer` 一样是下一次 CLI 进程还要接着用的状态，不是手势。
+选区**写在工程文件里**。一块矩形仍是 `{ "x", "y", "width", "height" }`。多块或空蒙版是 `{ "rects": [ { "x", "y", "width", "height" }, ... ] }`。清掉之后文件省略这个字段。旧文件没有这个字段时按没有选区读入。相邻的矩形在写入时并成一块，所以文件里的划分是确定的。撤销栈仍然不进文件：同一次进程里 `undo` 能撤回 `setSelection`、`selectConnected` 和 `combineMask`，重新打开文件不能。这和 `activeLayer` 一样是下一次 CLI 进程还要接着用的状态，不是手势。
 
 选区是画布坐标上的蒙版，所有帧共用，不绑定某一层，也不改变 `activeLayer`。要只改头盔，把矩形框在头盔上，并用 `layer` / `--layer` 指向装备层。蒙版内只有你指定的那一层会被写；蒙版外任何层都不写。
 
@@ -267,11 +267,11 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 `result`：一块矩形时 `setSelection` 的 `selection` 是 `{ "x", "y", "width", "height" }`。多块或空蒙版是 `{ "rects": [...] }`。`clearSelection` 是 `{ "selection": null }`。`replaceIndex` 是 `{ "fromIndex", "toIndex", "changed" }`。`toIndex` 是写进去的索引。只有发生钳制时才另加 `indexPolicy` 和 `requestedIndex`。同一个选区、已经没有选区、或一格都没变，都不进撤销栈。
 
-CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge mask union|intersect|subtract`、`pixelforge replace-index`。
+CLI：`pixelforge selection set`、`pixelforge selection wand`、`pixelforge selection clear`、`pixelforge mask union|intersect|subtract`、`pixelforge replace-index`。
 
-*The selection is document state. It is not a lasso and not a magic wand. `setSelection` stores one rectangle. `combineMask` turns rectangles into a mask with union, intersect, or subtract. `clearSelection` removes it. With no selection, every cell is writable. An empty mask is `{ "rects": [] }` and protects every cell, so the next fill does not paint the canvas.*
+*The selection is document state. It is not a lasso. `setSelection` stores one rectangle. `selectConnected` stores the seed cell's indexed connected component as that same mask. `combineMask` turns rectangles into a mask with union, intersect, or subtract. `clearSelection` removes it. With no selection, every cell is writable. An empty mask is `{ "rects": [] }` and protects every cell, so the next fill does not paint the canvas.*
 
-*The project file stores one rectangle as `{ "x", "y", "width", "height" }` and several rectangles, or an empty mask, as `{ "rects": [...] }`. It omits the field when the selection is clear. A file that has no field loads with no mask. Adjacent rectangles are merged, so the partition is stable. The undo stack is still not stored: `undo` in the same process restores `setSelection` and `combineMask`, and reopening the file does not. This matches `activeLayer`: the next CLI process needs it.*
+*The project file stores one rectangle as `{ "x", "y", "width", "height" }` and several rectangles, or an empty mask, as `{ "rects": [...] }`. It omits the field when the selection is clear. A file that has no field loads with no mask. Adjacent rectangles are merged, so the partition is stable. The undo stack is still not stored: `undo` in the same process restores `setSelection`, `selectConnected`, and `combineMask`, and reopening the file does not. This matches `activeLayer`: the next CLI process needs it.*
 
 *The mask is in canvas coordinates and applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the mask.*
 
@@ -408,6 +408,32 @@ CLI：`pixelforge fill --x --y --color-index N`。`--connectivity 4|8`，缺省 
 *Stores the rectangle. Does not change pixels or `activeLayer`. The same rectangle is not recorded. `result.selection` is that rectangle. See Selection above.*
 
 错误：`OutOfBounds`。宽或高为 0 是 `InvalidParams`。
+
+### `selectConnected`
+
+`params`：`x`、`y`（种子格，须在画布内）。可选 `tolerance`（`0..=255`，缺省 `0`）、`connectivity`（`4` 或 `8`，缺省 `4`）、`layer`、`frame`。
+
+把种子格所在的索引色连通域写成 `selection`。不改像素，不改 `activeLayer`，不改 `activeFrame`。采样的是这一层存着的索引，不看 `visible`，也不乘 `opacity`。已有选区被替换，不当成墙；`fill` 才把选区外当墙。连通和 `fill` 用同一套邻域：`4` 只走上下左右，`8` 也走斜角。
+
+`tolerance` 为 `0` 时只收和种子同一个索引的格子。另一个索引即使 RGBA 相同也不收。`tolerance` 为 `1..=255` 时，格子的调色板颜色和种子颜色在 `r`、`g`、`b`、`a` 上各自的差都不超过这个数。种子到自己的距离是 0，所以种子格一定在里面。`255` 匹配任何颜色。比较的是调色板项，不把新的 RGB 写回格子。
+
+连通域收成和 `combineMask` 相同的互不相交矩形。实心矩形仍是一块。不规则轮廓是多块。结果不会是空蒙版，因为种子格匹配自己。同一份蒙版不进撤销栈。变了就是一步撤销。之后的 `paint`、`erase`、`fill`、`combineMask`、`previewFrame` 和 `diffFrames` 都认这份蒙版。
+
+`result`：`selection`（形状与「选区」相同）、`cells`（格子数）、`index`（种子上的索引）、`tolerance`、`connectivity`、`frame`、`layer`。
+
+CLI：`pixelforge selection wand --x --y`。`--tolerance N`，`--connectivity 4|8`，`--layer`，`--frame`。后两个不选中那一层或那一帧。
+
+*Stores the seed cell's indexed connected component as `selection`. Does not change pixels, `activeLayer`, or `activeFrame`. It reads the stored indices of that layer and ignores `visible` and `opacity`. An existing mask is replaced; it is not a barrier. `fill` is the tool that treats cells outside the mask as walls. Connectivity matches `fill`: `4` is orthogonal, `8` also crosses corners.*
+
+*`tolerance` 0 keeps cells whose palette index equals the seed. A different index does not match, even when the RGBA is the same. `tolerance` 1..=255 keeps a cell when each of `r`, `g`, `b`, and `a` differs from the seed color by at most that value. The seed's distance to itself is 0, so the seed is included. `255` matches every color. The comparison reads palette entries and does not write RGB back into cells.*
+
+*The component is stored as the same disjoint rectangles as `combineMask`. A solid rectangle stays one rectangle. An irregular contour is several. The result is never an empty mask, because the seed matches itself. The same mask is not recorded. A change is one undo step. Later `paint`, `erase`, `fill`, `combineMask`, `previewFrame`, and `diffFrames` read that mask.*
+
+*`result` is `selection` (the same shape as Selection above), `cells`, `index` (the seed's stored index), `tolerance`, `connectivity`, `frame`, and `layer`.*
+
+*CLI: `pixelforge selection wand --x --y`. `--tolerance N`, `--connectivity 4|8`, `--layer`, and `--frame`. The last two do not select that layer or frame.*
+
+错误：`OutOfBounds`、`LayerIndex`、`FrameIndex`。`connectivity` 不是 4 或 8、`tolerance` 越出 `0..=255`、或带了 `reportDirty`，是 `InvalidParams`。文档不变。
 
 ### `clearSelection`
 

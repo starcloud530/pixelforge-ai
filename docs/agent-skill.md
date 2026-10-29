@@ -105,9 +105,9 @@ stdout 是 `inspect` 的响应。文件是 version 1 `pixelforge-project`。`new
 
 ### 只改头盔 Edit only the helmet
 
-选区是工程文件里的一块矩形，或若干互不相交的矩形。不是套索，也不是魔棒。没有选区时文件不写 `selection`。多块或空蒙版写成 `{ "rects": [...] }`。下一次 `pixelforge` 进程会读到它；撤销栈仍然不保存。选区不绑定层，也不改 `activeLayer`。头盔在装备层上时，用 `--layer` 指向那一层：选区外任何层都不写，选区内只写你指定的层。
+选区是工程文件里的一块矩形，或若干互不相交的矩形。不是套索。`selection wand` 把种子格的索引色连通域收成同一份蒙版。没有选区时文件不写 `selection`。多块或空蒙版写成 `{ "rects": [...] }`。下一次 `pixelforge` 进程会读到它；撤销栈仍然不保存。选区不绑定层，也不改 `activeLayer`。头盔在装备层上时，用 `--layer` 指向那一层：选区外任何层都不写，选区内只写你指定的层。
 
-*The selection is one rectangle, or several disjoint rectangles, in the project file. It is not a lasso and not a magic wand. A clear selection omits `selection`. Several rectangles, or an empty mask, are `{ "rects": [...] }`. The next process loads it; the undo stack is still not stored. The mask is not tied to a layer and does not change `activeLayer`. Point `--layer` at the gear layer so only that layer is written, and only inside the helmet.*
+*The selection is one rectangle, or several disjoint rectangles, in the project file. It is not a lasso. `selection wand` stores the seed's connected component as that same mask. A clear selection omits `selection`. Several rectangles, or an empty mask, are `{ "rects": [...] }`. The next process loads it; the undo stack is still not stored. The mask is not tied to a layer and does not change `activeLayer`. Point `--layer` at the gear layer so only that layer is written, and only inside the helmet.*
 
 ```bash
 pixelforge layer add --project hero.json --name gear
@@ -118,6 +118,10 @@ pixelforge replace-index --project hero.json --layer 1 --from-index 4 --to-index
 pixelforge fill-rect --project hero.json --layer 1 --x 0 --y 0 --width 32 --height 48 --color-index 2
 pixelforge selection clear --project hero.json
 ```
+
+`selection wand --x 12 --y 6 --layer 1` 把种子格的索引色连通域写成同一份选区（`--tolerance` 缺省 0，精确索引；`--connectivity` 为 4 或 8）。
+
+*`selection wand --x 12 --y 6 --layer 1` stores that seed's connected index as the same mask (`--tolerance` defaults to 0; `--connectivity` is 4 or 8).*
 
 `replace-index` 只把装备层上、选区内的索引 4 换成 6。接着那次整画布 `fill-rect` 也只落在头盔矩形里。身体层的索引 3 不动。`move-rect` 的源和目标必须都整块在选区内，否则 `SelectionProtected`，一格都不写。`remap` 和 `apply-png` 不看选区。
 
