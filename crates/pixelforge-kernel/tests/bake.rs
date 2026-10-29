@@ -714,3 +714,197 @@ fn bake_skips_a_named_polish_layer_outside_the_selection() {
     assert_eq!(cell(&document, 2, polish, 7, 7), 0);
     assert_eq!(cell(&document, 1, polish, 7, 7), 7);
 }
+
+fn composite_at(document: &Document, frame: usize, x: u16, y: u16) -> u8 {
+    let width = usize::from(document.width());
+    document.composite_pixels(frame).unwrap()[usize::from(y) * width + usize::from(x)]
+}
+
+fn erased(document: &Document, frame: usize, layer: usize, x: u16, y: u16) -> bool {
+    let width = usize::from(document.width());
+    document.layer_erase(frame, layer).unwrap()[usize::from(y) * width + usize::from(x)] == 1
+}
+
+/// A hand correction bound to the part follows translate and flip. An erase
+/// punches the composite and survives the bake that rebuilds the hand.
+#[test]
+fn bound_polish_follows_part_translate_and_flip() {
+    let mut document = Document::new(12, 8).unwrap();
+    document.add_frame();
+    document.add_layer(Some("hand")).unwrap();
+    let polish = document
+        .add_layer_with_role(Some("fix"), pixelforge_kernel::LayerRole::Polish)
+        .unwrap();
+    paint_at(&mut document, 0, 4, 3, 1);
+    document.set_active_frame(1).unwrap();
+    paint_at(&mut document, 0, 4, 3, 1);
+    document.set_active_frame(0).unwrap();
+    paint_at(&mut document, 1, 4, 3, 2);
+    paint_at(&mut document, 1, 6, 3, 3);
+    document.add_part("hand", 4, 3, Some(1)).unwrap();
+    document.set_anchor("hand", "palm", 0, 0).unwrap();
+    document
+        .set_layer_bind(polish, Some("hand"), Some("palm"))
+        .unwrap();
+    paint_at(&mut document, polish, 6, 3, 7);
+    document.set_active_layer(polish).unwrap();
+    document.erase(4, 3).unwrap();
+    assert!(erased(&document, 0, polish, 4, 3));
+    assert_eq!(composite_at(&document, 0, 4, 3), 0);
+    assert_eq!(composite_at(&document, 0, 6, 3), 7);
+
+    document
+        .set_curve_key("hand", CurveChannel::TranslateX, 0, 0.0, None)
+        .unwrap();
+    document
+        .set_curve_key("hand", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    let baked = tool(&mut document, "bake", json!({"from": 0, "to": 1}));
+    assert_eq!(baked["frames"][1]["followed"], json!([polish]));
+    assert_eq!(baked["frames"][0]["followed"], json!([]));
+    assert_eq!(cell(&document, 0, polish, 6, 3), 7);
+    assert!(erased(&document, 0, polish, 4, 3));
+    assert_eq!(cell(&document, 1, 1, 6, 3), 2);
+    assert_eq!(cell(&document, 1, 1, 8, 3), 3);
+    assert_eq!(cell(&document, 1, polish, 8, 3), 7);
+    assert_eq!(cell(&document, 1, polish, 6, 3), 0);
+    assert!(erased(&document, 1, polish, 6, 3));
+    assert!(!erased(&document, 1, polish, 4, 3));
+    assert_eq!(composite_at(&document, 1, 6, 3), 0);
+    assert_eq!(composite_at(&document, 1, 8, 3), 7);
+    assert_eq!(composite_at(&document, 1, 4, 3), 1);
+
+    document
+        .set_curve_key("hand", CurveChannel::TranslateX, 1, 3.0, None)
+        .unwrap();
+    tool(&mut document, "bake", json!({"from": 1, "to": 1}));
+    assert_eq!(cell(&document, 1, polish, 9, 3), 7);
+    assert!(erased(&document, 1, polish, 7, 3));
+    assert!(!erased(&document, 1, polish, 6, 3));
+    assert_eq!(composite_at(&document, 1, 7, 3), 0);
+
+    let mut flipped = Document::new(12, 8).unwrap();
+    flipped.add_frame();
+    flipped.add_layer(Some("hand")).unwrap();
+    let polish = flipped
+        .add_layer_with_role(Some("fix"), pixelforge_kernel::LayerRole::Polish)
+        .unwrap();
+    paint_at(&mut flipped, 1, 4, 3, 2);
+    paint_at(&mut flipped, polish, 6, 3, 7);
+    flipped.add_part("hand", 4, 3, Some(1)).unwrap();
+    flipped.set_layer_bind(polish, Some("hand"), None).unwrap();
+    flipped.set_active_layer(polish).unwrap();
+    flipped.erase(5, 3).unwrap();
+    flipped
+        .set_curve_key("hand", CurveChannel::FlipHorizontal, 0, 0.0, None)
+        .unwrap();
+    flipped
+        .set_curve_key("hand", CurveChannel::FlipHorizontal, 1, 1.0, None)
+        .unwrap();
+    let baked = tool(&mut flipped, "bake", json!({"from": 0, "to": 1}));
+    assert_eq!(baked["frames"][1]["followed"], json!([polish]));
+    assert_eq!(cell(&flipped, 1, 1, 4, 3), 2);
+    assert_eq!(cell(&flipped, 1, polish, 2, 3), 7);
+    assert_eq!(cell(&flipped, 1, polish, 6, 3), 0);
+    assert!(erased(&flipped, 1, polish, 3, 3));
+    assert!(!erased(&flipped, 1, polish, 5, 3));
+    assert_eq!(composite_at(&flipped, 1, 2, 3), 7);
+}
+
+#[test]
+fn part_translate_and_flip_move_bound_polish_on_that_frame() {
+    let mut document = Document::new(12, 8).unwrap();
+    document.add_layer(Some("hand")).unwrap();
+    let polish = document
+        .add_layer_with_role(Some("fix"), pixelforge_kernel::LayerRole::Polish)
+        .unwrap();
+    paint_at(&mut document, 1, 4, 3, 2);
+    paint_at(&mut document, polish, 6, 3, 7);
+    document.add_part("hand", 4, 3, Some(1)).unwrap();
+    document.set_layer_bind(polish, Some("hand"), None).unwrap();
+    document.set_active_layer(polish).unwrap();
+    document.erase(5, 3).unwrap();
+
+    document.translate_part("hand", 2, 0, 0).unwrap();
+    assert_eq!(document.parts()[0].x, 6);
+    assert_eq!(cell(&document, 0, 1, 6, 3), 2);
+    assert_eq!(cell(&document, 0, polish, 8, 3), 7);
+    assert!(erased(&document, 0, polish, 7, 3));
+    assert!(!erased(&document, 0, polish, 5, 3));
+    document.undo().unwrap();
+    assert_eq!(document.parts()[0].x, 4);
+    assert_eq!(cell(&document, 0, polish, 6, 3), 7);
+    assert!(erased(&document, 0, polish, 5, 3));
+
+    document.flip_part("hand", false, None, 0).unwrap();
+    assert_eq!(cell(&document, 0, polish, 2, 3), 7);
+    assert!(erased(&document, 0, polish, 3, 3));
+    assert_eq!(cell(&document, 0, polish, 6, 3), 0);
+}
+
+#[test]
+fn explicit_erase_is_not_unmodified_and_unbound_polish_stays_put() {
+    let mut document = Document::new(8, 4).unwrap();
+    document.add_frame();
+    document.add_layer(Some("hand")).unwrap();
+    let polish = document
+        .add_layer_with_role(Some("fix"), pixelforge_kernel::LayerRole::Polish)
+        .unwrap();
+    let loose = document
+        .add_layer_with_role(Some("loose"), pixelforge_kernel::LayerRole::Polish)
+        .unwrap();
+    paint_at(&mut document, 1, 2, 1, 4);
+    document.add_part("hand", 2, 1, Some(1)).unwrap();
+    document.set_layer_bind(polish, Some("hand"), None).unwrap();
+    paint_at(&mut document, loose, 1, 1, 6);
+    document.set_active_frame(1).unwrap();
+    paint_at(&mut document, loose, 1, 1, 6);
+    document.set_active_frame(0).unwrap();
+    document.set_active_layer(polish).unwrap();
+    document.erase(2, 1).unwrap();
+    assert_eq!(composite_at(&document, 0, 2, 1), 0);
+    tool(
+        &mut document,
+        "erase",
+        json!({"x": 2, "y": 1, "layer": polish, "mode": "pass"}),
+    );
+    assert!(!erased(&document, 0, polish, 2, 1));
+    assert_eq!(composite_at(&document, 0, 2, 1), 4);
+    document.erase(2, 1).unwrap();
+    assert_eq!(composite_at(&document, 0, 2, 1), 0);
+
+    document
+        .set_curve_key("hand", CurveChannel::TranslateX, 0, 0.0, None)
+        .unwrap();
+    document
+        .set_curve_key("hand", CurveChannel::TranslateX, 1, 2.0, None)
+        .unwrap();
+    tool(&mut document, "bake", json!({"from": 0, "to": 1}));
+    assert!(erased(&document, 1, polish, 4, 1));
+    assert_eq!(composite_at(&document, 1, 4, 1), 0);
+    assert_eq!(cell(&document, 1, loose, 1, 1), 6);
+    assert_eq!(cell(&document, 1, loose, 3, 1), 0);
+    assert_eq!(cell(&document, 1, 1, 4, 1), 4);
+
+    let saved = document.save_project();
+    assert!(saved.contains("\"part\": \"hand\""));
+    assert!(saved.contains("\"erase\""));
+    let loaded = Document::load_project(&saved).unwrap();
+    assert_eq!(
+        loaded
+            .layer_bind(polish)
+            .unwrap()
+            .map(|bind| bind.part.as_str()),
+        Some("hand")
+    );
+    assert!(loaded.layer_bind(loose).unwrap().is_none());
+    assert!(erased(&loaded, 0, polish, 2, 1));
+    assert_eq!(
+        tool_err(
+            &mut document,
+            "setLayerBind",
+            json!({"index": 0, "part": "hand"})
+        )["code"],
+        json!("PolishBind")
+    );
+}

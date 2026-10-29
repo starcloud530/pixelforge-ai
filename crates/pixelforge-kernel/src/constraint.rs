@@ -635,6 +635,99 @@ pub(crate) fn warp_ink(
     rasterize(width, height, old, steps, accepts, true)
 }
 
+/// Maps paint cells and explicit-erase cells through `steps`.
+///
+/// A cell is marked when its index is non-zero or its erase mark is non-zero.
+/// The final cell must lie on the canvas, and both the source and the
+/// destination must be accepted. A collision keeps the later row-major cell,
+/// including when one of them is an erase. Empty steps copy the buffers.
+/// A nearest-rotation seal fills notches in the paint buffer and does not
+/// cover an erase cell.
+pub(crate) fn warp_overlay(
+    width: u16,
+    height: u16,
+    indices: &[u8],
+    erase: &[u8],
+    steps: &[MotionStep],
+    mut accepts: impl FnMut(u16, u16) -> bool,
+) -> Result<(Vec<u8>, Vec<u8>, WarpReport), KernelError> {
+    debug_assert_eq!(indices.len(), erase.len());
+    let mut moves = Vec::new();
+    for y in 0..height {
+        for x in 0..width {
+            let offset = usize::from(width) * usize::from(y) + usize::from(x);
+            let index = indices[offset];
+            let mark = erase[offset];
+            if index == TRANSPARENT_INDEX && mark == 0 {
+                continue;
+            }
+            let (mut dest_x, mut dest_y) = (i32::from(x), i32::from(y));
+            for step in steps {
+                (dest_x, dest_y) = map_point(&step.map, dest_x, dest_y, step.pivot_x, step.pivot_y)
+                    .map_err(|(x, y)| KernelError::PartOffCanvas { x, y })?;
+            }
+            let (dest_x, dest_y) = on_canvas(dest_x, dest_y, width, height)?;
+            if !accepts(x, y) || !accepts(dest_x, dest_y) {
+                return Err(KernelError::SelectionProtected);
+            }
+            let dest = usize::from(width) * usize::from(dest_y) + usize::from(dest_x);
+            moves.push((index, mark, dest));
+        }
+    }
+    let mut claims = vec![0u8; indices.len()];
+    for (_, _, dest) in &moves {
+        claims[*dest] = claims[*dest].saturating_add(1);
+    }
+    let mut unique = 0u32;
+    let mut conflicts = 0u32;
+    for count in &claims {
+        if *count > 0 {
+            unique += 1;
+        }
+        if *count > 1 {
+            conflicts += 1;
+        }
+    }
+    let source_count = u32::try_from(moves.len()).unwrap_or(u32::MAX);
+    let dropped = source_count.saturating_sub(unique);
+    let mut next = vec![TRANSPARENT_INDEX; indices.len()];
+    let mut next_erase = vec![0u8; indices.len()];
+    for (index, mark, dest) in moves {
+        next[dest] = index;
+        next_erase[dest] = mark;
+    }
+    let nearest = steps
+        .iter()
+        .any(|step| matches!(step.map, CellMap::Nearest { .. }));
+    let sealed = if nearest && dropped > 0 {
+        seal_notches(
+            width,
+            height,
+            indices,
+            &mut next,
+            &claims,
+            steps,
+            source_count,
+            unique,
+            &next_erase,
+            &mut accepts,
+        )
+    } else {
+        0
+    };
+    let breaks = bare_diagonals(width, height, &next);
+    Ok((
+        next,
+        next_erase,
+        WarpReport {
+            dropped,
+            conflicts,
+            sealed,
+            breaks,
+        },
+    ))
+}
+
 fn rasterize(
     width: u16,
     height: u16,
@@ -697,6 +790,7 @@ fn rasterize(
             steps,
             source_count,
             unique,
+            &[],
             &mut accepts,
         )
     } else {
@@ -733,6 +827,7 @@ fn seal_notches(
     steps: &[MotionStep],
     source_count: u32,
     mut written: u32,
+    blocked: &[u8],
     accepts: &mut impl FnMut(u16, u16) -> bool,
 ) -> u32 {
     let width_us = usize::from(width);
@@ -766,6 +861,7 @@ fn seal_notches(
         for x in x0..=x1 {
             let offset = y * width_us + x;
             if next[offset] != TRANSPARENT_INDEX
+                || blocked.get(offset).copied().unwrap_or(0) != 0
                 || !touches_forward(claims, width_us, height_us, x, y)
             {
                 continue;

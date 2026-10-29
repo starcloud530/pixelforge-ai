@@ -667,6 +667,7 @@ fn assemble(mut parsed: Parsed) -> Result<(Document, AsepriteReport), KernelErro
         vec![LayerRole::Default; names.len()],
         vec![true; names.len()],
         vec![255; names.len()],
+        vec![None; names.len()],
         0,
         None,
         Vec::new(),

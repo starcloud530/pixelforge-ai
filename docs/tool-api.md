@@ -363,17 +363,19 @@ CLI：`pixelforge fill --x --y --color-index N`。`--connectivity 4|8`，缺省 
 
 ### `erase`
 
-`params`：`x`、`y`。可选 `layer`。把该格设回索引 0。只改这一层。
+`params`：`x`、`y`。可选 `layer`。可选 `mode`：`transparent`（缺省）或 `pass`。
 
-错误：`OutOfBounds`、`LayerIndex`。
+在 `default` 层上，两种模式都把该格设回索引 0。在 `polish` 层上，`transparent` 写下显式擦除：索引仍是 0，合成时打穿下层；`pass` 清回未修改，下层重新露出来。只改这一层。已经处于目标状态的格子不记入撤销。
+
+错误：`OutOfBounds`、`LayerIndex`。`mode` 不是那两个字符串时是 `InvalidParams`。
 
 ### `eraseRect`
 
 `params`：`x`、`y`（矩形左上角，含这一格）、`width`、`height`（`1..=65535`）。
 
-在当前帧上把这块轴对齐矩形设回索引 0。边界和 `fillRect` 相同：只要有一格出界，整次失败，一格都不写。已经是透明的格子不记入撤销。整块是一步撤销；未结束的 gesture 会收进这些格子。锁定的调色板不阻止这次擦除。改剪影时用它，不要逐格 `erase`。
+在当前帧上把这块轴对齐矩形设回索引 0。可选 `mode` 与 `erase` 相同：`polish` 层上缺省是显式擦除，`pass` 清回未修改。边界和 `fillRect` 相同：只要有一格出界，整次失败，一格都不写。已经处于目标状态的格子不记入撤销。整块是一步撤销；未结束的 gesture 会收进这些格子。锁定的调色板不阻止这次擦除。改剪影时用它，不要逐格 `erase`。
 
-*Clears an axis-aligned rectangle on the active frame to index 0. Bounds match `fillRect`: if any cell would fall outside the canvas, the call fails and writes nothing. Cells that are already transparent are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. A locked palette does not block the erase. Prefer this over erasing cell by cell when reshaping a silhouette.*
+*Clears an axis-aligned rectangle on the active frame to index 0. `mode` matches `erase`: on a polish layer the default is an explicit erase, and `pass` returns the cell to unmodified. Bounds match `fillRect`: if any cell would fall outside the canvas, the call fails and writes nothing. Cells that are already in the target state are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. A locked palette does not block the erase. Prefer this over erasing cell by cell when reshaping a silhouette.*
 
 错误：`OutOfBounds`、`LayerIndex`。`width` 或 `height` 为 0 是 `InvalidParams`。可选 `layer` 与 `paint` 相同。
 
@@ -994,9 +996,9 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 
 `parts` 给定时，只摆名单里的部件，从动部件只跟同样被选中的目标。`layers` 再把写入收成交集。两个都省略时，写这一次采样或求解管到的挂接层，不看当前位移是不是 0。曲线回到 0、约束增量也是 0 时，这些层从源帧恢复身份姿势。没挂曲线、也没被约束驱动的层不动。同一层上两个会动、且这一层会被写入的部件是 `ConstraintLayer`。挂接层上每一个非 0 格都搬走。
 
-`role` 为 `polish` 的层是精修覆盖层，不在上面的写入集合里。`--layer` 或 `parts` 点到它时像素保持原样，不从源帧重置。曲线或约束管着的部件挂在这层上是 `PolishLayer`，整次不写。精修格子留在画下的画布格，不跟着部件走。挂接层上的局部改色会被下一次烘焙盖掉，所以手指修正要画在覆盖层。追加帧复制源帧的覆盖层，不复制只存在于别的帧上的精修。
+`role` 为 `polish` 的层是精修覆盖层，不从挂接层的源墨水重建。`--layer` 或 `parts` 点到它时，不会把它当成要重建的挂接层。曲线或约束管着的部件挂在这层上是 `PolishLayer`，整次不写。手指修正画在覆盖层。没绑定的覆盖层留在画下的画布格，`bake` 不搬它。`setLayerBind` 绑到部件之后，这一次如果摆了那个部件（有曲线、约束，或这一帧有位移），就把源帧上的修正和显式擦除按同一套变换写到目标帧。身份姿势也会从源帧盖回去，所以改回 0 不会留下上一次的错位。部件没被这次烘焙摆到时，绑定层不动。追加帧仍先复制源帧的覆盖层，再盖上摆好的绑定层；只存在于别的帧上的未绑定精修不会被复制。
 
-选区必须盖住搬走的源格和落点；追加帧上新写入的非 0 格也必须在选区内。否则 `SelectionProtected`，一格都不写。覆盖层不参与这次写入，所以选区没盖住的精修格不会让烘焙失败。出画布、缺锚点、环、第二条驱动同样整次不写。
+选区必须盖住搬走的源格和落点；追加帧上新写入的非 0 格，以及显式擦除格，也必须在选区内。否则 `SelectionProtected`，一格都不写。没绑定的精修不参与这次写入，所以选区没盖住的未绑定精修格不会让烘焙失败。绑定层在选区里，和挂接层一样。出画布、缺锚点、环、第二条驱动同样整次不写。
 
 像素或时长有变化才是一步撤销。源帧只可能改时长。当前帧不因这次调用而改变。工程文件仍是 version 1，没有 `bake` 字段。
 
@@ -1014,8 +1016,8 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 | `conflicts` | 各帧被抢到的目标格数之和 |
 | `sealed` | 各帧覆盖补洞写上的格数之和 |
 | `breaks` | 各帧只靠斜角相接的像素对之和 |
-| `polish` | 精修覆盖层的下标，从底到顶。这些层这次没有写。没有覆盖层时是 `[]` |
-| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 为空，四个质量数都是 0。其它帧带 `dropped`、`conflicts`、`sealed`、`breaks`。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件。`layers` 不含 `polish` |
+| `polish` | 精修覆盖层的下标，从底到顶。没有覆盖层时是 `[]`。未绑定的不写；绑定的见每帧 `followed` |
+| `frames` | 区间里每一帧。`rest` 为真的是源帧，`layers` 和 `followed` 为空，四个质量数都是 0。其它帧带 `dropped`、`conflicts`、`sealed`、`breaks`。`parts` 与 `solveConstraints` 的 `parts` 相同；`ink` 是 `moved` 或 `unchanged`。没挂层、或这一层没写时是 `unchanged`，因为原点不写进文件。`layers` 不含 `polish`。`followed` 是这次按部件变换盖上去的绑定精修层 |
 
 CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun --part hand --layer 0`。`pixelforge bake --curves-only`。`pixelforge bake --source 0 --from 1 --to 4`。
 
@@ -1027,9 +1029,9 @@ CLI：`pixelforge bake --from 0 --to 11 --fps 12`。`pixelforge bake --part gun 
 
 *A `parts` list poses only those parts, and a follower tracks a target only when that target is included. `layers` intersects that write set. With neither filter, a layer linked to a part this bake samples or that a solved constraint drives is written, including when that pose is the identity, so a curve that returns to zero restores the source ink. A layer with no curve and no driving constraint stays. Two moving parts on a layer that will be written are `ConstraintLayer`. Every non-zero cell on a written linked layer moves.*
 
-*A `polish` layer is an overlay and is not in that write set. Naming it with `layers` or `parts` leaves its pixels. A managed part linked to it is `PolishLayer` and the call writes nothing. Polish cells stay on the canvas cells where they were painted. They do not ride the part. A retouch on a managed layer is replaced, so a finger fix belongs on the overlay. An appended frame copies the source overlay and does not copy polish that exists only on another frame.*
+*A `polish` layer is an overlay and is not rebuilt from a linked part's ink. Naming it with `layers` or `parts` does not treat it as that rebuild. A managed part linked to it is `PolishLayer` and the call writes nothing. Paint the finger fix on the overlay. An unbound overlay stays on the canvas cells where it was painted. After `setLayerBind`, a bake that poses that part stamps the source frame's corrections and explicit erases through the same transform, including an identity pose, so returning to zero does not leave the previous offset. A bound layer whose part this bake does not pose stays. An appended frame still copies the source overlay, then overwrites a bound layer that followed. It does not copy unbound polish that exists only on another frame.*
 
-*A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it too. Otherwise the call is `SelectionProtected` and writes nothing. Polish cells are not part of that write, so a polish cell outside the selection does not fail the bake. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
+*A selection must cover each moving source cell and its destination. A new non-zero cell on an appended frame must lie inside it, and so must an explicit erase. Otherwise the call is `SelectionProtected` and writes nothing. Unbound polish is not part of that write, so an unbound polish cell outside the selection does not fail the bake. A bound overlay is. Off-canvas ink, a missing anchor, a cycle, or a second driver also write nothing.*
 
 *A change to pixels or delays is one undo step. The source frame can change its delay only. The active frame stays. The project stays version 1 and has no `bake` field. `ink` is `moved` or `unchanged`. An unattached part, or a layer that was not written, is `unchanged`, because the origin is not stored. `polish` is the overlay indices, or `[]`. `dropped`, `conflicts`, `sealed`, and `breaks` use the same coverage-seal rules as `rotatePart`. The source frame reports zeros. A seal does not clear `dropped`. Rotation does not replace hand cleanup.*
 
@@ -1299,7 +1301,7 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 层是文档级的栈，每一帧各有一块同样尺寸的索引缓冲。下标 0 在最下面，最后一层画在最上面。新建工程和旧的单层文件都是一层，名字是 `Layer 1`，`activeLayer` 是 0。这种文件保存时仍不写 `layers` / `activeLayer`，和以前的 version 1 工程相同。多了层、改了名字，或当前层不是 0 时，文件里才出现这些字段。帧上多于一层时，像素写在 `frames[].layers[].pixels`，不再写旧的 `frames[].pixels`。
 
-合成分两条，都从底往上。`visible: false` 或 `opacity: 0` 的层跳过。索引 0 不覆盖。
+合成分两条，都从底往上。`visible: false` 或 `opacity: 0` 的层跳过。索引 0 不覆盖。`polish` 层上的显式擦除是例外：索引仍是 0，但擦除标记把合成格打成透明，下层露不出来。没有标记的 0 仍是「这一格没改」。
 
 - **索引合成**（`composite`、`inspect.composite`、ASCII `preview` / `diff`、`flattenLayers`）：其余层上任何非 0 索引整格盖住下层。`opacity` 为 1..=254 也不量化成最近的调色板色，所以压平烤进去的是盖住的索引，不是混合色。
 - **RGBA 合成**（`frame_rgba`、preview 彩色 PNG、`export png`、`export sheet`，以及这份表描述的图）：`opacity` 为 255 时，非 0 索引用调色板 RGBA **替换**下层。调色板 alpha 不与下层混合，和以前的单层导出一样。`opacity` 为 1..=254 时做直通 alpha 的 source-over。源 alpha 是 `round(palette.a * opacity / 255)`，四舍五入，正好一半时远离 0（先加 127 再除以 255）。通道混合同样先加分母的一半再除。混合不写回格子。最近邻放大发生在混合之后，把已经混合的格子重复成块。
@@ -1308,17 +1310,17 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 可见性和透明度是层的属性，每一帧共用，不是逐 cel。文件里 `visible` 缺省 true，只在 false 时写出；`opacity` 缺省 255，只在不是 255 时写出。单层、名字仍是 `Layer 1`、当前层是 0、角色是 `default`、可见、不透明时，仍然不写 `layers`。旧文件没有这两个字段，读成可见且不透明。版本仍是 1。没有 multiply / screen 等混合模式。
 
-*Composite from the bottom. A hidden layer, or opacity 0, is skipped. Index 0 does not cover. The index composite (ASCII preview, diff, inspect `composite`, flatten) lets any other index cover the cell. Partial opacity is not snapped to a nearest palette color, so flatten bakes that covering index. The RGBA composite (`frame_rgba`, the preview PNG, `export png`, `export sheet`) replaces the cell with the palette color when opacity is 255, and palette alpha is not blended into the layer underneath. Opacity 1..=254 uses straight-alpha source-over. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back. Nearest-neighbor scale repeats the blended cell. `--layer` shows stored indices and ignores visibility and opacity. The flag and the opacity are shared by every frame. Defaults are omitted from the file. Older files load visible and fully opaque. There is no blend mode.*
+*Composite from the bottom. A hidden layer, or opacity 0, is skipped. Index 0 does not cover. On a `polish` layer an explicit erase is still index 0, and the erase mark clears the composite cell so the layers underneath do not show. A 0 without that mark is unmodified. The index composite (ASCII preview, diff, inspect `composite`, flatten) lets any other index cover the cell. Partial opacity is not snapped to a nearest palette color, so flatten bakes that covering index. The RGBA composite (`frame_rgba`, the preview PNG, `export png`, `export sheet`) replaces the cell with the palette color when opacity is 255, and palette alpha is not blended into the layer underneath. An explicit erase at opacity 255 clears the cell; a lower opacity scales the destination alpha by the remaining visibility. Opacity 1..=254 uses straight-alpha source-over for painted cells. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back. Nearest-neighbor scale repeats the blended cell. `--layer` shows stored indices and ignores visibility and opacity, so an erase mark looks like index 0 on that layer alone. The flag and the opacity are shared by every frame. Defaults are omitted from the file. Older files load visible and fully opaque. There is no blend mode.*
 
-每一层有 `role`。缺省 `default`：普通像素，`bake` 可以在曲线或约束管到这一层时从源帧整层重建。`polish` 是精修覆盖层，`bake` 不写它。文件里只有 `polish` 才写 `role`。`layer flatten` 把索引合成写进 `Layer 1`，角色回到 `default`，结果层可见且不透明。
+每一层有 `role`。缺省 `default`：普通像素，`bake` 可以在曲线或约束管到这一层时从源帧整层重建。`polish` 是精修覆盖层。文件里还可以有 `part` 和可选的 `anchor`，只在绑定到部件时写出。本地 `(0, 0)` 是该锚点在静止姿势的画布格，省略 `anchor` 时是部件原点。格子仍存在帧缓冲的画布坐标上；绑定只决定变换时跟谁走。改锚点偏移不搬已经画下的格子。删掉部件则绑定去掉，格子留在画布上。文件里只有 `polish` 才写 `role`。显式擦除写在该层像素旁的 `erase` 数组里，全 0 时省略；`1` 只能落在索引 0 上。`layer flatten` 把索引合成写进 `Layer 1`，角色回到 `default`，擦除打出的洞变成普通的索引 0，结果层可见且不透明。
 
-*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay `bake` does not write. The file writes `role` only for `polish`. A single layer named `Layer 1`, active layer 0, role `default`, visible, and fully opaque still omits `layers`. `layer flatten` writes the index composite into `Layer 1` and clears the role.*
+*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay. The file may also store `part` and an optional `anchor`, and only when the overlay is bound. Local `(0, 0)` is that anchor's rest canvas cell, or the part origin when `anchor` is omitted. Cells stay in the frame buffer at canvas coordinates; the binding decides which transform they follow. Changing an anchor offset does not move cells already painted. Removing the part clears the binding and leaves the cells on the canvas. The file writes `role` only for `polish`. An explicit erase is an `erase` array beside that layer's pixels, omitted when every cell is 0. A `1` is valid only on index 0. `layer flatten` writes the index composite into `Layer 1`, clears the role, and turns a punched hole into an ordinary index 0. The result stays visible and fully opaque.*
 
 ### `listLayers`
 
 参数：无。只读。
 
-`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name", "role", "visible", "opacity" }] }`。`role` 是 `default` 或 `polish`。`opacity` 是 `0..=255`。
+`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name", "role", "part", "anchor", "visible", "opacity" }] }`。`role` 是 `default` 或 `polish`。`part` 和 `anchor` 没有绑定时是 `null`。`opacity` 是 `0..=255`。
 
 ### `addLayer`
 
@@ -1332,9 +1334,19 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 `params`：`role`（`default` 或 `polish`），可选 `index`（省略时是当前层）。同一个角色不进撤销栈。像素不动。
 
-`result`：`{ "index", "role" }`。
+`result`：`{ "index", "role", "part", "anchor" }`。改成 `default` 时清掉绑定。
 
 CLI：`pixelforge layer role --role polish`。`pixelforge layer add --name polish --role polish`。
+
+### `setLayerBind`
+
+`params`：`part`（字符串，或 `null` 表示解开），可选 `anchor`（字符串或 `null`），可选 `index`（省略时是当前层）。层必须已经是 `polish`。`part` 为 `null` 时不能再给 `anchor`。同一个绑定不进撤销栈。像素不动。
+
+`result`：`{ "index", "role", "part", "anchor" }`。
+
+CLI：`pixelforge layer bind --part hand --anchor palm`。`pixelforge layer unbind`。
+
+错误：`LayerIndex`、`PolishBind`（不是精修层，或解开时还带锚点）、`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`。`part` 缺失或类型不对是 `InvalidParams`。工程文件里的绑定对不上部件或角色是 `ProjectFile`。
 
 错误：`LayerIndex`。`role` 缺失或不是那两个字符串时是 `InvalidParams`。
 
