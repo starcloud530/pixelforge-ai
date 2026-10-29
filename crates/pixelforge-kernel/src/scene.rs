@@ -1,7 +1,8 @@
 //! Compact scene facts and dirty-region geometry.
 //!
 //! Cells stay palette indices. This module does not draw, does not hash a
-//! command log, and does not invent per-layer opacity. A dirty box is the
+//! command log. Layer opacity is a composite property, not a new index.
+//! A dirty box is the
 //! cells whose stored index changed, not the rectangle a tool was asked to
 //! touch.
 

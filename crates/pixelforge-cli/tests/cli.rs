@@ -1968,7 +1968,7 @@ fn scene_dirty_preview_and_diff_are_structured() {
     assert_eq!(body["result"]["frames"][0]["delayMs"], 100);
     assert_eq!(body["result"]["layers"][0]["name"], "Layer 1");
     assert_eq!(body["result"]["layers"][0]["visible"], true);
-    assert!(body["result"]["layers"][0]["opacity"].is_null());
+    assert_eq!(body["result"]["layers"][0]["opacity"], 255);
     assert!(body["result"].get("pixels").is_none());
     assert_eq!(fs::read(&project).unwrap(), before);
 
@@ -4779,4 +4779,157 @@ fn line_checkpoint_undo_restores_the_previous_process() {
     ]);
     let body = &json_lines(&diff)[0];
     assert!(body["result"]["changed"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn layer_hide_and_opacity_export_and_checkpoint() {
+    let scratch = Scratch::new();
+    let project = scratch.child("stack.json");
+    let project_arg = project.to_str().unwrap();
+    let ckpt = scratch.child("stack.ckpt.json");
+    let ckpt_arg = ckpt.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "2",
+            "--height",
+            "1",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--color-index",
+            "3",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "layer",
+            "add",
+            "--project",
+            project_arg,
+            "--name",
+            "gear",
+        ]))),
+        0
+    );
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--color-index",
+            "7",
+        ]))),
+        0
+    );
+
+    let frames = scratch.child("frames");
+    let hide = pixelforge(&arg(&[
+        "layer",
+        "hide",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--index",
+        "1",
+    ]));
+    assert_eq!(status(&hide), 0, "{}", stderr(&hide));
+    assert_eq!(json_lines(&hide)[0]["result"]["visible"], false);
+    let exported = pixelforge(&arg(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        frames.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&exported), 0, "{}", stderr(&exported));
+    let bytes = fs::read(frames.join("pixelforge-000.png")).unwrap();
+    let image = pixelforge_kernel::decode_sheet_png(&bytes).unwrap();
+    assert_eq!(&image.rgba[..4], &[232, 93, 76, 255]);
+
+    let undo_hide = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&undo_hide), 0, "{}", stderr(&undo_hide));
+    assert!(load(&project).layer_visible(1).unwrap());
+
+    let fade = pixelforge(&arg(&[
+        "layer",
+        "opacity",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--index",
+        "1",
+        "--opacity",
+        "128",
+    ]));
+    assert_eq!(status(&fade), 0, "{}", stderr(&fade));
+    assert_eq!(json_lines(&fade)[0]["result"]["opacity"], 128);
+    let doc = load(&project);
+    assert_eq!(&doc.frame_rgba(0).unwrap()[..4], &[153, 117, 136, 255]);
+    assert_eq!(doc.composite_pixels(0).unwrap()[0], 7);
+    let stored = fs::read_to_string(&project).unwrap();
+    assert!(stored.contains("\"opacity\": 128"));
+    assert!(!stored.contains("\"visible\""));
+
+    let undo = pixelforge(&arg(&[
+        "undo",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+    ]));
+    assert_eq!(status(&undo), 0, "{}", stderr(&undo));
+    let doc = load(&project);
+    assert_eq!(doc.layer_opacity(1).unwrap(), 255);
+    assert!(doc.layer_visible(1).unwrap());
+    assert_eq!(&doc.frame_rgba(0).unwrap()[..4], &[74, 140, 196, 255]);
+
+    let old = scratch.child("old.json");
+    fs::write(
+        &old,
+        r#"{
+  "format": "pixelforge-project",
+  "version": 1,
+  "width": 1,
+  "height": 1,
+  "activeFrame": 0,
+  "palette": [
+    { "r": 0, "g": 0, "b": 0, "a": 0 },
+    { "r": 1, "g": 2, "b": 3, "a": 255 }
+  ],
+  "frames": [ { "pixels": [1] } ]
+}"#,
+    )
+    .unwrap();
+    let scene = pixelforge(&arg(&["scene", "--project", old.to_str().unwrap()]));
+    assert_eq!(status(&scene), 0, "{}", stderr(&scene));
+    let layer = &json_lines(&scene)[0]["result"]["layers"][0];
+    assert_eq!(layer["visible"], true);
+    assert_eq!(layer["opacity"], 255);
 }

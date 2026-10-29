@@ -21,8 +21,9 @@ export const TIMELINE_RATIO_PPM = 1_000_000;
 /**
  * Read-only view of the kernel document.
  * `pixels` are the composite palette indices of the active frame, row-major,
- * length `width * height`. Index 0 shows the layer underneath. Paint still
- * writes the active layer.
+ * length `width * height`. A hidden layer or opacity 0 is skipped. Index 0
+ * shows the layer underneath. Partial opacity still covers here; `frameRgba`
+ * blends it. Paint still writes the active layer.
  */
 export interface KernelSnapshot {
   width: number;

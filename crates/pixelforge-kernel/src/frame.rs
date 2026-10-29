@@ -2,10 +2,11 @@
 ///
 /// Every layer has length `width * height`. Index 0 is transparent. A frame
 /// written before layers existed is one buffer; the loader turns that into a
-/// single layer. [`Self::composite`] stacks those buffers from bottom to top:
-/// a non-zero index covers the layers under it, and index 0 leaves them
-/// visible. Palette alpha is not blended here. Export resolves the winning
-/// index afterwards.
+/// single layer. [`Self::composite`] stacks those buffers from bottom to top.
+/// A layer the caller marks as skipped is left out. Index 0 does not cover.
+/// Any other index replaces the cell. Palette alpha and partial layer opacity
+/// are not blended here. RGBA export blends partial opacity afterwards and
+/// does not write a new index.
 ///
 /// `delay_ms` is how long this frame stays up during loop playback.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -75,10 +76,22 @@ impl Frame {
         self.layers.iter().any(|pixels| pixels.contains(&index))
     }
 
-    /// Bottom-to-top index stack. Index 0 does not cover; any other index does.
-    pub(crate) fn composite(&self) -> Vec<u8> {
-        let mut out = self.layers[0].clone();
-        for layer in self.layers.iter().skip(1) {
+    /// Bottom-to-top index stack.
+    ///
+    /// `visible` and `opacity` match the layer stack. A hidden layer, or a
+    /// layer whose opacity is 0, is skipped. Index 0 does not cover. Any other
+    /// index replaces the cell, including when opacity is only partial: an
+    /// index cannot store a blend.
+    pub(crate) fn composite(&self, visible: &[bool], opacity: &[u8]) -> Vec<u8> {
+        debug_assert_eq!(visible.len(), self.layers.len());
+        debug_assert_eq!(opacity.len(), self.layers.len());
+        let mut out = vec![0u8; self.layers[0].len()];
+        for (layer, (&shown, &opacity)) in
+            self.layers.iter().zip(visible.iter().zip(opacity.iter()))
+        {
+            if !shown || opacity == 0 {
+                continue;
+            }
             for (dst, src) in out.iter_mut().zip(layer.iter()) {
                 if *src != 0 {
                     *dst = *src;

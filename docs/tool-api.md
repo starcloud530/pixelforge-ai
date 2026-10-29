@@ -141,13 +141,13 @@
 
 ## 工具 Tools
 
-没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，结果相同的 `combineMask`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
+没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改层角色、改可见性、改透明度、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，结果相同的 `combineMask`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
 `paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
 撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
-*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
+*`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, layer rename, layer role, layer visibility, layer opacity, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
@@ -181,7 +181,7 @@
 | `parts` | `{ "index", "name", "x", "y", "layer", "anchors" }` 数组，按添加顺序。没有部件时是 `[]`。见「部件与锚点」 |
 | `curves` | `{ "index", "part", "channel", "keys" }` 数组，按添加顺序。没有曲线时是 `[]`。见「部件曲线」 |
 | `constraints` | `{ "index", "name", "kind", "part", "anchor", "target", "targetAnchor", "x", "y", "chain", "bend", "contacts" }` 数组，按添加顺序。没有约束时是 `[]`。见「约束」 |
-| `layers` | `{ "index", "name" }` 数组，从底到顶 |
+| `layers` | `{ "index", "name", "role", "visible", "opacity" }` 数组，从底到顶。`opacity` 是 `0..=255` |
 | `canUndo`, `canRedo` | 撤销 / 重做是否可用 |
 | `gestureOpen` | 是否有未结束的 gesture |
 
@@ -201,7 +201,7 @@
 | `activeFrame`, `activeLayer` | 当前帧、当前层，从 0 计 |
 | `selection` | 与 `inspect` 相同。没有选区时是 `null` |
 | `layerCount` | 层数，至少 1 |
-| `layers` | `{ "index", "name", "visible", "opacity" }`，从底到顶 |
+| `layers` | `{ "index", "name", "role", "visible", "opacity" }`，从底到顶。`opacity` 是 `0..=255`，255 完全不透明 |
 | `paletteLocked` | 调色板是否锁定 |
 | `indexPolicy` | `reject` 或 `clamp`。省略工程字段时是 `reject` |
 | `paletteCount` | 调色板项数，含索引 0 |
@@ -215,13 +215,13 @@
 | `curves` | 与 `inspect` 相同。没有曲线时是 `[]` |
 | `constraints` | 与 `inspect` 相同。没有约束时是 `[]` |
 
-`visible` 恒为 `true`。`opacity` 恒为 `null`。内核没有逐层隐藏，也没有逐层透明度。非 0 索引盖住下层，不按 alpha 混合。
+`visible` 是布尔，缺省 `true`。`opacity` 是整数 `0..=255`，缺省 `255`，不再是 `null`。`false` 或 `0` 让这一层退出合成。`1..=254` 在索引合成里仍整格覆盖，只在 RGBA 导出里混合。同一层的这两个值所有帧共用。旧工程没有这两个字段时读成可见且不透明。
 
 `paletteHash` 是 FNV-1a 64 位。初值 `14695981039346656037`，乘数 `1099511628211`。按索引顺序把每一项的 `r`、`g`、`b`、`a` 各作为一个字节送进去。结果是 16 位小写十六进制。颜色和顺序不变，哈希就不变。它用来认出调色板，不是口令。
 
 CLI：`pixelforge scene --project hero.json`。
 
-*Every layer is `visible: true`. `opacity` is `null`. The kernel does not store a hide flag or a per-layer opacity. A non-zero index covers the layer under it and does not blend. `paletteHash` is FNV-1a 64-bit: offset basis `14695981039346656037`, prime `1099511628211`, each entry's `r`, `g`, `b`, `a` in index order, written as 16 lowercase hex digits. The same colors in the same order hash the same. It identifies the palette. It is not a secret.*
+*`visible` is a boolean and defaults to true. `opacity` is an integer `0..=255` and defaults to 255. It is not `null`. `false` or `0` skips that layer in the composite. `1..=254` still covers in the index composite and blends only in RGBA export. One layer has one flag and one opacity for every frame. An older file without the fields loads visible and fully opaque. `paletteHash` is FNV-1a 64-bit: offset basis `14695981039346656037`, prime `1099511628211`, each entry's `r`, `g`, `b`, `a` in index order, written as 16 lowercase hex digits. The same colors in the same order hash the same. It identifies the palette. It is not a secret.*
 
 ### 脏区 Dirty region
 
@@ -1299,19 +1299,26 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 层是文档级的栈，每一帧各有一块同样尺寸的索引缓冲。下标 0 在最下面，最后一层画在最上面。新建工程和旧的单层文件都是一层，名字是 `Layer 1`，`activeLayer` 是 0。这种文件保存时仍不写 `layers` / `activeLayer`，和以前的 version 1 工程相同。多了层、改了名字，或当前层不是 0 时，文件里才出现这些字段。帧上多于一层时，像素写在 `frames[].layers[].pixels`，不再写旧的 `frames[].pixels`。
 
-合成规则：从底往上叠索引。索引 0 是透明，露出下面的层。任何非 0 索引直接盖住下面的层，不按调色板 alpha 做混合。导出再把赢下的那个索引解析成 RGBA，和单层时一样。
+合成分两条，都从底往上。`visible: false` 或 `opacity: 0` 的层跳过。索引 0 不覆盖。
 
-`preview`、`diff`、`export png`、`export sheet` 默认看合成结果。`previewFrame` / `diffFrames` 以及 CLI 的 `--layer N` 只看那一层。绘制工具的 `layer` 只决定改哪一层。
+- **索引合成**（`composite`、`inspect.composite`、ASCII `preview` / `diff`、`flattenLayers`）：其余层上任何非 0 索引整格盖住下层。`opacity` 为 1..=254 也不量化成最近的调色板色，所以压平烤进去的是盖住的索引，不是混合色。
+- **RGBA 合成**（`frame_rgba`、preview 彩色 PNG、`export png`、`export sheet`，以及这份表描述的图）：`opacity` 为 255 时，非 0 索引用调色板 RGBA **替换**下层。调色板 alpha 不与下层混合，和以前的单层导出一样。`opacity` 为 1..=254 时做直通 alpha 的 source-over。源 alpha 是 `round(palette.a * opacity / 255)`，四舍五入，正好一半时远离 0（先加 127 再除以 255）。通道混合同样先加分母的一半再除。混合不写回格子。最近邻放大发生在混合之后，把已经混合的格子重复成块。
 
-每一层有 `role`。缺省 `default`：普通像素，`bake` 可以在曲线或约束管到这一层时从源帧整层重建。`polish` 是精修覆盖层，`bake` 不写它。文件里只有 `polish` 才写 `role`。单层、名字仍是 `Layer 1`、当前层是 0、角色是 `default` 时，仍然不写 `layers`。`layer flatten` 把覆盖层合成进 `Layer 1`，角色回到 `default`。
+`preview`、`diff`、`export png`、`export sheet` 默认看合成。`diff` 比的是索引，所以半透明不会让两边的索引变成 `!`。`previewFrame` / `diffFrames` 以及 CLI 的 `--layer N` 只看那一层存着的索引，不看 `visible`，也不乘 `opacity`，这样隐藏层还能检查。绘制工具的 `layer` 只决定改哪一层，隐藏层仍然能画。
 
-*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay `bake` does not write. The file writes `role` only for `polish`. A single layer named `Layer 1`, active layer 0, and role `default` still omits `layers`. `layer flatten` composites the overlay into `Layer 1` and clears the role.*
+可见性和透明度是层的属性，每一帧共用，不是逐 cel。文件里 `visible` 缺省 true，只在 false 时写出；`opacity` 缺省 255，只在不是 255 时写出。单层、名字仍是 `Layer 1`、当前层是 0、角色是 `default`、可见、不透明时，仍然不写 `layers`。旧文件没有这两个字段，读成可见且不透明。版本仍是 1。没有 multiply / screen 等混合模式。
+
+*Composite from the bottom. A hidden layer, or opacity 0, is skipped. Index 0 does not cover. The index composite (ASCII preview, diff, inspect `composite`, flatten) lets any other index cover the cell. Partial opacity is not snapped to a nearest palette color, so flatten bakes that covering index. The RGBA composite (`frame_rgba`, the preview PNG, `export png`, `export sheet`) replaces the cell with the palette color when opacity is 255, and palette alpha is not blended into the layer underneath. Opacity 1..=254 uses straight-alpha source-over. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back. Nearest-neighbor scale repeats the blended cell. `--layer` shows stored indices and ignores visibility and opacity. The flag and the opacity are shared by every frame. Defaults are omitted from the file. Older files load visible and fully opaque. There is no blend mode.*
+
+每一层有 `role`。缺省 `default`：普通像素，`bake` 可以在曲线或约束管到这一层时从源帧整层重建。`polish` 是精修覆盖层，`bake` 不写它。文件里只有 `polish` 才写 `role`。`layer flatten` 把索引合成写进 `Layer 1`，角色回到 `default`，结果层可见且不透明。
+
+*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay `bake` does not write. The file writes `role` only for `polish`. A single layer named `Layer 1`, active layer 0, role `default`, visible, and fully opaque still omits `layers`. `layer flatten` writes the index composite into `Layer 1` and clears the role.*
 
 ### `listLayers`
 
 参数：无。只读。
 
-`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name", "role" }] }`。`role` 是 `default` 或 `polish`。
+`result`：`{ "layerCount", "activeLayer", "layers": [{ "index", "name", "role", "visible", "opacity" }] }`。`role` 是 `default` 或 `polish`。`opacity` 是 `0..=255`。
 
 ### `addLayer`
 
@@ -1330,6 +1337,28 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 CLI：`pixelforge layer role --role polish`。`pixelforge layer add --name polish --role polish`。
 
 错误：`LayerIndex`。`role` 缺失或不是那两个字符串时是 `InvalidParams`。
+
+### `setLayerVisible`
+
+`params`：`visible`（布尔），可选 `index`（省略时是当前层）。同一个值不进撤销栈。像素不动。隐藏层仍可绘制。合成、导出和压平跳过它。`--layer` 预览仍能看见它。
+
+`result`：`{ "index", "visible" }`。
+
+CLI：`pixelforge layer show`、`pixelforge layer hide`。可加 `--index`。
+
+错误：`LayerIndex`。`visible` 缺失或不是布尔时是 `InvalidParams`。
+
+### `setLayerOpacity`
+
+`params`：`opacity`（整数 `0..=255`），可选 `index`（省略时是当前层）。同一个值不进撤销栈。像素不动。
+
+`255` 完全不透明，合成时用调色板颜色替换下层。`0` 跳过这一层，`visible` 可以仍是 `true`。`1..=254` 在索引合成里整格覆盖，在 RGBA 导出里按上面的 source-over 混合，不量化回调色板。`128` 是最接近 50% 的一档。
+
+`result`：`{ "index", "opacity" }`。
+
+CLI：`pixelforge layer opacity --opacity 128`。
+
+错误：`LayerIndex`。`opacity` 缺失、不是整数、或超出 `0..=255` 时是 `InvalidParams`。工程文件里的 `opacity` 超出这个范围是 `ProjectFile`（`layer N opacity must be an integer from 0 to 255`）。
 
 ### `deleteLayer`
 
@@ -1365,19 +1394,19 @@ CLI：`pixelforge layer role --role polish`。`pixelforge layer add --name polis
 
 ### `flattenLayers`
 
-参数：无。每一帧按上面的规则压成一层，名字改回 `Layer 1`，`activeLayer` 回到 0。保存出来就是旧的单层工程。已经是这一层时不进栈。一步撤销能回到原来的栈。
+参数：无。每一帧按**索引合成**压成一层，名字改回 `Layer 1`，`activeLayer` 回到 0，可见，透明度 255。隐藏层和 opacity 0 不进入。半透明层留下盖住的索引，混合色不烤进去。保存出来就是旧的单层工程。已经是这一层默认状态时不进栈。一步撤销能回到原来的栈，包括可见性和透明度。
 
 `result`：`{ "layerCount": 1, "activeLayer": 0, "name": "Layer 1" }`。
 
-CLI：`layer list`、`layer add --name gear`、`layer add --name polish --role polish`、`layer role --role polish`、`layer remove`（别名 `delete`）、`layer rename`、`layer select`、`layer reorder --from --to`、`layer flatten`。
+CLI：`layer list`、`layer add --name gear`、`layer add --name polish --role polish`、`layer role --role polish`、`layer show`、`layer hide`、`layer opacity --opacity 128`、`layer remove`（别名 `delete`）、`layer rename`、`layer select`、`layer reorder --from --to`、`layer flatten`。
 
 *Layers are a document-level stack. Every frame has one index buffer per layer, the same size as the canvas. Index 0 is the bottom. A new project and an old single-layer file are one layer named `Layer 1`. That file is still saved without `layers` or `activeLayer`. A stack, a renamed layer, or a non-zero active layer writes those fields. Frames with more than one layer store `frames[].layers[].pixels` and omit the legacy `pixels` array.*
 
-*Composite from bottom to top. Index 0 is transparent and shows the layer under it. Any other index covers that layer. Palette alpha is not blended between layers. Export then resolves the winning index to RGBA, the same as a single layer.*
+*Index composite and RGBA composite are separate. See the rules above. Flatten writes the index composite into `Layer 1`.*
 
 *`preview`, `diff`, and `export png` / `export sheet` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
 
-*`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the composite back into one layer named `Layer 1` and clears a polish role.*
+*`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `setLayerVisible` and `setLayerOpacity` change the composite and do not move pixels. The same value is not recorded. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the index composite into one layer named `Layer 1`, visible and fully opaque, and clears a polish role.*
 
 ## 不变量 Invariants
 

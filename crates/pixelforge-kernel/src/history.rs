@@ -4,7 +4,8 @@
 //! rectangle erase, a rectangle copy or move (including across frames), a
 //! horizontal index flip, a canvas resize, a palette color change, a palette
 //! import, a palette lock, a frame-list change, an active-frame change, a
-//! layer-stack change, an active-layer change, a rectangular selection, a
+//! layer-stack change, a layer visibility or opacity change, an active-layer
+//! change, a rectangular selection, a
 //! per-frame delay change, a named part list, a part-parameter curve list,
 //! a constraint list, or a whole gesture of those.
 //! The shell turns one drag into one gesture so a stroke or a color-picker
@@ -163,6 +164,9 @@ pub(crate) enum Change {
         after_pixels: Vec<Vec<Vec<u8>>>,
     },
     /// A blank layer was inserted at `index` on every frame.
+    ///
+    /// A new layer is visible and fully opaque. Those defaults are not stored
+    /// on the entry.
     AddLayer {
         index: usize,
         name: String,
@@ -177,6 +181,8 @@ pub(crate) enum Change {
         index: usize,
         name: String,
         role: LayerRole,
+        visible: bool,
+        opacity: u8,
         pixels: Vec<Vec<u8>>,
         active_before: usize,
         active_after: usize,
@@ -186,6 +192,18 @@ pub(crate) enum Change {
         index: usize,
         before: LayerRole,
         after: LayerRole,
+    },
+    /// One layer's composite visibility changed. Pixels stay.
+    LayerVisible {
+        index: usize,
+        before: bool,
+        after: bool,
+    },
+    /// One layer's composite opacity changed. `0..=255`. Pixels stay.
+    LayerOpacity {
+        index: usize,
+        before: u8,
+        after: u8,
     },
     RenameLayer {
         index: usize,
@@ -213,9 +231,14 @@ pub(crate) enum Change {
         active_after: usize,
     },
     /// Every frame was composited into the single default layer.
+    ///
+    /// The result is visible and fully opaque. Undo restores the previous
+    /// visibility and opacity with the stack.
     Flatten {
         before_names: Vec<String>,
         before_roles: Vec<LayerRole>,
+        before_visible: Vec<bool>,
+        before_opacity: Vec<u8>,
         before_pixels: Vec<Vec<Vec<u8>>>,
         before_active: usize,
         after_pixels: Vec<Vec<u8>>,

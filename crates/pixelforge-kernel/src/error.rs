@@ -208,6 +208,8 @@ pub enum ProjectFileError {
     LayerName { index: usize },
     /// A layer `role` is not `default` or `polish`.
     LayerRole { index: usize },
+    /// A layer `opacity` is present and is not an integer from 0 to 255.
+    LayerOpacity { index: usize },
     /// A frame stores both a legacy `pixels` buffer and a `layers` array.
     LayerPixels { frame: usize },
     /// A frame's layer count does not match the document layer stack.
@@ -577,6 +579,9 @@ impl fmt::Display for ProjectFileError {
             ),
             Self::LayerRole { index } => {
                 write!(f, "layer {index} role must be default or polish")
+            },
+            Self::LayerOpacity { index } => {
+                write!(f, "layer {index} opacity must be an integer from 0 to 255")
             },
             Self::LayerPixels { frame } => {
                 write!(f, "frame {frame} stores both pixels and layers")

@@ -127,9 +127,9 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 ## 已知限制 Known limitations
 
-装好并跑通上面的 `new` / `preview` 之后，先看这四条。它们是当前 CLI 和内核的能力边界。测试通过、示例能跑、`validate-atlas` 或游戏包校验退出码是 0，仍然落在这些边界里。
+装好并跑通上面的 `new` / `preview` 之后，先看这五条。它们是当前 CLI 和内核的能力边界。测试通过、示例能跑、`validate-atlas` 或游戏包校验退出码是 0，仍然落在这些边界里。
 
-*After `new` and `preview` above, read these four bounds. They are the CLI and kernel as they ship. A green test, a working example, or exit code 0 from `validate-atlas` or the game-pack check stays inside them.*
+*After `new` and `preview` above, read these five bounds. They are the CLI and kernel as they ship. A green test, a working example, or exit code 0 from `validate-atlas` or the game-pack check stays inside them.*
 
 - **精修固定在画布坐标，不跟随部件。** `role` 为 `polish` 的覆盖层，`bake` 不写，所以画在上面的修正会留下。格子留在画下的那一格（画布 / 世界坐标），部件再旋转或平移也不搬。曲线或约束管着的生成层每次从源帧整层重建；直接改那一层的索引，下一次 `bake` 会盖掉。这是 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) 已经落地的语义：受保护的是覆盖层，修正不写在部件局部坐标上。烘焙命令见 [docs/agent-skill.md](docs/agent-skill.md)。
 
@@ -137,11 +137,15 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 - **IK 解的是关节位置。** 短链是 2 或 3 节，加上 `pin` 和 `plant` 把脚钉在接触点上。它不自动编写自然步态，也不从一条静止姿势生成走路循环。没有整棵 IK 树，没有步态生成器，也没有物理。见 [#68](https://github.com/starcloud530/pixelforge-ai/issues/68)。`examples/soldier-walk.py` 钉的是接触帧。走路帧仍要自己关键帧，或同姿复制后改差，再 `bake`。
 
+- **层透明度不写回索引。** `opacity` 是 `0..=255`。隐藏层和 0 不进入合成。255 用调色板颜色整格覆盖，不把调色板 alpha 混进下层。1 到 254 只在 RGBA 导出、preview 彩色 PNG 和 `frame_rgba` 里做直通 alpha 混合，不量化成最近的调色板色。ASCII、`diff` 和 `layer flatten` 仍是盖住的索引，所以压平之后半透明会变成不透明的那一格。没有 multiply / screen。见 [#98](https://github.com/starcloud530/pixelforge-ai/issues/98)。
+
 - **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
 
 *A `polish` overlay is not written by `bake`, so a fix painted there survives another bake. Those cells stay on the canvas cell where they were painted (canvas / world coordinates). They do not follow the part. A layer a curve or constraint manages is rebuilt from the source frame, so an edit on that generated layer is replaced on the next `bake`. That is the shipped [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) boundary: the overlay is kept, and the fix is not stored in part-local coordinates. Bake commands: [docs/agent-skill.md](docs/agent-skill.md).*
 
 *Rotation past a right angle is nearest-neighbor rasterization plus a coverage seal. The seal closes more notches than forward mapping alone. Quality is better, and it is still lossy. Sealing does not clear `dropped`. A one-pixel line can still break (`breaks` above 0) or shorten near 45°. Ink count matching the source is not a finished edge. See [#73](https://github.com/starcloud530/pixelforge-ai/issues/73). Rotation does not replace a hand pass.*
+
+*Layer opacity is `0..=255` and is not written back as an index. A hidden layer or 0 is skipped. 255 covers with the palette color and does not blend palette alpha. 1..=254 blends only in RGBA export, the preview PNG, and `frame_rgba`. It is not snapped to a nearest palette color. ASCII, `diff`, and `layer flatten` keep the covering index, so a flatten turns a partial layer opaque. There is no multiply or screen. See [#98](https://github.com/starcloud530/pixelforge-ai/issues/98).*
 
 *Short-chain IK is two or three parts. `pin` and `plant` hold a foot on a contact. The solve places joints. It does not author a natural gait, and it does not turn one rest pose into a walk cycle. There is no full IK tree, no gait generator, and no physics. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). `examples/soldier-walk.py` plants contact frames. Walk frames are still keyed, or duplicated and edited, then baked.*
 
@@ -174,7 +178,7 @@ Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。�
 | `pixelforge` | 核心。安装与运行、索引色不变量、退出码、`inspect` / `tools` / `call`。线段、椭圆、多边形、洪水填充和矩形轮廓。最少编辑路径：同姿复制后改差，合并相邻同色 `fillRect`，一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | 从零画角色、立绘、剪影。剪影（单色）→ 色块 → 细节，每阶段 `preview --scale` 与 ASCII。禁止一像素刷屏，读图要查破洞、头身和体积断点。 |
 | `pixelforge-sprite-4dir` | 四向走 + 闲精灵表。行是朝向，列是 idle 加 walk。`export sheet --cols`、同姿列复制后改差、跨帧 `copy-rect`、`diff` 查脚滑、`hflip` 后修高光。 |
-| `pixelforge-layers` | 身体、装备、四肢分层。合成预览、绘制 `--layer`、`layer flatten`。 |
+| `pixelforge-layers` | 身体、装备、四肢分层。合成预览、绘制 `--layer`、`layer hide` / `opacity`、`layer flatten`。 |
 | `pixelforge-critique` | 只读检查：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。必须列出缺陷，不能只说看起来不错。 |
 
 ## 开发 Development

@@ -7,8 +7,10 @@
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
 //! indices on the active layer, never raw RGB. `line`, `ellipse`, `polygon`,
 //! `fill`, and `stroke_rect` are the same kind of indexed write. Preview, diff, and PNG export
-//! composite the stack: index 0 is transparent and any other index covers the
-//! layer under it.
+//! composite the stack. A hidden layer, or a layer at opacity 0, is skipped.
+//! Index 0 is transparent and any other index covers the layer under it.
+//! Partial layer opacity blends only in the RGBA composite and is not snapped
+//! back to a palette index.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
 //! A selection mask, when stored, limits those paint writes to that mask.
@@ -93,6 +95,13 @@ pub const DEFAULT_FRAME_DELAY_MS: u32 = 100;
 
 /// Name of the only layer when a project file has no layer stack.
 pub const DEFAULT_LAYER_NAME: &str = "Layer 1";
+
+/// Fully opaque layer. The project file omits `opacity` at this value.
+///
+/// `0` skips the layer in every composite. `1..=254` blends in RGBA export
+/// and still covers in the index composite. `255` covers with the palette
+/// color and does not blend palette alpha into the layer underneath.
+pub const LAYER_OPACITY_OPAQUE: u8 = 255;
 
 /// Whether bake may rebuild a layer from the rest pose.
 ///
