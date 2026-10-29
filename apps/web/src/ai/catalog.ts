@@ -739,6 +739,21 @@ const BY_NAME = {
       atlas: { type: "boolean", description: "When true, add frame rects, delays, columns, and tags. Omit to keep the PNG fields only." },
     },
   ),
+  exportApng: tool(
+    "exportApng",
+    "Return one looping APNG preview as standard base64. Uses the same RGBA composite as exportPngSequence: a hidden layer or opacity 0 is skipped, and opacity 1 to 254 blends. Optional tag plays that tag's inclusive range and loop. Omit tag to play from and to, defaulting to the whole timeline, with loop forward, reverse, pingpong, or once. forward, reverse, and pingpong loop forever (plays 0). once plays a single time (plays 1). Each frame keeps its delayMs. Optional scale is an integer >= 1. This is a preview, not a sprite sheet. It does not quantize or dither. Do not pass tag together with from, to, or loop. Does not change the document or the undo stack.",
+    {
+      scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
+      tag: { type: "string", description: "Tag name. Uses that range and loop. Omit to use from, to, and loop." },
+      from: int("First frame, inclusive. Omit for 0. Do not pass with tag.", 0, 4294967295),
+      to: int("Last frame, inclusive. Omit for the last frame. Do not pass with tag.", 0, 4294967295),
+      loop: {
+        type: "string",
+        enum: ["forward", "reverse", "pingpong", "once"],
+        description: "Playback when tag is omitted. Default forward.",
+      },
+    },
+  ),
   previewFrame: tool(
     "previewFrame",
     "Read-only view of one frame. Returns ink, bounds, index counts, the row-major index buffer, and a scaled color PNG as standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Pass selection true to count only the stored mask, or x, y, width, and height for one rectangle. Omit both for the whole canvas. Pass only one scope. Cells outside are protected in the view and are not ink. Does not change the document or the undo stack.",
@@ -924,6 +939,7 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "saveProject",
   "exportPngSequence",
   "exportSpriteSheet",
+  "exportApng",
   "previewFrame",
   "diffFrames",
   "listLayers",

@@ -1185,6 +1185,31 @@ CLI 的 `pixelforge export sheet --atlas hero-sheet.json` 把这个对象写成�
 
 *`validate-atlas` reads this same object, plus the CLI `image` field. An optional `pivot` is checked only when it is already there. The command is not a document tool and it does not edit pixels. Exit codes and the #18 handoff are in [export.md](export.md).*
 
+### `exportApng`
+
+`params`：可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）。可选 `tag`（标签名）。不写 `tag` 时，可选 `from`、`to`（闭区间帧下标，缺省是整条时间轴）和 `loop`（`forward`、`reverse`、`pingpong`、`once`，缺省 `forward`）。`tag` 与 `from` / `to` / `loop` 不能同时出现，否则是 `InvalidParams`。不改文档，不进撤销栈。
+
+每一帧是和 `exportPngSequence` 相同的 RGBA 合成：隐藏层和 opacity 0 跳过，opacity 255 用调色板颜色盖住，1 到 254 做直通 alpha 混合。`--scale` 在混合之后最近邻放大。文件是 APNG，不是 GIF，也不做调色板量化或抖动。理由和播放序见 [export.md](export.md)。
+
+`result`：
+
+| 字段 Field | 含义 Meaning |
+| --- | --- |
+| `apng` | 这一张 APNG 的标准 Base64。没有 `data:` 前缀 |
+| `format` | `"apng"` |
+| `scale`, `width`, `height` | 倍数和放大后的像素尺寸 |
+| `loop` | 实际使用的循环模式 |
+| `plays` | APNG `num_plays`。`0` 无限循环，`1` 只播一遍（`once`） |
+| `frameCount` | 播放序的帧数。`pingpong` 会把中间帧再列一次，所以可以大于区间长度 |
+| `frames` | 播放序。每项是 `{ "index", "delayMs" }`。`index` 是文档帧下标 |
+| `tag` | 用了标签时才有，值是规范化后的名字 |
+
+CLI：`pixelforge export apng --project hero.json --output walk.apng --tag walk_down`。stdout 的 `result` 没有 `apng` 字段，改为 `path` 和 `bytes`。不传 `--tag` 时可以写 `--from`、`--to`、`--loop`。
+
+未知标签是 `TagMissing`。名字空或含控制字符是 `TagName`。`from` 大于 `to`，或区间超出帧列表，是 `PreviewRange`。`scale` 为 0 是 `InvalidParams`。放大后放不进 PNG 是 `ExportScale`。
+
+*Optional `scale` matches `exportPngSequence`. Optional `tag` plays that tag's range and loop. Without `tag`, optional `from` and `to` are an inclusive range (the whole timeline when omitted) and `loop` is `forward`, `reverse`, `pingpong`, or `once` (default `forward`). Passing `tag` together with `from`, `to`, or `loop` is `InvalidParams`. The document and the undo stack stay unchanged. Each frame is the same RGBA composite as `exportPngSequence`. The file is APNG, not GIF, and it is not quantized or dithered. See [export.md](export.md). `frames` is the playback order; ping-pong repeats a middle frame, so `frameCount` can be longer than the source range. `plays` is 0 for a loop and 1 for `once`. CLI `export apng` writes the file and returns `path` and `bytes` instead of `apng`. A missing tag is `TagMissing`. A bad name is `TagName`. A range outside the frame list is `PreviewRange`. Scale 0 is `InvalidParams`. A scaled size that does not fit a PNG is `ExportScale`.*
+
 ### `previewFrame`
 
 `params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）、可选 `layer`。不写 `layer` 时画合成图；写了就只画那一层，并且不改变 `activeLayer`。
@@ -1442,7 +1467,7 @@ CLI：`layer list`、`layer add --name gear`、`layer add --name polish --role p
 
 *Index composite and RGBA composite are separate. See the rules above. Flatten writes the index composite into `Layer 1`.*
 
-*`preview`, `diff`, and `export png` / `export sheet` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
+*`preview`, `diff`, and `export png` / `export sheet` / `export apng` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
 
 *`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `setLayerVisible` and `setLayerOpacity` change the composite and do not move pixels. The same value is not recorded. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the index composite into one layer named `Layer 1`, visible and fully opaque, and clears a polish role.*
 

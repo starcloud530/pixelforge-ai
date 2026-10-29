@@ -4,15 +4,33 @@
 
 *The kernel composites layers to RGBA and encodes the PNG. The page only downloads those bytes. A hidden layer, or opacity 0, is left out. Index 0 is transparent (`r = g = b = a = 0`). Opacity 255 replaces the cell with the palette RGBA and does not blend palette alpha into the layer underneath. Paint colors are opaque. Opacity 1..=254 blends in the export with straight-alpha source-over. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back and is not snapped to a palette index. The index preview and `layer flatten` still show the covering index. `--scale` repeats the blended cell. Export does not change the document and does not push an undo entry. Onion skin uses that same RGBA as a view overlay. A PNG still contains only that frame's own pixels, not its neighbors. The sprite sheet and its atlas use that composite. The atlas stays frame rectangles and tags. A hidden layer does not remove a frame from the grid.*
 
-时长留在时间轴和工程文件的 `delayMs` 里。PNG 里没有每帧时长。默认时长是 100 毫秒，也就是 10 FPS。
+时长留在时间轴和工程文件的 `delayMs` 里。PNG 序列和 sprite sheet 里没有每帧时长。默认时长是 100 毫秒，也就是 10 FPS。要在一个文件里循环播放，用下面的 APNG 预览。
 
-*Delays stay on the timeline and in the project file's `delayMs`. A PNG does not carry per-frame timing. The default delay is 100 milliseconds, which is 10 FPS.*
+*Delays stay on the timeline and in the project file's `delayMs`. A PNG sequence and a sprite sheet do not carry per-frame timing. The default delay is 100 milliseconds, which is 10 FPS. A single looping file is the APNG preview below.*
 
 ## PNG 序列 PNG sequence
 
 一帧一个文件，顺序就是时间轴顺序。网页下载的文件名是 `pixelforge-000.png`、`pixelforge-001.png`，至少三位、从 0 起，按文件名排序就是播放顺序。网页导出的尺寸等于画布。`pixelforge export png` 写出同样的文件名，并可以用 `--scale K`（整数，至少 1，默认 1）在内核里做最近邻放大：每个索引重复成 `K × K` 的块，再按调色板解析成 RGBA，没有插值。`pixelforge export sheet --scale K` 同样放大每一格。不传 `--cols` 时列数和行数仍是接近正方形的网格；`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。`sheetWidth` / `sheetHeight` 乘上 `K`。`K` 为 1 时字节与不传 `--scale` 相同。
 
 *One file per frame, in timeline order. The page downloads `pixelforge-000.png`, `pixelforge-001.png`, and so on: at least three digits, starting at 0, so a filename sort is the playback order. The page exports at canvas size. `pixelforge export png` writes those same file names. `--scale K` (an integer ≥ 1, default 1) nearest-neighbor upscales inside the kernel: each palette index is repeated into a `K` by `K` block, then resolved to RGBA, with no filtering. `pixelforge export sheet --scale K` scales each cell the same way. Without `--cols`, columns and rows stay the nearly square grid. `--cols N` sets the column count and the row count becomes `ceil(frame count / N)`. Scale does not change the column count. `sheetWidth` / `sheetHeight` are multiplied by `K`. Scale 1 matches the bytes written when `--scale` is omitted.*
+
+## 可播放预览 APNG
+
+`pixelforge export apng` 把一段动画写成一张能循环播放的 APNG。浏览器和常见看图软件直接打开。它不是 sprite sheet，也不能代替 `export sheet` 进游戏。`validate-atlas` 不读这个文件。
+
+选 APNG，不选 GIF。合成结果已经是直通 RGBA：调色板项带 alpha，层 `opacity` 在 1 到 254 时还会混出调色板里没有的颜色。GIF 只有一张最多 256 色的索引表，并且只有一个透明色，半透明必须铺底或抖动。帧时长是毫秒，`bake --fps 12` 得到 83。GIF 的单位是百分之一秒，83 毫秒存不下来。APNG 用 `delay_num = delayMs`、`delay_den = 1000`，毫秒是精确的。像素和 `frame_rgba` / `export png` 是同一张合成，最近邻 `--scale` 也相同。没有调色板量化，没有抖动。
+
+```bash
+pixelforge export apng --project hero.json --output walk.apng --tag walk_down
+```
+
+`--tag` 用该标签的闭区间和 `loop`。不写标签时，`--from` / `--to` 是闭区间，缺省是整条时间轴；`--loop` 缺省 `forward`。`--tag` 不能和 `--from`、`--to`、`--loop` 一起写。`forward`、`reverse`、`pingpong` 无限循环（APNG `num_plays` 为 0）。`once` 播一遍（`num_plays` 为 1）。`pingpong` 两端不多停一帧：0 到 3 的播放序是 0、1、2、3、2、1，中间帧的 `delayMs` 用两次。两帧或一帧的 `pingpong` 不额外重复端点。`reverse` 从 `to` 播到 `from`。每一格仍是该帧自己的 `delayMs`。
+
+隐藏层和 opacity 0 不进入画面。每一帧都是整幅合成，用 APNG 的 source 混合盖住上一帧，所以透明格不会漏出上一帧。不改文档，不进撤销栈。
+
+Tool API 是 `exportApng`。`call` 的 `result.apng` 是标准 base64。CLI 把文件写到 `--output`，stdout 里是路径、`frames`（播放序的 `index` 和 `delayMs`）、`loop`、`plays`，没有 base64。
+
+*This is one looping APNG a browser or an image viewer can play. It is not a sprite sheet and it does not replace `export sheet` for a game. `validate-atlas` does not read it. APNG is the format, not GIF: the composite is already straight RGBA, palette entries carry alpha, and opacity 1..=254 blends colors that are not palette indices. GIF has one transparent index and would have to matte or dither those pixels. Delays are milliseconds; 12 fps is 83 ms, which GIF's centisecond unit cannot store. APNG stores `delayMs / 1000` exactly. Pixels match `frame_rgba` and `export png`. There is no palette quantization and no dither. `--tag` uses that tag's range and loop. Without a tag, `--from` / `--to` default to the whole timeline and `--loop` defaults to `forward`. Do not pass `--tag` together with `--from`, `--to`, or `--loop`. `forward`, `reverse`, and `pingpong` loop forever (`plays` 0). `once` plays once (`plays` 1). Ping-pong does not hold either end: 0 through 3 plays 0, 1, 2, 3, 2, 1, and a middle frame uses its `delayMs` twice. Two frames or one frame stay that long. `reverse` plays from `to` back to `from`. Each step keeps that frame's delay. A hidden layer or opacity 0 is left out. Each frame is the full composite and replaces the previous frame, so a transparent cell does not show the frame before it. The document and the undo stack stay as they were. Tool API `exportApng` returns standard base64 in `result.apng`. The CLI writes `--output` and prints the path, playback `frames` (`index` and `delayMs`), `loop`, and `plays`, without base64.*
 
 ## Sprite sheet
 

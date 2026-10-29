@@ -18,6 +18,7 @@ description: >-
   untouched, adding or
   duplicating frames, undoing,
   running inspect, scene, tools, or call, exporting a PNG sequence or sprite sheet,
+  exporting a looping APNG preview of a tag or frame range,
   or validating that sheet with validate-atlas before game import.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
@@ -71,7 +72,7 @@ cargo run -p pixelforge-cli -- --help
 ## Invariants
 
 - 格子存的是调色板索引。索引 0 是透明。`paint`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon` 和 `fill` 写入已经存在的索引（从 1 起），不写 RGB。`fill` 的种子可以是索引 0，新颜色仍然不能是 0。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
-- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图。`visible: false` 或 `opacity: 0` 的层跳过。索引 0 露出下面的层。`opacity` 缺省 255，这时非 0 索引用调色板颜色整格盖住下层，调色板 alpha 不与下层混合。`opacity` 为 1 到 254 时，索引合成、ASCII、`diff` 和 `layer flatten` 仍是整格覆盖，不量化成最近的调色板色；RGBA（`frame_rgba`、preview 彩色 PNG、`export png`、`export sheet`）按直通 alpha 做 source-over，源 alpha 是 `round(调色板 a × opacity / 255)`，四舍五入、正好一半时远离 0（先加 127 再除以 255）。混合不写回格子。`preview --layer N` 和 `diff --layer N` 只看那一层存着的索引，不看 `visible`，也不乘 `opacity`。没有 multiply / screen。`visible` 缺省 true，两个默认都不写进文件。旧文件没有这两个字段，读成可见且不透明。版本仍是 1。`layer flatten` 写入索引合成（隐藏和 opacity 0 不进入），结果层可见且不透明，半透明混合不会烤进去。仍然是这一层默认状态（可见、不透明、`default`、名字 `Layer 1`、当前层 0）时，文件里不写 `layers` 和 `activeLayer`。层的 `role` 缺省是 `default`。`polish` 是精修覆盖层。没绑定的覆盖层 `bake` 不写。`layer bind --part` 把它绑到部件后，`bake` 和 `part translate` / `rotate` / `flip` 按部件变换搬走修正；`--anchor` 把本地 `(0, 0)` 放在该锚点，省略时是部件原点。`erase-rect` 在这一层上缺省是显式擦除（合成打成透明），`--unmodified` 清回未修改。手指一类的局部修正画在这一层，不要画在曲线或约束管着的挂接层上：那一层每次烘焙都从源帧整层重建。分层怎么摆见 `pixelforge-layers`。
+- 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` / `export apng` 看的是合成图。`visible: false` 或 `opacity: 0` 的层跳过。索引 0 露出下面的层。`opacity` 缺省 255，这时非 0 索引用调色板颜色整格盖住下层，调色板 alpha 不与下层混合。`opacity` 为 1 到 254 时，索引合成、ASCII、`diff` 和 `layer flatten` 仍是整格覆盖，不量化成最近的调色板色；RGBA（`frame_rgba`、preview 彩色 PNG、`export png`、`export sheet`、`export apng`）按直通 alpha 做 source-over，源 alpha 是 `round(调色板 a × opacity / 255)`，四舍五入、正好一半时远离 0（先加 127 再除以 255）。混合不写回格子。`preview --layer N` 和 `diff --layer N` 只看那一层存着的索引，不看 `visible`，也不乘 `opacity`。没有 multiply / screen。`visible` 缺省 true，两个默认都不写进文件。旧文件没有这两个字段，读成可见且不透明。版本仍是 1。`layer flatten` 写入索引合成（隐藏和 opacity 0 不进入），结果层可见且不透明，半透明混合不会烤进去。仍然是这一层默认状态（可见、不透明、`default`、名字 `Layer 1`、当前层 0）时，文件里不写 `layers` 和 `activeLayer`。层的 `role` 缺省是 `default`。`polish` 是精修覆盖层。没绑定的覆盖层 `bake` 不写。`layer bind --part` 把它绑到部件后，`bake` 和 `part translate` / `rotate` / `flip` 按部件变换搬走修正；`--anchor` 把本地 `(0, 0)` 放在该锚点，省略时是部件原点。`erase-rect` 在这一层上缺省是显式擦除（合成打成透明），`--unmodified` 清回未修改。手指一类的局部修正画在这一层，不要画在曲线或约束管着的挂接层上：那一层每次烘焙都从源帧整层重建。分层怎么摆见 `pixelforge-layers`。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
 - `palette lock` 之后仍可用 `paint`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon` 和 `fill` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
@@ -132,11 +133,11 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `resize --width W --height H` 把每一帧、每一层的索引导进新画布，格式仍是 version 1。不写偏移就居中；`--offset-x` 和 `--offset-y` 要成对出现。越出新画布的格子被裁掉。放大不会凭空补细节。边长 `1..=256`。96×96、128×128，以及需要时的 96×128、64×128，都在这条边长里，是 `pixelforge-draw` 的正式档，不是另一条命令。默认 `new` 仍是 16×16。`preview` 的 ASCII 按整帧输出，一格一个字形，不裁行。96 和 128 的整张格子很长，阶段检查看 `preview --scale` 的彩色 PNG，ASCII 抽局部行。画布该选哪一档见 `pixelforge-draw`。
 
-`export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大，再解析调色板。只为看颜色时，用这个或 `preview --scale`，不要再用外部工具放大。`export sheet` 不传 `--cols` 时列数是 `ceil(sqrt(帧数))`。`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。一行一个朝向时 `N` 是该朝向的帧数，见 `pixelforge-sprite-4dir`。`--atlas FILE` 再写一份 `pixelforge-atlas` JSON（帧矩形、`delayMs`、`columns`、标签）。不传它，结果仍只有 PNG 字段。`export` 子命令把文件写到磁盘并返回路径。`call` 里的 `exportPngSequence` / `exportSpriteSheet` 返回 base64，不写文件；`exportSpriteSheet` 的 `atlas: true` 把同一份对象放进 `result.atlas`。
+`export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大，再解析调色板。只为看颜色时，用这个或 `preview --scale`，不要再用外部工具放大。`export sheet` 不传 `--cols` 时列数是 `ceil(sqrt(帧数))`。`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。一行一个朝向时 `N` 是该朝向的帧数，见 `pixelforge-sprite-4dir`。`--atlas FILE` 再写一份 `pixelforge-atlas` JSON（帧矩形、`delayMs`、`columns`、标签）。不传它，结果仍只有 PNG 字段。`export` 子命令把文件写到磁盘并返回路径。`call` 里的 `exportPngSequence` / `exportSpriteSheet` / `exportApng` 返回 base64，不写文件；`exportSpriteSheet` 的 `atlas: true` 把同一份对象放进 `result.atlas`。`export apng` 用同一张合成和每帧 `delayMs` 写成循环 APNG。它是预览，不是精灵表。
 
 平涂用 `fillRect`，挖块用 `eraseRect`，矩形轮廓用 `strokeRect`，斜线用 `line`，椭圆用 `ellipse`，多边形用 `polygon`，同色连通区换色用 `fill`。挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。这些绘制各自已经是一步撤销。好几笔要一起撤销时，用 `beginGesture` / `endGesture` 包住。撤销步数和内核操作次数不是一回事，见「最少编辑路径」。没有曲线、笔刷形状或抗锯齿。
 
-*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows. One undo step is not one kernel operation; see Shortest edit path.*
+*`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. `export apng --tag` writes a looping APNG preview of that tag. It is not the sheet. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows. One undo step is not one kernel operation; see Shortest edit path.*
 
 ## 最少编辑路径
 
@@ -378,13 +379,14 @@ pixelforge tag remove --project hero.json --name walk_down
 pixelforge export sheet --project hero.json --output hero-sheet.png --cols 4 --scale 2 --atlas hero-sheet.json
 pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
 pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
+pixelforge export apng --project hero.json --output walk.apng --tag walk_down
 ```
 
 导出之后、进游戏之前先跑上面的 `validate-atlas`；有 error 时退出码不是 0，不要把这份表交进游戏。
 
-`tag add` 给闭区间起名。`loop` 是 `forward`（缺省）、`reverse`、`pingpong` 或 `once`。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。标签不是 cel 链接，复制帧仍然复制像素。整条时间轴的循环预览不按标签播放。四向表的行、列、标签名和脚滑检查见 `pixelforge-sprite-4dir`。
+`tag add` 给闭区间起名。`loop` 是 `forward`（缺省）、`reverse`、`pingpong` 或 `once`。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。标签不是 cel 链接，复制帧仍然复制像素。整条时间轴的循环预览不按标签播放。要按标签看循环，用上面的 `export apng --tag`。那是预览文件，不是精灵表。四向表的行、列、标签名和脚滑检查见 `pixelforge-sprite-4dir`。
 
-*A tag names an inclusive range. `loop` is `forward` (the default), `reverse`, `pingpong`, or `once`. An empty tag list is omitted from the project file. Tags are not cel links. Playback of the whole timeline is unchanged. Four-direction names live in `pixelforge-sprite-4dir`.*
+*A tag names an inclusive range. `loop` is `forward` (the default), `reverse`, `pingpong`, or `once`. An empty tag list is omitted from the project file. Tags are not cel links. Playback of the whole timeline is unchanged. `export apng --tag` writes a looping APNG of that tag. It is a preview, not the sheet. Four-direction names live in `pixelforge-sprite-4dir`.*
 
 ### 士兵的枪和握持点 Gun and grip
 

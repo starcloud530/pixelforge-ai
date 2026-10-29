@@ -23,7 +23,9 @@
 //!
 //! Project files are version 1 `pixelforge-project` JSON from
 //! [`Document::save_project`] and [`Document::load_project`]. PNG sequence and
-//! sprite-sheet export resolve the indexed palette to RGBA.
+//! sprite-sheet export resolve the indexed palette to RGBA. APNG preview
+//! export writes that same composite as one looping file. It is not a sprite
+//! sheet.
 //! [`validate_atlas`] checks that sheet against its `pixelforge-atlas` and does
 //! not edit pixels.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
@@ -34,6 +36,7 @@
 //! See `docs/tech-stack.md`, `docs/dev-setup.md`, `docs/export.md`,
 //! `docs/tool-api.md`, and `docs/agent-skill.md`.
 
+mod apng;
 mod aseprite;
 mod atlas;
 mod color;
@@ -56,6 +59,7 @@ mod selection;
 mod tag;
 mod tool_api;
 
+pub use apng::{ApngExport, ApngFrame, ApngSource};
 pub use aseprite::AsepriteReport;
 pub use atlas::{
     decode_sheet_png, validate_atlas, AtlasChecks, AtlasFinding, AtlasInputError, AtlasMode,

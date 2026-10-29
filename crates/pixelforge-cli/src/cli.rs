@@ -67,6 +67,7 @@ Examples:
   pixelforge part rotate --project soldier.json --name gun --degrees 90 --anchor grip
   pixelforge part flip --horizontal --project soldier.json --name gun --anchor grip
   pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4 --atlas hero-sheet.json
+  pixelforge export apng --project hero.json --output walk.apng --tag walk_down
   pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
@@ -134,7 +135,10 @@ existing one. Indexed 8-bit only. It does not write `.aseprite`.
 composite. `layer flatten` collapses that composite into one layer.
 `export sheet --cols N` keeps one row when N is the frame count. `--atlas FILE`
 writes pixelforge-atlas JSON (frame rects, delayMs, columns, tags) and adds
-`atlas` to the result. Omit it and the result stays the PNG fields. `tag add`
+`atlas` to the result. Omit it and the result stays the PNG fields.
+`export apng --tag NAME` writes one looping APNG of that tag, using each
+frame's delay and the tag's loop. It is a preview, not the sprite sheet.
+`tag add`
 stores a name, an inclusive frame range, and a loop (`forward`, `reverse`,
 `pingpong`, or `once`). Tags are not linked cels. `resize`
 copies every layer of every frame into a new canvas; omit offsets to center.
@@ -1431,6 +1435,32 @@ pub enum ExportCmd {
         /// Write pixelforge-atlas JSON for this sheet. Omit to keep the PNG-only result.
         #[arg(long, value_name = "FILE")]
         atlas: Option<PathBuf>,
+    },
+    /// Write one looping APNG preview. Same composite as PNG export.
+    ///
+    /// `--tag` plays that tag. Omit it to play `--from`/`--to` or the whole
+    /// timeline. This file is not a sprite sheet.
+    Apng {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Destination APNG path.
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+        /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
+        /// Tag whose inclusive range and loop mode to play.
+        #[arg(long, value_name = "NAME", conflicts_with_all = ["from", "to", "loop_mode"])]
+        tag: Option<String>,
+        /// First frame, inclusive. Omit for 0. Do not pass with --tag.
+        #[arg(long)]
+        from: Option<u32>,
+        /// Last frame, inclusive. Omit for the last frame. Do not pass with --tag.
+        #[arg(long)]
+        to: Option<u32>,
+        /// forward, reverse, pingpong, or once. Omit for forward. Do not pass with --tag.
+        #[arg(long = "loop", value_enum)]
+        loop_mode: Option<LoopArg>,
     },
 }
 

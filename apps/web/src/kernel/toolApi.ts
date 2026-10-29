@@ -73,6 +73,7 @@ export const TOOL_NAMES = [
   "importAseprite",
   "exportPngSequence",
   "exportSpriteSheet",
+  "exportApng",
   "previewFrame",
   "diffFrames",
   "flipHorizontal",
