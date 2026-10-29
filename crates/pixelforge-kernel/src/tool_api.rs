@@ -24,6 +24,7 @@ use crate::palette::IndexPolicy;
 use crate::palette_file::PaletteImportMode;
 use crate::palette_map::{ColorMerge, DroppedColor, MapReport};
 use crate::part::{LayerAttach, PartUpdate};
+use crate::raster::Connectivity;
 use crate::scene::{self, CellBounds, CellChange, DiffSummary, DirtyRegion, ViewSummary};
 use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{LoopMode, TagUpdate};
@@ -41,6 +42,11 @@ pub const TOOL_NAMES: &[&str] = &[
     "scene",
     "paint",
     "fillRect",
+    "strokeRect",
+    "line",
+    "ellipse",
+    "polygon",
+    "fill",
     "erase",
     "eraseRect",
     "copyRect",
@@ -369,6 +375,101 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             match layer {
                 Some(layer) => document.fill_rect_on(layer, x, y, width, height, color_index),
                 None => document.fill_rect(x, y, width, height, color_index),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
+        }
+        "strokeRect" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (x, y, width, height, color_index, layer) = parse_fill_rect_like(tool, params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
+            match layer {
+                Some(layer) => document.stroke_rect_on(layer, x, y, width, height, color_index),
+                None => document.stroke_rect(x, y, width, height, color_index),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
+        }
+        "line" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (x0, y0, x1, y1, color_index, pixel_perfect, layer) = parse_line(params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
+            match layer {
+                Some(layer) => document.line_on(layer, x0, y0, x1, y1, color_index, pixel_perfect),
+                None => document.line(x0, y0, x1, y1, color_index, pixel_perfect),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
+        }
+        "ellipse" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (x, y, width, height, color_index, fill, layer) = parse_ellipse(params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
+            match layer {
+                Some(layer) => document.ellipse_on(layer, x, y, width, height, color_index, fill),
+                None => document.ellipse(x, y, width, height, color_index, fill),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
+        }
+        "polygon" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (points, color_index, fill, layer) = parse_polygon(params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
+            match layer {
+                Some(layer) => document.polygon_on(layer, &points, color_index, fill),
+                None => document.polygon(&points, color_index, fill),
+            }
+            .map_err(ToolFailure::Kernel)?;
+            Ok(with_dirty(
+                clamp_note(color_index, written),
+                document,
+                before,
+                false,
+            ))
+        }
+        "fill" => {
+            let report = take_report_dirty(tool, &mut params)?;
+            let (x, y, color_index, connectivity, layer) = parse_flood(params)?;
+            let written = document
+                .resolve_paint_index(color_index)
+                .map_err(ToolFailure::Kernel)?;
+            let before = snaps_if(document, report, &[document.active_frame()], layer)?;
+            match layer {
+                Some(layer) => document.flood_fill_on(layer, x, y, color_index, connectivity),
+                None => document.flood_fill(x, y, color_index, connectivity),
             }
             .map_err(ToolFailure::Kernel)?;
             Ok(with_dirty(
@@ -1979,16 +2080,136 @@ fn parse_paint(params: Value) -> Result<(u16, u16, u8, Option<usize>), ToolFailu
 }
 
 fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure> {
-    let map = expect_object("fillRect", params)?;
+    parse_fill_rect_like("fillRect", params)
+}
+
+fn parse_fill_rect_like(
+    tool: &str,
+    params: Value,
+) -> Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure> {
+    let map = expect_object(tool, params)?;
     reject_params(
-        "fillRect",
+        tool,
         &map,
         &["x", "y", "width", "height", "colorIndex", "layer"],
     )?;
-    let (x, y, width, height) = rect_from("fillRect", &map)?;
-    let color_index = require_u8("fillRect", &map, "colorIndex")?;
-    let layer = optional_frame("fillRect", &map, "layer")?;
+    let (x, y, width, height) = rect_from(tool, &map)?;
+    let color_index = require_u8(tool, &map, "colorIndex")?;
+    let layer = optional_frame(tool, &map, "layer")?;
     Ok((x, y, width, height, color_index, layer))
+}
+
+fn parse_line(params: Value) -> Result<(u16, u16, u16, u16, u8, bool, Option<usize>), ToolFailure> {
+    let map = expect_object("line", params)?;
+    reject_params(
+        "line",
+        &map,
+        &[
+            "x0",
+            "y0",
+            "x1",
+            "y1",
+            "colorIndex",
+            "pixelPerfect",
+            "layer",
+        ],
+    )?;
+    let x0 = require_u16("line", &map, "x0")?;
+    let y0 = require_u16("line", &map, "y0")?;
+    let x1 = require_u16("line", &map, "x1")?;
+    let y1 = require_u16("line", &map, "y1")?;
+    let color_index = require_u8("line", &map, "colorIndex")?;
+    let pixel_perfect = optional_bool("line", &map, "pixelPerfect")?;
+    let layer = optional_frame("line", &map, "layer")?;
+    Ok((x0, y0, x1, y1, color_index, pixel_perfect, layer))
+}
+
+fn parse_ellipse(
+    params: Value,
+) -> Result<(u16, u16, u16, u16, u8, bool, Option<usize>), ToolFailure> {
+    let map = expect_object("ellipse", params)?;
+    reject_params(
+        "ellipse",
+        &map,
+        &["x", "y", "width", "height", "colorIndex", "fill", "layer"],
+    )?;
+    let (x, y, width, height) = rect_from("ellipse", &map)?;
+    let color_index = require_u8("ellipse", &map, "colorIndex")?;
+    let fill = optional_bool("ellipse", &map, "fill")?;
+    let layer = optional_frame("ellipse", &map, "layer")?;
+    Ok((x, y, width, height, color_index, fill, layer))
+}
+
+fn parse_polygon(params: Value) -> Result<(Vec<(u16, u16)>, u8, bool, Option<usize>), ToolFailure> {
+    let map = expect_object("polygon", params)?;
+    reject_params("polygon", &map, &["points", "colorIndex", "fill", "layer"])?;
+    let points = match map.get("points") {
+        None => return Err(invalid_params("polygon", "missing points")),
+        Some(Value::Array(items)) => parse_points(items)?,
+        Some(_) => {
+            return Err(invalid_params(
+                "polygon",
+                "points must be an array of {x, y}",
+            ))
+        }
+    };
+    let color_index = require_u8("polygon", &map, "colorIndex")?;
+    let fill = optional_bool("polygon", &map, "fill")?;
+    let layer = optional_frame("polygon", &map, "layer")?;
+    Ok((points, color_index, fill, layer))
+}
+
+fn parse_points(items: &[Value]) -> Result<Vec<(u16, u16)>, ToolFailure> {
+    if items.len() < 3 {
+        return Err(invalid_params(
+            "polygon",
+            "points needs at least 3 vertices",
+        ));
+    }
+    if items.len() > 4096 {
+        return Err(invalid_params(
+            "polygon",
+            "points must have at most 4096 vertices",
+        ));
+    }
+    let mut points = Vec::with_capacity(items.len());
+    for item in items {
+        let Value::Object(map) = item else {
+            return Err(invalid_params(
+                "polygon",
+                "each point must be an object with x and y",
+            ));
+        };
+        reject_params("polygon", map, &["x", "y"])?;
+        let x = require_u16("polygon", map, "x")?;
+        let y = require_u16("polygon", map, "y")?;
+        points.push((x, y));
+    }
+    Ok(points)
+}
+
+fn parse_flood(params: Value) -> Result<(u16, u16, u8, Connectivity, Option<usize>), ToolFailure> {
+    let map = expect_object("fill", params)?;
+    reject_params(
+        "fill",
+        &map,
+        &["x", "y", "colorIndex", "connectivity", "layer"],
+    )?;
+    let (x, y) = cell_from("fill", &map)?;
+    let color_index = require_u8("fill", &map, "colorIndex")?;
+    let connectivity = match map.get("connectivity") {
+        None => Connectivity::Four,
+        Some(Value::Number(number)) => match number.as_u64() {
+            Some(4) => Connectivity::Four,
+            Some(8) => Connectivity::Eight,
+            _ => {
+                return Err(invalid_params("fill", "connectivity must be 4 or 8"));
+            }
+        },
+        Some(_) => return Err(invalid_params("fill", "connectivity must be 4 or 8")),
+    };
+    let layer = optional_frame("fill", &map, "layer")?;
+    Ok((x, y, color_index, connectivity, layer))
 }
 
 fn parse_selection(params: Value) -> Result<(u16, u16, u16, u16), ToolFailure> {

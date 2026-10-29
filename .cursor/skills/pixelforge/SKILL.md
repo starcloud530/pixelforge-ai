@@ -4,8 +4,9 @@ description: >-
   Edit PixelForge indexed-pixel projects with the pixelforge CLI and the kernel
   Tool API. Use when the user says 用 pixelforge, 改工程, or CLI, or when
   installing or running pixelforge, creating or changing a pixelforge-project,
-  painting or erasing cells, filling or erasing a rectangle, copying or moving
-  a rectangle, editing the palette, locking, quantizing, or remapping it,
+  painting or erasing cells, filling or erasing a rectangle, drawing a line,
+  an ellipse, a polygon, a rectangle outline, or a flood fill, copying or
+  moving a rectangle, editing the palette, locking, quantizing, or remapping it,
   crushing a PNG onto the palette, importing an indexed .aseprite file,
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
   270 degrees, naming parts and anchors, translating, rotating, or flipping a
@@ -68,14 +69,14 @@ cargo run -p pixelforge-cli -- --help
 
 ## Invariants
 
-- 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的索引（从 1 起），不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
+- 格子存的是调色板索引。索引 0 是透明。`paint`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon` 和 `fill` 写入已经存在的索引（从 1 起），不写 RGB。`fill` 的种子可以是索引 0，新颜色仍然不能是 0。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
 - 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。层的 `role` 缺省是 `default`。`polish` 是精修覆盖层，`bake` 不写它。手指一类的局部修正画在这一层，不要画在曲线或约束管着的挂接层上：那一层每次烘焙都从源帧整层重建。分层怎么摆见 `pixelforge-layers`。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
-- `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
+- `palette lock` 之后仍可用 `paint`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon` 和 `fill` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 才把越界索引写成最后一项不透明色。索引 0 仍然拒绝。只有发生钳制时，结果里才有 `requestedIndex`。`import` 的 `replace` 仍把消失的索引清成 0，不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。不带 `--checkpoint` 时下一个进程是空栈，`pixelforge undo` 得到 `NothingToUndo`。长流程在每条会改工程的命令上带同一个 `--checkpoint FILE`，进程退出后用 `pixelforge undo --project hero.json --checkpoint FILE`（或 `redo`）恢复；检查点一步是该进程对工程文件的净修改，进程内的 `undo` 仍按内核操作逐条撤回。
-- 选区写在工程文件的 `selection` 里。一块矩形是 `{x,y,width,height}`。多块或空蒙版是 `{rects:[...]}`。没有选区时省略这个字段。它不是套索，也不是魔棒。`mask union|intersect|subtract`（Tool API `combineMask`）把矩形收成这份蒙版。空蒙版保护每一格；要整幅又可写，用 `selection clear`。有选区时，`paint` / `fillRect` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`preview` / `diff` 的 `--selection`，或一块 `--x --y --width --height`，或重复的 `--mask`，只比较蒙版内；外面是 `#`，不算 `changed`。`remapPalette` 和 `applyPng` 不看选区。
+- 选区写在工程文件的 `selection` 里。一块矩形是 `{x,y,width,height}`。多块或空蒙版是 `{rects:[...]}`。没有选区时省略这个字段。它不是套索，也不是魔棒。`mask union|intersect|subtract`（Tool API `combineMask`）把矩形收成这份蒙版。空蒙版保护每一格；要整幅又可写，用 `selection clear`。有选区时，`paint` / `fillRect` / `strokeRect` / `line` / `ellipse` / `polygon` / `fill` / `erase` / `eraseRect` / `copyRect` / `flipHorizontal` / `flipVertical` / `rotate` / `replaceIndex` 不改选区外的格子。`fill` 还不穿过选区外的格子。翻转和旋转还要求读到的源格也在选区内。`moveRect` 的源和目标必须都在选区内，否则 `SelectionProtected`。选区不改 `activeLayer`。只改头盔时用 `--layer` 指向装备层。`preview` / `diff` 的 `--selection`，或一块 `--x --y --width --height`，或重复的 `--mask`，只比较蒙版内；外面是 `#`，不算 `changed`。`remapPalette` 和 `applyPng` 不看选区。
 - 命名部件写在工程文件的 `parts` 里。没有部件时省略。部件不是层，也不是像素缓冲。每个部件有画布上的原点 `(x, y)`，那一格是本地 `(0, 0)`。可选 `layer` 指向像素所在的层，不切换当前层。锚点的 `x`、`y` 是相对原点的像素格，范围 `-256..=256`。静止时锚点的画布位置是原点加这个偏移。矩形翻转和旋转不搬锚点。`resize` 把原点按同一偏移挪走，原点离开新画布时这个部件被去掉。部件变换见「部件变换」。关键帧曲线见「部件曲线」：它按帧下标采样，不写像素。约束见「约束」：`constraint solve` 才把从动部件的锚点跟到目标，挂接层的墨水在 `--apply` 时一起平移。空的约束列表不写进文件。`bake` 把曲线和约束采样写进一段帧的像素里，源帧的像素留着，曲线和约束也不删。见「烘焙」。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成颜色。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮，不写回像素。`flip` / `hflip` / `vflip` / `rotate` 只搬索引，不改高光颜色。左右镜像之后要修高光时见 `pixelforge-sprite-4dir`。
@@ -110,7 +111,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `paletteHash` 是 FNV-1a 64 位，16 位小写十六进制。初值 `14695981039346656037`，乘数 `1099511628211`，按索引把每一项的 `r`、`g`、`b`、`a` 送进去。颜色和顺序不变，哈希就不变。`inspect` 的 `result.paletteHash` 是同一个值。
 
-`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。`importAseprite` 不接受这个字段。
+`--dirty`（Tool API 是 `reportDirty: true`）只加在 `paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 上。结果多 `changed`、`dirty`（`{x,y,width,height}`，没变化是 `null`）、`regions`（每个改过的帧和层一条）。`resize` 再多 `clipped`：新画布上已经没有的坐标里，原来非 0 的格子数。盒子包住的是索引真的变了的格子，不是请求里的整块矩形。不写 `--dirty`，这些字段就不出现，旧的 `result` 保持原样。这不是命令日志。`importAseprite` 不接受这个字段。
 
 `preview` 除了 `rows`，还有 `ink`（非 0 格数）、`bounds`、`indices`（每个索引用了几次）、`pixels`（这一张视图的索引，行优先）。字形 `*` 把 62 及以上折成同一个字符，读索引用 `pixels`。限定范围时另有 `scope`、`mask`、`protected`。`ink` 只数蒙版内。`pixels` 仍是整幅。
 
@@ -132,7 +133,7 @@ pixelforge diff --project hero.json --frame 0 --with 1
 
 `export png --scale K` 和 `export sheet --scale K` 在内核里最近邻放大，再解析调色板。只为看颜色时，用这个或 `preview --scale`，不要再用外部工具放大。`export sheet` 不传 `--cols` 时列数是 `ceil(sqrt(帧数))`。`--cols N` 指定列数，行数是 `ceil(帧数 / N)`，`scale` 不改变列数。一行一个朝向时 `N` 是该朝向的帧数，见 `pixelforge-sprite-4dir`。`--atlas FILE` 再写一份 `pixelforge-atlas` JSON（帧矩形、`delayMs`、`columns`、标签）。不传它，结果仍只有 PNG 字段。`export` 子命令把文件写到磁盘并返回路径。`call` 里的 `exportPngSequence` / `exportSpriteSheet` 返回 base64，不写文件；`exportSpriteSheet` 的 `atlas: true` 把同一份对象放进 `result.atlas`。
 
-平涂用 `fillRect`，挖块用 `eraseRect`，挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。一块矩形已经是一步撤销。好几块要一起撤销时，用 `beginGesture` / `endGesture` 包住。撤销步数和内核操作次数不是一回事，见「最少编辑路径」。
+平涂用 `fillRect`，挖块用 `eraseRect`，矩形轮廓用 `strokeRect`，斜线用 `line`，椭圆用 `ellipse`，多边形用 `polygon`，同色连通区换色用 `fill`。挪一块用 `copyRect` / `moveRect`。一次 `pixelforge call` 里放多个 `--request`。这些绘制各自已经是一步撤销。好几笔要一起撤销时，用 `beginGesture` / `endGesture` 包住。撤销步数和内核操作次数不是一回事，见「最少编辑路径」。没有曲线、笔刷形状或抗锯齿。
 
 *`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows. One undo step is not one kernel operation; see Shortest edit path.*
 
@@ -246,7 +247,19 @@ pixelforge preview --project hero.json --frame 1 --scale 4
 pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 ```
 
-`fill-rect` 用一个已有索引填轴对齐矩形。`x`、`y` 是左上角。`width` 和 `height` 至少为 1，整块必须在画布内；只要有一格出界，一格都不写。`call` 里的工具名是 `fillRect`。`erase-rect` 清成索引 0（`eraseRect`）。`copy-rect` 原样复制索引，包括 0（`copyRect`：`srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`，可选 `fromFrame`、`toFrame`）。`move-rect` 在同一步撤销里搬走，并把不在目标里的源格子清成 0（`moveRect`）。`--from-frame` / `--to-frame` 不改变 `activeFrame`。跨帧的 `move-rect` 清掉整个源矩形。源或目标出界时，一格都不写。`--layer N` 画那一层，不选中它。
+`fill-rect` 用一个已有索引填轴对齐矩形。`x`、`y` 是左上角。`width` 和 `height` 至少为 1，整块必须在画布内；只要有一格出界，一格都不写。`call` 里的工具名是 `fillRect`。`stroke-rect` 只画矩形轮廓（`strokeRect`）。`line` 是连续 Bresenham，`--pixel-perfect` 沿长轴一步一格，仍然没有断点。`ellipse` 内切于矩形，`--fill` 涂内部。`polygon` 用重复的 `--point x,y`，至少三个顶点，`--fill` 是偶奇填充。`fill` 把种子格的同色连通区换成一个已有索引，`--connectivity` 是 `4` 或 `8`，选区外是墙。这些命令都是一步撤销，锁定调色板时仍可画已有索引，越界则整次不写。`erase-rect` 清成索引 0（`eraseRect`）。
+
+```bash
+pixelforge line --project hero.json --x0 2 --y0 2 --x1 20 --y1 14 --color-index 1
+pixelforge ellipse --project hero.json --x 8 --y 8 --width 20 --height 12 --color-index 4 --fill
+pixelforge polygon --project hero.json --point 4,4 --point 20,6 --point 12,18 --color-index 5
+pixelforge stroke-rect --project hero.json --x 4 --y 30 --width 16 --height 10 --color-index 3
+pixelforge fill --project hero.json --x 8 --y 34 --color-index 6 --connectivity 4
+```
+
+*A line, an ellipse, a polygon, a rectangle outline, and a flood fill are each one undo step. They write an existing index. A locked palette still allows them. One cell outside the canvas writes nothing. `fill` does not travel through cells outside the selection.*
+
+`copy-rect` 原样复制索引，包括 0（`copyRect`：`srcX`、`srcY`、`width`、`height`、`dstX`、`dstY`，可选 `fromFrame`、`toFrame`）。`move-rect` 在同一步撤销里搬走，并把不在目标里的源格子清成 0（`moveRect`）。`--from-frame` / `--to-frame` 不改变 `activeFrame`。跨帧的 `move-rect` 清掉整个源矩形。源或目标出界时，一格都不写。`--layer N` 画那一层，不选中它。
 
 ```bash
 pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 2 \

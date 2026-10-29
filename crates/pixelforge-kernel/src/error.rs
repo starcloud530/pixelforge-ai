@@ -14,6 +14,8 @@ pub enum KernelError {
         width: u16,
         height: u16,
     },
+    /// A polygon was given fewer than three vertices. The call writes nothing.
+    PolygonPoints,
     /// Index is 0 (transparent) or past the end of the palette.
     PaletteIndex { index: u8 },
     /// A palette must contain at least the transparent slot.
@@ -299,6 +301,7 @@ impl KernelError {
         match self {
             Self::InvalidSize { .. } => "InvalidSize",
             Self::OutOfBounds { .. } => "OutOfBounds",
+            Self::PolygonPoints => "PolygonPoints",
             Self::PaletteIndex { .. } => "PaletteIndex",
             Self::EmptyPalette => "EmptyPalette",
             Self::PaletteTooLarge { .. } => "PaletteTooLarge",
@@ -376,6 +379,7 @@ impl fmt::Display for KernelError {
                 width,
                 height,
             } => write!(f, "cell {x},{y} is outside {width}x{height}"),
+            Self::PolygonPoints => write!(f, "a polygon needs at least 3 points"),
             Self::PaletteIndex { index } => {
                 write!(f, "palette index {index} cannot be painted")
             }
@@ -716,6 +720,11 @@ mod tests {
 
     #[test]
     fn codes_match_variant_names() {
+        assert_eq!(KernelError::PolygonPoints.code(), "PolygonPoints");
+        assert_eq!(
+            KernelError::PolygonPoints.to_string(),
+            "a polygon needs at least 3 points"
+        );
         assert_eq!(KernelError::LastFrame.code(), "LastFrame");
         assert_eq!(KernelError::FrameDelay { delay_ms: 0 }.code(), "FrameDelay");
         assert_eq!(KernelError::TagName.code(), "TagName");
