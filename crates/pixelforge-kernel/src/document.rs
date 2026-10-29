@@ -3,9 +3,9 @@ use std::cmp::Ordering;
 use crate::constraint::{
     apply_deltas, canvas_local, constraints_after_insert, constraints_after_remove,
     constraints_after_rename, constraints_after_resize, constraints_for_parts, ink_label,
-    motion_steps, orient_part, place_origin, prepare_constraint, solve_order, warp_ink, Constraint,
-    ConstraintKind, Contact, MotionStep, PosedPart, SolveReport, SolvedAnchor, SolvedPart,
-    WarpReport,
+    motion_steps, orient_part, place_origin, prepare_constraint, solve_order, warp_ink,
+    warp_overlay, Constraint, ConstraintKind, Contact, MotionStep, PosedPart, SolveReport,
+    SolvedAnchor, SolvedPart, WarpReport,
 };
 use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
@@ -29,6 +29,7 @@ use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
 };
 use crate::LayerRole;
+use crate::PolishBind;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -94,7 +95,27 @@ pub struct BakeFrame {
     pub breaks: u32,
     /// Layers whose ink was replaced from the rest pose. Empty on the source.
     pub layers: Vec<usize>,
+    /// Bound polish layers restamped from the source pose. Empty on the source
+    /// and when no overlay follows a posed part.
+    pub followed: Vec<usize>,
     pub parts: Vec<SolvedPart>,
+}
+
+struct OverlayMotion {
+    layer: usize,
+    pixels: Vec<u8>,
+    erase: Vec<u8>,
+    old_pixels: Vec<u8>,
+    old_erase: Vec<u8>,
+    report: WarpReport,
+}
+
+struct BakeWrite {
+    layer: usize,
+    pixels: Vec<u8>,
+    /// `Some` when this write is a bound polish overlay, including its erase mask.
+    erase: Option<Vec<u8>>,
+    report: WarpReport,
 }
 
 /// What [`Document::bake`] wrote. Curves and constraints are not removed.
@@ -112,7 +133,8 @@ pub struct BakeReport {
     pub conflicts: u32,
     pub sealed: u32,
     pub breaks: u32,
-    /// Polish overlay indices. Bake did not write these layers.
+    /// Polish overlay indices, bound and unbound. Unbound layers are not written.
+    /// Bound layers are restamped and listed on each frame's `followed`.
     pub polish: Vec<usize>,
     pub frames: Vec<BakeFrame>,
 }
@@ -123,9 +145,10 @@ struct BakePlan {
     delay_ms: u32,
     is_new: bool,
     new_frame: Option<Frame>,
-    writes: Vec<(usize, Vec<u8>, WarpReport)>,
+    writes: Vec<BakeWrite>,
     report: WarpReport,
     layers: Vec<usize>,
+    followed: Vec<usize>,
     parts: Vec<SolvedPart>,
 }
 
@@ -347,9 +370,12 @@ pub struct Document {
     layer_names: Vec<String>,
     /// Bake role of each layer. Same length as [`Self::layer_names`].
     ///
-    /// [`LayerRole::Polish`] is an overlay bake never rebuilds. The file omits
+    /// [`LayerRole::Polish`] is an overlay. Bake does not rebuild it from a
+    /// linked part. A binding restamps it from the source pose. The file omits
     /// the role when it is [`LayerRole::Default`].
     layer_roles: Vec<LayerRole>,
+    /// Part binding of each polish layer. `None` keeps canvas coordinates.
+    layer_binds: Vec<Option<PolishBind>>,
     /// Composite visibility. Same length as [`Self::layer_names`].
     ///
     /// `false` skips the layer in every composite. The file omits the flag
@@ -418,6 +444,7 @@ impl Document {
             active: 0,
             layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
             layer_roles: vec![LayerRole::Default],
+            layer_binds: vec![None],
             layer_visible: vec![true],
             layer_opacity: vec![LAYER_OPACITY_OPAQUE],
             active_layer: 0,
@@ -507,12 +534,18 @@ impl Document {
     /// Bottom-to-top index composite of one frame.
     ///
     /// A hidden layer, or a layer at opacity 0, is skipped. Index 0 leaves the
-    /// lower layer visible. Any other index replaces it, including when that
-    /// layer's opacity is only partial. Partial opacity is not quantized to a
-    /// palette index. [`Self::frame_rgba`] blends it for PNG export.
+    /// lower layer visible, unless this layer is polish and the cell is an
+    /// explicit erase, which clears the composite. Any other index replaces
+    /// it, including when that layer's opacity is only partial. Partial opacity
+    /// is not quantized to a palette index. [`Self::frame_rgba`] blends it for
+    /// PNG export.
     pub fn composite_pixels(&self, frame: usize) -> Result<Vec<u8>, KernelError> {
         let frame = self.frame_or_err(frame)?;
-        Ok(self.frames[frame].composite(&self.layer_visible, &self.layer_opacity))
+        Ok(self.frames[frame].composite(
+            &self.layer_visible,
+            &self.layer_opacity,
+            &self.polish_flags(),
+        ))
     }
 
     /// Composite, or one layer when `layer` is set.
@@ -645,7 +678,7 @@ impl Document {
         Ok(&self.layer_names[index])
     }
 
-    /// Bake role of one layer. [`LayerRole::Polish`] is not rebuilt by bake.
+    /// Bake role of one layer. [`LayerRole::Polish`] is an overlay.
     pub fn layer_role(&self, index: usize) -> Result<LayerRole, KernelError> {
         let index = self.layer_or_err(index)?;
         Ok(self.layer_roles[index])
@@ -654,6 +687,31 @@ impl Document {
     /// Bake role of every layer, bottom to top.
     pub fn layer_roles(&self) -> &[LayerRole] {
         &self.layer_roles
+    }
+
+    /// Part binding of one layer. `Ok(None)` is unbound canvas coordinates.
+    pub fn layer_bind(&self, index: usize) -> Result<Option<&PolishBind>, KernelError> {
+        let index = self.layer_or_err(index)?;
+        Ok(self.layer_binds[index].as_ref())
+    }
+
+    /// Explicit-erase marks for one layer of one frame. `1` punches the composite.
+    pub fn layer_erase(&self, frame: usize, layer: usize) -> Result<&[u8], KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        let layer = self.layer_or_err(layer)?;
+        Ok(self.frames[frame].layer_erase(layer))
+    }
+
+    pub(crate) fn frame_erase_buffers(&self, frame: usize) -> Result<&[Vec<u8>], KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        Ok(self.frames[frame].erasures())
+    }
+
+    pub(crate) fn polish_flags(&self) -> Vec<bool> {
+        self.layer_roles
+            .iter()
+            .map(|role| *role == LayerRole::Polish)
+            .collect()
     }
 
     pub(crate) fn layer_visibility_flags(&self) -> &[bool] {
@@ -874,6 +932,7 @@ impl Document {
                 }
             }
         }
+        let mut cleared_marks = Vec::new();
         for change in &changes {
             let Change::Pixel {
                 frame,
@@ -886,7 +945,19 @@ impl Document {
                 continue;
             };
             self.frames[*frame].set_on(*layer, *offset, *after);
+            let before_mark = self.frames[*frame].layer_erase(*layer)[*offset];
+            if before_mark != 0 {
+                self.frames[*frame].set_erase(*layer, *offset, 0);
+                cleared_marks.push(Change::EraseMark {
+                    frame: *frame,
+                    layer: *layer,
+                    offset: *offset,
+                    before: before_mark,
+                    after: 0,
+                });
+            }
         }
+        changes.extend(cleared_marks);
         let before = self.palette.colors().to_vec();
         self.palette = checked;
         changes.push(Change::PaletteReplace {
@@ -1020,6 +1091,7 @@ impl Document {
                 });
             }
         }
+        let mut cleared_marks = Vec::new();
         for change in &changes {
             let Change::Pixel {
                 frame,
@@ -1032,8 +1104,23 @@ impl Document {
                 continue;
             };
             self.frames[*frame].set_on(*layer, *offset, *after);
+            let before_mark = self.frames[*frame].layer_erase(*layer)[*offset];
+            if before_mark != 0 {
+                self.frames[*frame].set_erase(*layer, *offset, 0);
+                cleared_marks.push(Change::EraseMark {
+                    frame: *frame,
+                    layer: *layer,
+                    offset: *offset,
+                    before: before_mark,
+                    after: 0,
+                });
+            }
         }
-        report.pixels_changed = changes.len();
+        changes.extend(cleared_marks);
+        report.pixels_changed = changes
+            .iter()
+            .filter(|change| matches!(change, Change::Pixel { .. }))
+            .count();
         self.history.record_group(changes);
         Ok(report)
     }
@@ -1071,6 +1158,7 @@ impl Document {
                 }
             }
         }
+        let mut cleared_marks = Vec::new();
         for change in &changes {
             let Change::Pixel {
                 frame,
@@ -1083,8 +1171,23 @@ impl Document {
                 continue;
             };
             self.frames[*frame].set_on(*layer, *offset, *after);
+            let before_mark = self.frames[*frame].layer_erase(*layer)[*offset];
+            if before_mark != 0 {
+                self.frames[*frame].set_erase(*layer, *offset, 0);
+                cleared_marks.push(Change::EraseMark {
+                    frame: *frame,
+                    layer: *layer,
+                    offset: *offset,
+                    before: before_mark,
+                    after: 0,
+                });
+            }
         }
-        let pixels_changed = changes.len();
+        changes.extend(cleared_marks);
+        let pixels_changed = changes
+            .iter()
+            .filter(|change| matches!(change, Change::Pixel { .. }))
+            .count();
         if self.palette.colors() != plan.colors.as_slice() {
             let before = self.palette.colors().to_vec();
             self.palette.install(plan.colors.clone());
@@ -1152,17 +1255,10 @@ impl Document {
                 }
                 let offset = row_offset + usize::from(col);
                 let before = self.frames[frame].layer_pixels(layer)[offset];
-                if before == color_index {
+                if before == color_index && self.frames[frame].layer_erase(layer)[offset] == 0 {
                     continue;
                 }
-                self.frames[frame].set_on(layer, offset, color_index);
-                changes.push(Change::Pixel {
-                    frame,
-                    layer,
-                    offset,
-                    before,
-                    after: color_index,
-                });
+                self.put_index(frame, layer, offset, color_index, &mut changes);
             }
         }
         self.history.record_group(changes);
@@ -1206,18 +1302,7 @@ impl Document {
                     continue;
                 }
                 let offset = row_offset + usize::from(col);
-                let before = self.frames[frame].layer_pixels(layer)[offset];
-                if before == TRANSPARENT_INDEX {
-                    continue;
-                }
-                self.frames[frame].set_on(layer, offset, TRANSPARENT_INDEX);
-                changes.push(Change::Pixel {
-                    frame,
-                    layer,
-                    offset,
-                    before,
-                    after: TRANSPARENT_INDEX,
-                });
+                self.put_erase(frame, layer, offset, &mut changes);
             }
         }
         self.history.record_group(changes);
@@ -1760,17 +1845,10 @@ impl Document {
                 let after = sample[usize::from(src_y) * span + usize::from(src_x)];
                 let offset = row_offset + usize::from(col);
                 let before = self.frames[frame].layer_pixels(layer)[offset];
-                if before == after {
+                if before == after && self.frames[frame].layer_erase(layer)[offset] == 0 {
                     continue;
                 }
-                self.frames[frame].set_on(layer, offset, after);
-                changes.push(Change::Pixel {
-                    frame,
-                    layer,
-                    offset,
-                    before,
-                    after,
-                });
+                self.put_index(frame, layer, offset, after, &mut changes);
             }
         }
         self.history.record_group(changes);
@@ -1800,32 +1878,40 @@ impl Document {
             .iter()
             .map(|frame| frame.layers().to_vec())
             .collect();
-        let after_pixels: Vec<Vec<Vec<u8>>> = before_pixels
+        let before_erase: Vec<Vec<Vec<u8>>> = self
+            .frames
             .iter()
-            .map(|layers| {
-                layers
-                    .iter()
-                    .map(|pixels| {
-                        place_pixels(
-                            pixels,
-                            self.width,
-                            self.height,
-                            width,
-                            height,
-                            offset_x,
-                            offset_y,
-                        )
-                    })
-                    .collect()
-            })
+            .map(|frame| frame.erasures().to_vec())
             .collect();
+        let place = |buffers: &[Vec<u8>]| {
+            buffers
+                .iter()
+                .map(|pixels| {
+                    place_pixels(
+                        pixels,
+                        self.width,
+                        self.height,
+                        width,
+                        height,
+                        offset_x,
+                        offset_y,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let after_pixels: Vec<Vec<Vec<u8>>> =
+            before_pixels.iter().map(|layers| place(layers)).collect();
+        let after_erase: Vec<Vec<Vec<u8>>> =
+            before_erase.iter().map(|layers| place(layers)).collect();
         let before_selection = self.selection.clone();
         let after_selection = self
             .selection
             .as_ref()
             .and_then(|sel| sel.translated(offset_x, offset_y, width, height));
-        let pixels_same =
-            self.width == width && self.height == height && before_pixels == after_pixels;
+        let pixels_same = self.width == width
+            && self.height == height
+            && before_pixels == after_pixels
+            && before_erase == after_erase;
         let selection_same = before_selection == after_selection;
         let before_parts = self.parts.clone();
         let before_curves = self.curves.clone();
@@ -1852,8 +1938,13 @@ impl Document {
         if !pixels_same {
             self.width = width;
             self.height = height;
-            for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
-                frame.set_all_layers(pixels);
+            for (frame, (pixels, erase)) in self.frames.iter_mut().zip(
+                after_pixels
+                    .iter()
+                    .cloned()
+                    .zip(after_erase.iter().cloned()),
+            ) {
+                frame.set_stack(pixels, erase);
             }
             changes.push(Change::CanvasResize {
                 before_width,
@@ -1862,6 +1953,8 @@ impl Document {
                 after_height: height,
                 before_pixels,
                 after_pixels,
+                before_erase,
+                after_erase,
             });
         }
         if !selection_same {
@@ -2007,18 +2100,13 @@ impl Document {
             let Some(after) = after else {
                 continue;
             };
-            let before = self.frames[frame].layer_pixels(layer)[offset];
-            if before == *after {
-                continue;
-            }
-            self.frames[frame].set_on(layer, offset, *after);
-            changes.push(Change::Pixel {
-                frame,
-                layer,
-                offset,
-                before,
-                after: *after,
-            });
+            self.put_index(frame, layer, offset, *after, changes);
+        }
+    }
+
+    fn push_marks(&mut self, frame: usize, layer: usize, marks: &[u8], changes: &mut Vec<Change>) {
+        for (offset, mark) in marks.iter().enumerate() {
+            self.put_mark(frame, layer, offset, *mark, changes);
         }
     }
 
@@ -2099,7 +2187,53 @@ impl Document {
         if !self.accepts_write(x, y) {
             return Ok(());
         }
-        self.write_index(self.active, layer, offset, TRANSPARENT_INDEX);
+        let mut changes = Vec::new();
+        self.put_erase(self.active, layer, offset, &mut changes);
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Clears one cell back to pass-through: index 0 and no explicit erase.
+    ///
+    /// On a default layer this is the same write as [`Self::erase_on`]. On a
+    /// polish layer it removes a paint or an explicit erase and lets the
+    /// layers underneath show. An already-clear cell is not recorded.
+    pub fn clear_overlay_on(&mut self, layer: usize, x: u16, y: u16) -> Result<(), KernelError> {
+        let layer = self.layer_or_err(layer)?;
+        let offset = self.offset(x, y)?;
+        if !self.accepts_write(x, y) {
+            return Ok(());
+        }
+        let mut changes = Vec::new();
+        self.put_index(self.active, layer, offset, TRANSPARENT_INDEX, &mut changes);
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// [`Self::clear_overlay_on`] for a rectangle. Cells outside the selection are skipped.
+    pub fn clear_overlay_rect_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+    ) -> Result<(), KernelError> {
+        let layer = self.layer_or_err(layer)?;
+        let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
+        let frame = self.active;
+        let mut changes = Vec::new();
+        for row in y..=y1 {
+            let row_offset = pixel_len(self.width, row);
+            for col in x..=x1 {
+                if !self.accepts_write(col, row) {
+                    continue;
+                }
+                let offset = row_offset + usize::from(col);
+                self.put_index(frame, layer, offset, TRANSPARENT_INDEX, &mut changes);
+            }
+        }
+        self.history.record_group(changes);
         Ok(())
     }
 
@@ -2136,16 +2270,13 @@ impl Document {
             if !self.accepts_write(x, y) {
                 continue;
             }
-            self.frames[frame].set_on(layer, offset, to_index);
-            changes.push(Change::Pixel {
-                frame,
-                layer,
-                offset,
-                before,
-                after: to_index,
-            });
+            self.put_index(frame, layer, offset, to_index, &mut changes);
         }
-        let changed = u32::try_from(changes.len()).expect("changed cells fit in u32");
+        let changed = changes
+            .iter()
+            .filter(|change| matches!(change, Change::Pixel { .. }))
+            .count();
+        let changed = u32::try_from(changed).expect("changed cells fit in u32");
         self.history.record_group(changes);
         Ok(changed)
     }
@@ -2310,6 +2441,7 @@ impl Document {
         }
         self.layer_names.insert(index, name.clone());
         self.layer_roles.insert(index, role);
+        self.layer_binds.insert(index, None);
         self.layer_visible.insert(index, true);
         self.layer_opacity.insert(index, LAYER_OPACITY_OPAQUE);
         self.active_layer = index;
@@ -2340,11 +2472,15 @@ impl Document {
         let before_parts = self.parts.clone();
         let name = self.layer_names.remove(index);
         let role = self.layer_roles.remove(index);
+        let bind = self.layer_binds.remove(index);
         let visible = self.layer_visible.remove(index);
         let opacity = self.layer_opacity.remove(index);
         let mut pixels = Vec::with_capacity(self.frames.len());
+        let mut erase = Vec::with_capacity(self.frames.len());
         for frame in &mut self.frames {
-            pixels.push(frame.remove_layer(index));
+            let (buffer, mask) = frame.remove_layer(index);
+            pixels.push(buffer);
+            erase.push(mask);
         }
         self.active_layer = if active_before > index {
             active_before - 1
@@ -2362,7 +2498,9 @@ impl Document {
                 role,
                 visible,
                 opacity,
+                bind,
                 pixels,
+                erase,
                 active_before,
                 active_after: self.active_layer,
             },
@@ -2396,11 +2534,79 @@ impl Document {
             return Ok(());
         }
         let before = self.layer_roles[index];
+        let before_bind = self.layer_binds[index].clone();
         self.layer_roles[index] = role;
-        self.history.record(Change::LayerRole {
+        if role != LayerRole::Polish {
+            self.layer_binds[index] = None;
+        }
+        let mut changes = vec![Change::LayerRole {
             index,
             before,
             after: role,
+        }];
+        if before_bind.is_some() && role != LayerRole::Polish {
+            changes.push(Change::LayerBind {
+                index,
+                before: before_bind,
+                after: None,
+            });
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Binds a polish layer to a part, or clears the binding when `part` is `None`.
+    ///
+    /// `anchor` is the local origin. `None` uses the part origin. The layer must
+    /// already be [`LayerRole::Polish`]. The same binding is not recorded.
+    /// Pixels stay where they were painted until a part transform or bake moves them.
+    pub fn set_layer_bind(
+        &mut self,
+        index: usize,
+        part: Option<&str>,
+        anchor: Option<&str>,
+    ) -> Result<(), KernelError> {
+        let index = self.layer_or_err(index)?;
+        let next = match part {
+            None => {
+                if anchor.is_some() {
+                    return Err(KernelError::PolishBind { layer: index });
+                }
+                None
+            }
+            Some(part) => {
+                if self.layer_roles[index] != LayerRole::Polish {
+                    return Err(KernelError::PolishBind { layer: index });
+                }
+                let part = normalize_part_name(part).map_err(|()| KernelError::PartName)?;
+                let found = self
+                    .parts
+                    .iter()
+                    .find(|candidate| candidate.name == part)
+                    .ok_or(KernelError::PartMissing)?;
+                let anchor = match anchor {
+                    None => None,
+                    Some(anchor) => {
+                        let anchor =
+                            normalize_part_name(anchor).map_err(|()| KernelError::AnchorName)?;
+                        if found.anchors.iter().all(|item| item.name != anchor) {
+                            return Err(KernelError::AnchorMissing);
+                        }
+                        Some(anchor)
+                    }
+                };
+                Some(PolishBind { part, anchor })
+            }
+        };
+        if self.layer_binds[index] == next {
+            return Ok(());
+        }
+        let before = self.layer_binds[index].clone();
+        self.layer_binds[index] = next.clone();
+        self.history.record(Change::LayerBind {
+            index,
+            before,
+            after: next,
         });
         Ok(())
     }
@@ -2457,12 +2663,20 @@ impl Document {
     /// document that is already that one default layer is not recorded.
     /// One undo restores the previous stack, including visibility and opacity.
     pub fn flatten(&mut self) -> Result<(), KernelError> {
+        let marks_clear = self.frames.iter().all(|frame| {
+            frame
+                .erasures()
+                .iter()
+                .all(|mask| mask.iter().all(|mark| *mark == 0))
+        });
         if self.layer_names.len() == 1
             && self.layer_names[0] == DEFAULT_LAYER_NAME
             && self.active_layer == 0
             && self.layer_roles[0] == LayerRole::Default
+            && self.layer_binds[0].is_none()
             && self.layer_visible[0]
             && self.layer_opacity[0] == LAYER_OPACITY_OPAQUE
+            && marks_clear
         {
             return Ok(());
         }
@@ -2470,23 +2684,31 @@ impl Document {
         let before_roles = self.layer_roles.clone();
         let before_visible = self.layer_visible.clone();
         let before_opacity = self.layer_opacity.clone();
+        let before_binds = self.layer_binds.clone();
         let before_pixels = self
             .frames
             .iter()
             .map(|frame| frame.layers().to_vec())
             .collect();
+        let before_erase = self
+            .frames
+            .iter()
+            .map(|frame| frame.erasures().to_vec())
+            .collect();
         let before_active = self.active_layer;
         let before_parts = self.parts.clone();
+        let polish = self.polish_flags();
         let after_pixels: Vec<Vec<u8>> = self
             .frames
             .iter()
-            .map(|frame| frame.composite(&self.layer_visible, &self.layer_opacity))
+            .map(|frame| frame.composite(&self.layer_visible, &self.layer_opacity, &polish))
             .collect();
         for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
-            frame.set_all_layers(vec![pixels]);
+            frame.set_stack(vec![pixels.clone()], vec![vec![0; pixels.len()]]);
         }
         self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
         self.layer_roles = vec![LayerRole::Default];
+        self.layer_binds = vec![None];
         self.layer_visible = vec![true];
         self.layer_opacity = vec![LAYER_OPACITY_OPAQUE];
         self.active_layer = 0;
@@ -2498,7 +2720,9 @@ impl Document {
                 before_roles,
                 before_visible,
                 before_opacity,
+                before_binds,
                 before_pixels,
+                before_erase,
                 before_active,
                 after_pixels,
             },
@@ -2715,6 +2939,7 @@ impl Document {
         let before_curves = self.curves.clone();
         let before_constraints = self.constraints.clone();
         self.parts[index] = next;
+        let mut bind_changes = Vec::new();
         if self.parts[index].name != previous_name {
             self.curves =
                 curves_after_rename(&before_curves, &previous_name, &self.parts[index].name);
@@ -2723,8 +2948,15 @@ impl Document {
                 &previous_name,
                 &self.parts[index].name,
             );
+            let renamed = self.parts[index].name.clone();
+            bind_changes = self.retarget_binds(&previous_name, Some(&renamed));
         }
-        self.record_rig(before_parts, before_curves, before_constraints);
+        self.record_rig(
+            before_parts,
+            before_curves,
+            before_constraints,
+            bind_changes,
+        );
         Ok(index)
     }
 
@@ -2735,10 +2967,17 @@ impl Document {
         let before_parts = self.parts.clone();
         let before_curves = self.curves.clone();
         let before_constraints = self.constraints.clone();
+        let removed = before_parts[index].name.clone();
         self.parts.remove(index);
         self.curves = curves_for_parts(&before_curves, &self.parts);
         self.constraints = constraints_for_parts(&before_constraints, &self.parts);
-        self.record_rig(before_parts, before_curves, before_constraints);
+        let bind_changes = self.retarget_binds(&removed, None);
+        self.record_rig(
+            before_parts,
+            before_curves,
+            before_constraints,
+            bind_changes,
+        );
         Ok(index)
     }
 
@@ -2799,8 +3038,11 @@ impl Document {
             .position(|anchor| anchor.name == anchor_name)
             .ok_or(KernelError::AnchorMissing)?;
         let before = self.parts.clone();
+        let anchor_name = self.parts[part_index].anchors[anchor_index].name.clone();
+        let part_name = self.parts[part_index].name.clone();
         self.parts[part_index].anchors.remove(anchor_index);
-        self.record_parts(before);
+        let bind_changes = self.clear_anchor_binds(&part_name, &anchor_name);
+        self.record_parts_with(before, bind_changes);
         Ok((part_index, anchor_index))
     }
 
@@ -3368,11 +3610,13 @@ impl Document {
     /// constraints are replaced from the rest ink, even when that pose is the
     /// identity. `parts` or `layers` name a different write set. A layer with
     /// no curve and no driving constraint stays, so duplicate the rest frame
-    /// first when a body with no part should remain. A [`LayerRole::Polish`]
-    /// layer is never written. A managed part linked to one is
+    /// first when a body with no part should remain. An unbound
+    /// [`LayerRole::Polish`] layer is not written. A polish layer bound to a
+    /// part this bake poses is restamped from the source overlay, including
+    /// explicit erases. A managed part linked to a polish layer is
     /// [`KernelError::PolishLayer`] and the call writes nothing. Appended
     /// frames copy every source layer, including polish from the source, then
-    /// replace the posed layers.
+    /// replace the posed layers and any bound overlay that followed.
     ///
     /// A failure writes nothing. A success that changes pixels, delays, or the
     /// frame list is one undo step. The same pixels and delays are not recorded.
@@ -3410,6 +3654,9 @@ impl Document {
         let source_layers: Vec<Vec<u8>> = (0..self.layer_names.len())
             .map(|layer| self.frames[source].layer_pixels(layer).to_vec())
             .collect();
+        let source_erase: Vec<Vec<u8>> = (0..self.layer_names.len())
+            .map(|layer| self.frames[source].layer_erase(layer).to_vec())
+            .collect();
         let source_delay = self.frames[source].delay_ms();
         let mut plans = Vec::with_capacity(to - from + 1);
         for index in from..=to {
@@ -3424,6 +3671,7 @@ impl Document {
                     writes: Vec::new(),
                     report: WarpReport::ZERO,
                     layers: Vec::new(),
+                    followed: Vec::new(),
                     parts: self.parts.iter().map(stored_bake_part).collect(),
                 });
                 continue;
@@ -3482,9 +3730,56 @@ impl Document {
                 }
                 frame_report = frame_report.saturating_add(lost);
                 per_layer_report.push((*layer, lost));
-                writes.push((*layer, next, lost));
+                writes.push(BakeWrite {
+                    layer: *layer,
+                    pixels: next,
+                    erase: None,
+                    report: lost,
+                });
             }
-            let parts = describe_bake_parts(
+            let mut followed = Vec::new();
+            for (layer, bind) in self.layer_binds.iter().enumerate() {
+                let Some(bind) = bind else {
+                    continue;
+                };
+                let Some(part_index) = self.parts.iter().position(|part| part.name == bind.part)
+                else {
+                    continue;
+                };
+                if !pose_included.get(part_index).copied().unwrap_or(false) {
+                    continue;
+                }
+                let steps = &steps_per_part[part_index];
+                let follows =
+                    managed.get(part_index).copied().unwrap_or(false) || !steps.is_empty();
+                if !follows {
+                    continue;
+                }
+                let (next, next_erase, lost) = warp_overlay(
+                    self.width,
+                    self.height,
+                    &source_layers[layer],
+                    &source_erase[layer],
+                    steps,
+                    |x, y| self.accepts_write(x, y),
+                )?;
+                if is_new {
+                    self.reject_ink_outside(&next)?;
+                    self.reject_marks_outside(&next_erase)?;
+                } else {
+                    self.reject_diff_outside(index, layer, &next)?;
+                    self.reject_mark_diff(index, layer, &next_erase)?;
+                }
+                frame_report = frame_report.saturating_add(lost);
+                followed.push(layer);
+                writes.push(BakeWrite {
+                    layer,
+                    pixels: next,
+                    erase: Some(next_erase),
+                    report: lost,
+                });
+            }
+            let mut parts = describe_bake_parts(
                 &posed,
                 &steps_per_part,
                 &write_layers,
@@ -3492,6 +3787,20 @@ impl Document {
                 self.width,
                 self.height,
             )?;
+            for write in writes.iter().filter(|write| write.erase.is_some()) {
+                if let Some(bind) = self
+                    .layer_binds
+                    .get(write.layer)
+                    .and_then(|bind| bind.as_ref())
+                {
+                    if let Some(part) = parts.iter_mut().find(|part| part.name == bind.part) {
+                        part.dropped = part.dropped.saturating_add(write.report.dropped);
+                        part.conflicts = part.conflicts.saturating_add(write.report.conflicts);
+                        part.sealed = part.sealed.saturating_add(write.report.sealed);
+                        part.breaks = part.breaks.saturating_add(write.report.breaks);
+                    }
+                }
+            }
             let delay = delay_ms.unwrap_or(if is_new {
                 source_delay
             } else {
@@ -3499,11 +3808,16 @@ impl Document {
             });
             let new_frame = if is_new {
                 let mut layers = source_layers.clone();
-                for (layer, next, _) in &writes {
-                    layers[*layer] = next.clone();
+                let mut erase = source_erase.clone();
+                for write in &writes {
+                    layers[write.layer] = write.pixels.clone();
+                    if let Some(mask) = &write.erase {
+                        erase[write.layer] = mask.clone();
+                    }
                 }
                 self.reject_ink_outside_all(&layers)?;
-                Some(Frame::from_layers(layers, delay))
+                self.reject_marks_outside_all(&erase)?;
+                Some(Frame::from_layers_with_erase(layers, erase, delay))
             } else {
                 None
             };
@@ -3516,6 +3830,7 @@ impl Document {
                 writes,
                 report: frame_report,
                 layers: write_layers,
+                followed,
                 parts,
             });
         }
@@ -3539,12 +3854,15 @@ impl Document {
                 });
                 continue;
             }
-            for (layer, next, _) in &plan.writes {
-                let mut pixels = vec![None; next.len()];
-                for (offset, after) in next.iter().enumerate() {
+            for write in &plan.writes {
+                let mut pixels = vec![None; write.pixels.len()];
+                for (offset, after) in write.pixels.iter().enumerate() {
                     pixels[offset] = Some(*after);
                 }
-                self.push_plan(plan.index, *layer, &pixels, &mut changes);
+                self.push_plan(plan.index, write.layer, &pixels, &mut changes);
+                if let Some(erase) = &write.erase {
+                    self.push_marks(plan.index, write.layer, erase, &mut changes);
+                }
             }
             let before = self.frames[plan.index].delay_ms();
             if before != plan.delay_ms {
@@ -3576,6 +3894,7 @@ impl Document {
                 sealed: plan.report.sealed,
                 breaks: plan.report.breaks,
                 layers: plan.layers.clone(),
+                followed: plan.followed.clone(),
                 parts: plan.parts.clone(),
             })
             .collect();
@@ -3779,6 +4098,38 @@ impl Document {
         Ok(())
     }
 
+    fn reject_marks_outside(&self, marks: &[u8]) -> Result<(), KernelError> {
+        if self.selection.is_none() {
+            return Ok(());
+        }
+        for (offset, mark) in marks.iter().enumerate() {
+            if *mark != 0 && !self.accepts_offset(offset) {
+                return Err(KernelError::SelectionProtected);
+            }
+        }
+        Ok(())
+    }
+
+    fn reject_marks_outside_all(&self, layers: &[Vec<u8>]) -> Result<(), KernelError> {
+        for layer in layers {
+            self.reject_marks_outside(layer)?;
+        }
+        Ok(())
+    }
+
+    fn reject_mark_diff(&self, frame: usize, layer: usize, next: &[u8]) -> Result<(), KernelError> {
+        if self.selection.is_none() {
+            return Ok(());
+        }
+        let current = self.frames[frame].layer_erase(layer);
+        for (offset, (before, after)) in current.iter().zip(next.iter()).enumerate() {
+            if before != after && !self.accepts_offset(offset) {
+                return Err(KernelError::SelectionProtected);
+            }
+        }
+        Ok(())
+    }
+
     fn accepts_offset(&self, offset: usize) -> bool {
         let x = u16::try_from(offset % usize::from(self.width)).expect("x fits in u16");
         let y = u16::try_from(offset / usize::from(self.width)).expect("y fits in u16");
@@ -3816,8 +4167,16 @@ impl Document {
         )?;
         let anchors =
             self.mapped_anchors(&part, origin_x, origin_y, pivot_x, pivot_y, &resolved.map)?;
-        let (planned, report) =
+        let (planned, mut report) =
             self.plan_part_ink(&part, frame, pivot_x, pivot_y, &resolved.map)?;
+        let overlays = self.plan_bound_overlays(&name, frame, pivot_x, pivot_y, &resolved.map)?;
+        for overlay in &overlays {
+            if part.layer == Some(overlay.layer) {
+                report = overlay.report;
+            } else {
+                report = report.saturating_add(overlay.report);
+            }
+        }
         let mut next_parts = self.parts.clone();
         next_parts[index] = Part {
             x: origin_x,
@@ -3826,7 +4185,10 @@ impl Document {
             ..part
         };
         let parts_changed = next_parts != self.parts;
-        let pixels_changed = planned.as_ref().is_some_and(|(_, next, old)| next != old);
+        let pixels_changed = planned.as_ref().is_some_and(|(_, next, old)| next != old)
+            || overlays.iter().any(|overlay| {
+                overlay.pixels != overlay.old_pixels || overlay.erase != overlay.old_erase
+            });
         let alignment = if resolved.dx.is_some() {
             "translate"
         } else if pivot_anchor.is_some() {
@@ -3836,14 +4198,25 @@ impl Document {
         };
         if parts_changed || pixels_changed {
             let mut changes = Vec::new();
+            let covered: Vec<usize> = overlays.iter().map(|overlay| overlay.layer).collect();
             if let Some((layer, next, old)) = planned {
-                let mut plan = vec![None; next.len()];
-                for (offset, (before, after)) in old.iter().zip(next.iter()).enumerate() {
-                    if before != after {
-                        plan[offset] = Some(*after);
+                if !covered.contains(&layer) {
+                    let mut plan = vec![None; next.len()];
+                    for (offset, (before, after)) in old.iter().zip(next.iter()).enumerate() {
+                        if before != after {
+                            plan[offset] = Some(*after);
+                        }
                     }
+                    self.push_plan(frame, layer, &plan, &mut changes);
                 }
-                self.push_plan(frame, layer, &plan, &mut changes);
+            }
+            for overlay in &overlays {
+                let mut plan = vec![None; overlay.pixels.len()];
+                for (offset, after) in overlay.pixels.iter().enumerate() {
+                    plan[offset] = Some(*after);
+                }
+                self.push_plan(frame, overlay.layer, &plan, &mut changes);
+                self.push_marks(frame, overlay.layer, &overlay.erase, &mut changes);
             }
             if parts_changed {
                 let before = std::mem::replace(&mut self.parts, next_parts);
@@ -3946,6 +4319,50 @@ impl Document {
             self.accepts_write(x, y)
         })?;
         Ok((Some((layer, next, old)), report))
+    }
+
+    /// Bound polish overlays that should move with `part_name` on `frame`.
+    fn plan_bound_overlays(
+        &self,
+        part_name: &str,
+        frame: usize,
+        pivot_x: i32,
+        pivot_y: i32,
+        map: &CellMap,
+    ) -> Result<Vec<OverlayMotion>, KernelError> {
+        let steps = [MotionStep {
+            map: *map,
+            pivot_x,
+            pivot_y,
+        }];
+        let mut plans = Vec::new();
+        for (layer, bind) in self.layer_binds.iter().enumerate() {
+            let Some(bind) = bind else {
+                continue;
+            };
+            if bind.part != part_name {
+                continue;
+            }
+            let old_pixels = self.frames[frame].layer_pixels(layer).to_vec();
+            let old_erase = self.frames[frame].layer_erase(layer).to_vec();
+            let (pixels, erase, report) = warp_overlay(
+                self.width,
+                self.height,
+                &old_pixels,
+                &old_erase,
+                &steps,
+                |x, y| self.accepts_write(x, y),
+            )?;
+            plans.push(OverlayMotion {
+                layer,
+                pixels,
+                erase,
+                old_pixels,
+                old_erase,
+                report,
+            });
+        }
+        Ok(plans)
     }
 
     fn require_canvas_cell(&self, x: i32, y: i32) -> Result<(u16, u16), KernelError> {
@@ -4116,6 +4533,7 @@ impl Document {
         layer_roles: Vec<LayerRole>,
         layer_visible: Vec<bool>,
         layer_opacity: Vec<u8>,
+        layer_binds: Vec<Option<PolishBind>>,
         active_layer: usize,
         selection: Option<Mask>,
         tags: Vec<Tag>,
@@ -4144,6 +4562,11 @@ impl Document {
             layer_opacity.len(),
             layer_names.len(),
             "each layer has an opacity"
+        );
+        debug_assert_eq!(
+            layer_binds.len(),
+            layer_names.len(),
+            "each layer has a polish binding"
         );
         debug_assert!(
             selection.as_ref().is_none_or(|sel| sel.fits(width, height)),
@@ -4189,6 +4612,7 @@ impl Document {
             frames.iter().all(|frame| {
                 frame.layer_count() == layer_names.len()
                     && frame.layers().iter().all(|pixels| pixels.len() == len)
+                    && frame.erasures().len() == layer_names.len()
             }),
             "layer buffers were checked"
         );
@@ -4202,6 +4626,7 @@ impl Document {
             active,
             layer_names,
             layer_roles,
+            layer_binds,
             layer_visible,
             layer_opacity,
             active_layer,
@@ -4216,21 +4641,78 @@ impl Document {
     }
 
     fn write_index(&mut self, frame: usize, layer: usize, offset: usize, value: u8) {
+        let mut changes = Vec::new();
+        self.put_index(frame, layer, offset, value, &mut changes);
+        self.history.record_group(changes);
+    }
+
+    /// Writes an index and clears an explicit-erase mark on that cell.
+    fn put_index(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        offset: usize,
+        value: u8,
+        changes: &mut Vec<Change>,
+    ) {
         debug_assert!(
             value == TRANSPARENT_INDEX || self.palette.contains_paint_index(value),
             "pixels store palette indices"
         );
         let before = self.frames[frame].layer_pixels(layer)[offset];
-        if before == value {
+        if before != value {
+            self.frames[frame].set_on(layer, offset, value);
+            changes.push(Change::Pixel {
+                frame,
+                layer,
+                offset,
+                before,
+                after: value,
+            });
+        }
+        self.put_mark(frame, layer, offset, 0, changes);
+    }
+
+    /// Index 0 plus an explicit erase. On a default layer this is a normal clear.
+    fn put_erase(&mut self, frame: usize, layer: usize, offset: usize, changes: &mut Vec<Change>) {
+        let mark = if self.layer_roles[layer] == LayerRole::Polish {
+            1
+        } else {
+            0
+        };
+        let before = self.frames[frame].layer_pixels(layer)[offset];
+        if before != TRANSPARENT_INDEX {
+            self.frames[frame].set_on(layer, offset, TRANSPARENT_INDEX);
+            changes.push(Change::Pixel {
+                frame,
+                layer,
+                offset,
+                before,
+                after: TRANSPARENT_INDEX,
+            });
+        }
+        self.put_mark(frame, layer, offset, mark, changes);
+    }
+
+    fn put_mark(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        offset: usize,
+        mark: u8,
+        changes: &mut Vec<Change>,
+    ) {
+        let before = self.frames[frame].layer_erase(layer)[offset];
+        if before == mark {
             return;
         }
-        self.frames[frame].set_on(layer, offset, value);
-        self.history.record(Change::Pixel {
+        self.frames[frame].set_erase(layer, offset, mark);
+        changes.push(Change::EraseMark {
             frame,
             layer,
             offset,
             before,
-            after: value,
+            after: mark,
         });
     }
 
@@ -4284,12 +4766,73 @@ impl Document {
     }
 
     fn record_parts(&mut self, before: Vec<Part>) {
+        self.record_parts_with(before, Vec::new());
+    }
+
+    fn record_parts_with(&mut self, before: Vec<Part>, mut extra: Vec<Change>) {
         if before != self.parts {
-            self.history.record(Change::Parts {
+            extra.push(Change::Parts {
                 before,
                 after: self.parts.clone(),
             });
         }
+        self.history.record_group(extra);
+    }
+
+    /// Renames or clears polish bindings that name `from`.
+    ///
+    /// `to: None` drops the binding and leaves the overlay in canvas coordinates.
+    fn retarget_binds(&mut self, from: &str, to: Option<&str>) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for (index, bind) in self.layer_binds.iter_mut().enumerate() {
+            let Some(current) = bind.clone() else {
+                continue;
+            };
+            if current.part != from {
+                continue;
+            }
+            let next = match to {
+                Some(name) => Some(PolishBind {
+                    part: name.to_string(),
+                    anchor: current.anchor.clone(),
+                }),
+                None => None,
+            };
+            if bind.as_ref() == next.as_ref() {
+                continue;
+            }
+            *bind = next.clone();
+            changes.push(Change::LayerBind {
+                index,
+                before: Some(current),
+                after: next,
+            });
+        }
+        changes
+    }
+
+    /// A removed anchor falls back to the part origin. Pixels stay.
+    fn clear_anchor_binds(&mut self, part: &str, anchor: &str) -> Vec<Change> {
+        let mut changes = Vec::new();
+        for (index, bind) in self.layer_binds.iter_mut().enumerate() {
+            let Some(current) = bind.clone() else {
+                continue;
+            };
+            if current.part != part || current.anchor.as_deref() != Some(anchor) {
+                continue;
+            }
+            let next = PolishBind {
+                part: current.part.clone(),
+                anchor: None,
+            };
+            *bind = Some(next.clone());
+            changes.push(Change::LayerBind {
+                index,
+                before: Some(current),
+                after: Some(next),
+            });
+        }
+        changes
     }
 
     fn record_curves(&mut self, before: Vec<Curve>) {
@@ -4306,8 +4849,9 @@ impl Document {
         before_parts: Vec<Part>,
         before_curves: Vec<Curve>,
         before_constraints: Vec<Constraint>,
+        extra: Vec<Change>,
     ) {
-        let mut changes = Vec::new();
+        let mut changes = extra;
         if before_parts != self.parts {
             changes.push(Change::Parts {
                 before: before_parts,
@@ -4413,9 +4957,11 @@ impl Document {
         self.layer_visible.insert(to, visible);
         let opacity = self.layer_opacity.remove(from);
         self.layer_opacity.insert(to, opacity);
+        let bind = self.layer_binds.remove(from);
+        self.layer_binds.insert(to, bind);
         for frame in &mut self.frames {
-            let pixels = frame.remove_layer(from);
-            frame.insert_layer(to, pixels);
+            let (pixels, erase) = frame.remove_layer(from);
+            frame.insert_cel(to, pixels, erase);
         }
     }
 
@@ -4439,6 +4985,22 @@ impl Document {
                     "undo stack diverged from the document pixels"
                 );
                 self.frames[*frame].set_on(*layer, *offset, next);
+            }
+            Change::EraseMark {
+                frame,
+                layer,
+                offset,
+                before,
+                after,
+            } => {
+                let current = self.frames[*frame].layer_erase(*layer)[*offset];
+                let (expected, next) = if forward {
+                    (*before, *after)
+                } else {
+                    (*after, *before)
+                };
+                debug_assert_eq!(current, expected, "undo stack diverged from the erase mask");
+                self.frames[*frame].set_erase(*layer, *offset, next);
             }
             Change::AddFrame { index } => {
                 if forward {
@@ -4549,17 +5111,22 @@ impl Document {
                 after_height,
                 before_pixels,
                 after_pixels,
+                before_erase,
+                after_erase,
             } => {
-                let (width, height, pixels) = if forward {
-                    (*after_width, *after_height, after_pixels)
+                let (width, height, pixels, erase) = if forward {
+                    (*after_width, *after_height, after_pixels, after_erase)
                 } else {
-                    (*before_width, *before_height, before_pixels)
+                    (*before_width, *before_height, before_pixels, before_erase)
                 };
                 debug_assert_eq!(pixels.len(), self.frames.len());
+                debug_assert_eq!(erase.len(), self.frames.len());
                 self.width = width;
                 self.height = height;
-                for (frame, pixels) in self.frames.iter_mut().zip(pixels.iter()) {
-                    frame.set_all_layers(pixels.clone());
+                for (frame, (pixels, erase)) in
+                    self.frames.iter_mut().zip(pixels.iter().zip(erase.iter()))
+                {
+                    frame.set_stack(pixels.clone(), erase.clone());
                 }
             }
             Change::AddLayer {
@@ -4576,12 +5143,14 @@ impl Document {
                     }
                     self.layer_names.insert(*index, name.clone());
                     self.layer_roles.insert(*index, *role);
+                    self.layer_binds.insert(*index, None);
                     self.layer_visible.insert(*index, true);
                     self.layer_opacity.insert(*index, LAYER_OPACITY_OPAQUE);
                     self.active_layer = *active_after;
                 } else {
                     self.layer_names.remove(*index);
                     self.layer_roles.remove(*index);
+                    self.layer_binds.remove(*index);
                     self.layer_visible.remove(*index);
                     self.layer_opacity.remove(*index);
                     for frame in &mut self.frames {
@@ -4596,13 +5165,16 @@ impl Document {
                 role,
                 visible,
                 opacity,
+                bind,
                 pixels,
+                erase,
                 active_before,
                 active_after,
             } => {
                 if forward {
                     self.layer_names.remove(*index);
                     self.layer_roles.remove(*index);
+                    self.layer_binds.remove(*index);
                     self.layer_visible.remove(*index);
                     self.layer_opacity.remove(*index);
                     for frame in &mut self.frames {
@@ -4611,12 +5183,16 @@ impl Document {
                     self.active_layer = *active_after;
                 } else {
                     debug_assert_eq!(pixels.len(), self.frames.len());
+                    debug_assert_eq!(erase.len(), self.frames.len());
                     self.layer_names.insert(*index, name.clone());
                     self.layer_roles.insert(*index, *role);
+                    self.layer_binds.insert(*index, bind.clone());
                     self.layer_visible.insert(*index, *visible);
                     self.layer_opacity.insert(*index, *opacity);
-                    for (frame, buffer) in self.frames.iter_mut().zip(pixels.iter()) {
-                        frame.insert_layer(*index, buffer.clone());
+                    for (frame, (buffer, mask)) in
+                        self.frames.iter_mut().zip(pixels.iter().zip(erase.iter()))
+                    {
+                        frame.insert_cel(*index, buffer.clone(), mask.clone());
                     }
                     self.active_layer = *active_before;
                 }
@@ -4638,6 +5214,17 @@ impl Document {
                 after,
             } => {
                 self.layer_roles[*index] = if forward { *after } else { *before };
+            }
+            Change::LayerBind {
+                index,
+                before,
+                after,
+            } => {
+                self.layer_binds[*index] = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
             }
             Change::LayerVisible {
                 index,
@@ -4710,30 +5297,40 @@ impl Document {
                 before_roles,
                 before_visible,
                 before_opacity,
+                before_binds,
                 before_pixels,
+                before_erase,
                 before_active,
                 after_pixels,
             } => {
                 if forward {
                     debug_assert_eq!(after_pixels.len(), self.frames.len());
                     for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter()) {
-                        frame.set_all_layers(vec![pixels.clone()]);
+                        frame.set_stack(vec![pixels.clone()], vec![vec![0; pixels.len()]]);
                     }
                     self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
                     self.layer_roles = vec![LayerRole::Default];
+                    self.layer_binds = vec![None];
                     self.layer_visible = vec![true];
                     self.layer_opacity = vec![LAYER_OPACITY_OPAQUE];
                     self.active_layer = 0;
                 } else {
                     debug_assert_eq!(before_pixels.len(), self.frames.len());
+                    debug_assert_eq!(before_erase.len(), self.frames.len());
                     debug_assert_eq!(before_roles.len(), before_names.len());
+                    debug_assert_eq!(before_binds.len(), before_names.len());
                     debug_assert_eq!(before_visible.len(), before_names.len());
                     debug_assert_eq!(before_opacity.len(), before_names.len());
-                    for (frame, layers) in self.frames.iter_mut().zip(before_pixels.iter()) {
-                        frame.set_all_layers(layers.clone());
+                    for (frame, (layers, erase)) in self
+                        .frames
+                        .iter_mut()
+                        .zip(before_pixels.iter().zip(before_erase.iter()))
+                    {
+                        frame.set_stack(layers.clone(), erase.clone());
                     }
                     self.layer_names = before_names.clone();
                     self.layer_roles = before_roles.clone();
+                    self.layer_binds = before_binds.clone();
                     self.layer_visible = before_visible.clone();
                     self.layer_opacity = before_opacity.clone();
                     self.active_layer = *before_active;
@@ -4815,7 +5412,9 @@ impl Document {
                 continue;
             }
             seen[offset] = true;
-            if self.frames[frame].layer_pixels(layer)[offset] == color {
+            if self.frames[frame].layer_pixels(layer)[offset] == color
+                && self.frames[frame].layer_erase(layer)[offset] == 0
+            {
                 continue;
             }
             offsets.push(offset);
@@ -4823,15 +5422,7 @@ impl Document {
         offsets.sort_unstable();
         let mut changes = Vec::with_capacity(offsets.len());
         for offset in offsets {
-            let before = self.frames[frame].layer_pixels(layer)[offset];
-            self.frames[frame].set_on(layer, offset, color);
-            changes.push(Change::Pixel {
-                frame,
-                layer,
-                offset,
-                before,
-                after: color,
-            });
+            self.put_index(frame, layer, offset, color, &mut changes);
         }
         self.history.record_group(changes);
         Ok(())

@@ -210,10 +210,13 @@ impl Document {
     /// reads this buffer. The bytes are not stored on the document.
     pub fn frame_rgba(&self, index: usize) -> Result<Vec<u8>, KernelError> {
         let layers = self.frame_layer_buffers(index)?;
+        let erase = self.frame_erase_buffers(index)?;
         Ok(blend_layers(
             layers,
+            erase,
             self.layer_visibility_flags(),
             self.layer_opacity_values(),
+            &self.polish_flags(),
             self.palette_colors(),
         ))
     }
@@ -630,18 +633,43 @@ fn columns_for(frame_count: usize) -> u32 {
 
 /// Bottom-to-top RGBA composite.
 ///
-/// Hidden layers and opacity 0 are skipped. Index 0 does not cover. Opacity
-/// [`LAYER_OPACITY_OPAQUE`] replaces the cell with the palette color. A lower
-/// opacity blends with straight-alpha source-over and does not invent an index.
-fn blend_layers(layers: &[Vec<u8>], visible: &[bool], opacity: &[u8], palette: &[Rgba]) -> Vec<u8> {
+/// Hidden layers and opacity 0 are skipped. Index 0 does not cover. A polish
+/// erase mark clears the cell: opacity 255 makes it transparent, and a lower
+/// opacity scales the destination alpha by the remaining visibility. Opacity
+/// [`LAYER_OPACITY_OPAQUE`] replaces a painted cell with the palette color. A
+/// lower opacity blends with straight-alpha source-over and does not invent
+/// an index.
+fn blend_layers(
+    layers: &[Vec<u8>],
+    erase: &[Vec<u8>],
+    visible: &[bool],
+    opacity: &[u8],
+    polish: &[bool],
+    palette: &[Rgba],
+) -> Vec<u8> {
     debug_assert_eq!(visible.len(), layers.len());
     debug_assert_eq!(opacity.len(), layers.len());
+    debug_assert_eq!(erase.len(), layers.len());
+    debug_assert_eq!(polish.len(), layers.len());
     let mut out = vec![0u8; layers[0].len() * 4];
-    for (layer, (&shown, &layer_opacity)) in layers.iter().zip(visible.iter().zip(opacity.iter())) {
+    for (layer_index, (layer, marks)) in layers.iter().zip(erase.iter()).enumerate() {
+        let shown = visible[layer_index];
+        let layer_opacity = opacity[layer_index];
         if !shown || layer_opacity == 0 {
             continue;
         }
+        let punch = polish[layer_index];
         for (cell, index) in layer.iter().copied().enumerate() {
+            if punch && index == 0 && marks[cell] != 0 {
+                let offset = cell * 4;
+                if layer_opacity == LAYER_OPACITY_OPAQUE {
+                    out[offset..offset + 4].fill(0);
+                } else {
+                    let keep = 255 - layer_opacity;
+                    out[offset + 3] = mul_u8(out[offset + 3], keep);
+                }
+                continue;
+            }
             if index == 0 {
                 continue;
             }

@@ -110,6 +110,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "deleteLayer",
     "renameLayer",
     "setLayerRole",
+    "setLayerBind",
     "setLayerVisible",
     "setLayerOpacity",
     "setActiveLayer",
@@ -483,22 +484,26 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
         }
         "erase" => {
             let report = take_report_dirty(tool, &mut params)?;
-            let (x, y, layer) = parse_cell(tool, params)?;
+            let (x, y, layer, pass) = parse_erase_cell(tool, params)?;
             let before = snaps_if(document, report, &[document.active_frame()], layer)?;
-            match layer {
-                Some(layer) => document.erase_on(layer, x, y),
-                None => document.erase(x, y),
+            let layer = layer.unwrap_or_else(|| document.active_layer());
+            if pass {
+                document.clear_overlay_on(layer, x, y)
+            } else {
+                document.erase_on(layer, x, y)
             }
             .map_err(ToolFailure::Kernel)?;
             Ok(with_dirty(empty(), document, before, false))
         }
         "eraseRect" => {
             let report = take_report_dirty(tool, &mut params)?;
-            let (x, y, width, height, layer) = parse_rect(tool, params)?;
+            let (x, y, width, height, layer, pass) = parse_erase_rect(tool, params)?;
             let before = snaps_if(document, report, &[document.active_frame()], layer)?;
-            match layer {
-                Some(layer) => document.erase_rect_on(layer, x, y, width, height),
-                None => document.erase_rect(x, y, width, height),
+            let layer = layer.unwrap_or_else(|| document.active_layer());
+            if pass {
+                document.clear_overlay_rect_on(layer, x, y, width, height)
+            } else {
+                document.erase_rect_on(layer, x, y, width, height)
             }
             .map_err(ToolFailure::Kernel)?;
             Ok(with_dirty(empty(), document, before, false))
@@ -1194,10 +1199,14 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             document
                 .set_layer_role(index, role)
                 .map_err(ToolFailure::Kernel)?;
-            Ok(serde_json::json!({
-                "index": as_u32(index),
-                "role": document.layer_role(index).expect("layer role is in range").as_str(),
-            }))
+            Ok(layer_bind_value(document, index))
+        }
+        "setLayerBind" => {
+            let (index, part, anchor) = parse_set_layer_bind(params, document.active_layer())?;
+            document
+                .set_layer_bind(index, part.as_deref(), anchor.as_deref())
+                .map_err(ToolFailure::Kernel)?;
+            Ok(layer_bind_value(document, index))
         }
         "setLayerVisible" => {
             let (index, visible) = parse_set_layer_visible(params, document.active_layer())?;
@@ -1356,10 +1365,15 @@ fn layer_entries(document: &Document) -> Vec<Value> {
         .iter()
         .enumerate()
         .map(|(index, name)| {
+            let bind = document
+                .layer_bind(index)
+                .expect("listed layer is in range");
             serde_json::json!({
                 "index": index,
                 "name": name,
                 "role": document.layer_role(index).expect("listed layer is in range").as_str(),
+                "part": bind.map(|bind| bind.part.clone()),
+                "anchor": bind.and_then(|bind| bind.anchor.clone()),
                 "visible": document.layer_visible(index).expect("listed layer is in range"),
                 "opacity": document.layer_opacity(index).expect("listed layer is in range"),
             })
@@ -1487,6 +1501,7 @@ fn bake_value(report: &crate::document::BakeReport) -> Value {
                     "sealed": frame.sealed,
                     "breaks": frame.breaks,
                     "layers": frame.layers.iter().copied().map(as_u32).collect::<Vec<_>>(),
+                    "followed": frame.followed.iter().copied().map(as_u32).collect::<Vec<_>>(),
                     "parts": frame.parts.iter().map(solved_part_value).collect::<Vec<_>>(),
                 })
             })
@@ -2238,17 +2253,6 @@ fn parse_replace(params: Value) -> Result<(u8, u8, Option<usize>), ToolFailure> 
     let to_index = require_u8("replaceIndex", &map, "toIndex")?;
     let layer = optional_frame("replaceIndex", &map, "layer")?;
     Ok((from_index, to_index, layer))
-}
-
-fn parse_rect(
-    tool: &str,
-    params: Value,
-) -> Result<(u16, u16, u16, u16, Option<usize>), ToolFailure> {
-    let map = expect_object(tool, params)?;
-    reject_params(tool, &map, &["x", "y", "width", "height", "layer"])?;
-    let rect = rect_from(tool, &map)?;
-    let layer = optional_frame(tool, &map, "layer")?;
-    Ok((rect.0, rect.1, rect.2, rect.3, layer))
 }
 
 fn rect_from(tool: &str, map: &Map<String, Value>) -> Result<(u16, u16, u16, u16), ToolFailure> {
@@ -3321,6 +3325,82 @@ fn parse_set_layer_opacity(params: Value, active: usize) -> Result<(usize, u8), 
     ))
 }
 
+fn layer_bind_value(document: &Document, index: usize) -> Value {
+    let bind = document
+        .layer_bind(index)
+        .expect("layer binding is in range");
+    serde_json::json!({
+        "index": as_u32(index),
+        "role": document.layer_role(index).expect("layer role is in range").as_str(),
+        "part": bind.map(|bind| bind.part.clone()),
+        "anchor": bind.and_then(|bind| bind.anchor.clone()),
+    })
+}
+
+fn parse_set_layer_bind(
+    params: Value,
+    active: usize,
+) -> Result<(usize, Option<String>, Option<String>), ToolFailure> {
+    let map = expect_object("setLayerBind", params)?;
+    reject_params("setLayerBind", &map, &["index", "part", "anchor"])?;
+    let index = optional_frame("setLayerBind", &map, "index")?.unwrap_or(active);
+    let part = match map.get("part") {
+        None => return Err(invalid_params("setLayerBind", "missing part")),
+        Some(Value::Null) => None,
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(_) => {
+            return Err(invalid_params(
+                "setLayerBind",
+                "part must be a string or null",
+            ))
+        }
+    };
+    let anchor = match map.get("anchor") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(_) => {
+            return Err(invalid_params(
+                "setLayerBind",
+                "anchor must be a string or null",
+            ))
+        }
+    };
+    Ok((index, part, anchor))
+}
+
+fn parse_erase_cell(
+    tool: &str,
+    params: Value,
+) -> Result<(u16, u16, Option<usize>, bool), ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["x", "y", "layer", "mode"])?;
+    let (x, y) = cell_from(tool, &map)?;
+    let layer = optional_frame(tool, &map, "layer")?;
+    let pass = erase_mode_pass(tool, &map)?;
+    Ok((x, y, layer, pass))
+}
+
+fn parse_erase_rect(
+    tool: &str,
+    params: Value,
+) -> Result<(u16, u16, u16, u16, Option<usize>, bool), ToolFailure> {
+    let map = expect_object(tool, params)?;
+    reject_params(tool, &map, &["x", "y", "width", "height", "layer", "mode"])?;
+    let rect = rect_from(tool, &map)?;
+    let layer = optional_frame(tool, &map, "layer")?;
+    let pass = erase_mode_pass(tool, &map)?;
+    Ok((rect.0, rect.1, rect.2, rect.3, layer, pass))
+}
+
+fn erase_mode_pass(tool: &str, map: &Map<String, Value>) -> Result<bool, ToolFailure> {
+    match map.get("mode") {
+        None => Ok(false),
+        Some(Value::String(text)) if text == "transparent" => Ok(false),
+        Some(Value::String(text)) if text == "pass" => Ok(true),
+        Some(_) => Err(invalid_params(tool, "mode must be transparent or pass")),
+    }
+}
+
 fn parse_set_layer_role(params: Value, active: usize) -> Result<(usize, LayerRole), ToolFailure> {
     let map = expect_object("setLayerRole", params)?;
     reject_params("setLayerRole", &map, &["index", "role"])?;
@@ -3421,14 +3501,6 @@ fn parse_scale(tool: &str, params: Value) -> Result<u32, ToolFailure> {
         None => Ok(1),
         Some(_) => require_u32_at_least(tool, &map, "scale", 1),
     }
-}
-
-fn parse_cell(tool: &str, params: Value) -> Result<(u16, u16, Option<usize>), ToolFailure> {
-    let map = expect_object(tool, params)?;
-    reject_params(tool, &map, &["x", "y", "layer"])?;
-    let (x, y) = cell_from(tool, &map)?;
-    let layer = optional_frame(tool, &map, "layer")?;
-    Ok((x, y, layer))
 }
 
 fn cell_from(tool: &str, map: &Map<String, Value>) -> Result<(u16, u16), ToolFailure> {

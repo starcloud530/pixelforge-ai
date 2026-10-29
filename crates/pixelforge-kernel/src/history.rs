@@ -21,6 +21,7 @@ use crate::part::Part;
 use crate::selection::Mask;
 use crate::tag::Tag;
 use crate::LayerRole;
+use crate::PolishBind;
 use crate::Rgba;
 use crate::MAX_UNDO;
 
@@ -49,6 +50,15 @@ impl Operation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Change {
     Pixel {
+        frame: usize,
+        layer: usize,
+        offset: usize,
+        before: u8,
+        after: u8,
+    },
+    /// Explicit-erase mark on one overlay cell. `0` is unmodified, `1` punches
+    /// the composite to transparent. Index writes that are not an erase clear it.
+    EraseMark {
         frame: usize,
         layer: usize,
         offset: usize,
@@ -162,6 +172,8 @@ pub(crate) enum Change {
         after_height: u16,
         before_pixels: Vec<Vec<Vec<u8>>>,
         after_pixels: Vec<Vec<Vec<u8>>>,
+        before_erase: Vec<Vec<Vec<u8>>>,
+        after_erase: Vec<Vec<Vec<u8>>>,
     },
     /// A blank layer was inserted at `index` on every frame.
     ///
@@ -183,7 +195,10 @@ pub(crate) enum Change {
         role: LayerRole,
         visible: bool,
         opacity: u8,
+        /// `None` when the removed layer was not bound to a part.
+        bind: Option<PolishBind>,
         pixels: Vec<Vec<u8>>,
+        erase: Vec<Vec<u8>>,
         active_before: usize,
         active_after: usize,
     },
@@ -192,6 +207,15 @@ pub(crate) enum Change {
         index: usize,
         before: LayerRole,
         after: LayerRole,
+    },
+    /// One polish layer's part binding changed. Pixels stay.
+    ///
+    /// `None` is unbound. Leaving `polish` clears a binding in the same undo
+    /// step as the role change.
+    LayerBind {
+        index: usize,
+        before: Option<PolishBind>,
+        after: Option<PolishBind>,
     },
     /// One layer's composite visibility changed. Pixels stay.
     LayerVisible {
@@ -239,7 +263,9 @@ pub(crate) enum Change {
         before_roles: Vec<LayerRole>,
         before_visible: Vec<bool>,
         before_opacity: Vec<u8>,
+        before_binds: Vec<Option<PolishBind>>,
         before_pixels: Vec<Vec<Vec<u8>>>,
+        before_erase: Vec<Vec<Vec<u8>>>,
         before_active: usize,
         after_pixels: Vec<Vec<u8>>,
     },
@@ -382,6 +408,13 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
             before,
             after,
         } => coalesce_pixel(changes, frame, layer, offset, before, after),
+        Change::EraseMark {
+            frame,
+            layer,
+            offset,
+            before,
+            after,
+        } => coalesce_mark(changes, frame, layer, offset, before, after),
         Change::ActiveLayer { before, after } => coalesce_active_layer(changes, before, after),
         Change::Selection { before, after } => coalesce_selection(changes, before, after),
         Change::PaletteColor {
@@ -438,12 +471,61 @@ fn coalesce_pixel(
                 }
                 return;
             }
-            Change::Pixel { .. } => continue,
+            Change::Pixel { .. } | Change::EraseMark { .. } => continue,
             _ => break,
         }
     }
 
     changes.push(Change::Pixel {
+        frame,
+        layer,
+        offset,
+        before,
+        after,
+    });
+}
+
+fn coalesce_mark(
+    changes: &mut Vec<Change>,
+    frame: usize,
+    layer: usize,
+    offset: usize,
+    before: u8,
+    after: u8,
+) {
+    let mut index = changes.len();
+    while index > 0 {
+        index -= 1;
+        match &changes[index] {
+            Change::EraseMark {
+                frame: existing_frame,
+                layer: existing_layer,
+                offset: existing_offset,
+                ..
+            } if *existing_frame == frame
+                && *existing_layer == layer
+                && *existing_offset == offset =>
+            {
+                let Change::EraseMark {
+                    before: original,
+                    after: slot,
+                    ..
+                } = &mut changes[index]
+                else {
+                    unreachable!("matched an erase-mark change");
+                };
+                *slot = after;
+                if *original == *slot {
+                    changes.remove(index);
+                }
+                return;
+            }
+            Change::Pixel { .. } | Change::EraseMark { .. } => continue,
+            _ => break,
+        }
+    }
+
+    changes.push(Change::EraseMark {
         frame,
         layer,
         offset,

@@ -502,6 +502,7 @@ fn cmd_erase_rect(args: EraseRectArgs) -> i32 {
                         "y": args.y,
                         "width": args.width,
                         "height": args.height,
+                        "mode": if args.unmodified { "pass" } else { "transparent" },
                     }),
                     args.layer,
                 ),
@@ -1060,6 +1061,28 @@ fn cmd_layer(command: LayerCmd) -> i32 {
                 params["role"] = json!(role.as_str());
             }
             apply(&doc, vec![request("addLayer", params)])
+        }
+        LayerCmd::Bind {
+            doc,
+            index,
+            part,
+            anchor,
+        } => {
+            let mut params = json!({ "part": part });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            if let Some(anchor) = anchor {
+                params["anchor"] = json!(anchor);
+            }
+            apply(&doc, vec![request("setLayerBind", params)])
+        }
+        LayerCmd::Unbind { doc, index } => {
+            let mut params = json!({ "part": Value::Null });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("setLayerBind", params)])
         }
         LayerCmd::Role { doc, index, role } => {
             let mut params = json!({ "role": role.as_str() });

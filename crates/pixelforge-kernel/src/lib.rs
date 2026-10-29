@@ -107,15 +107,32 @@ pub const LAYER_OPACITY_OPAQUE: u8 = 255;
 ///
 /// `default` is an ordinary paint layer. A curve or a constraint can manage
 /// it, and bake then replaces that whole layer. `polish` is an overlay for
-/// hand-tuned cells. Bake never writes it. The project file omits `role`
-/// when every layer is `default`.
+/// hand-tuned cells. Bake does not rebuild it from a linked part. A polish
+/// layer may instead bind to a part; bake then restamps that overlay from the
+/// source frame through the part's pose. Unbound polish stays on the canvas
+/// cells where it was painted. The project file omits `role` when every layer
+/// is `default`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LayerRole {
     /// Ordinary pixels. Bake may replace this layer from the rest pose.
     #[default]
     Default,
-    /// Overlay. Bake does not write these cells.
+    /// Overlay. Bake does not rebuild these cells from a linked part.
     Polish,
+}
+
+/// A polish overlay whose cells follow one part.
+///
+/// Cells stay in the frame buffer at canvas coordinates. On the source frame
+/// those coordinates are the rest pose, so local `(0, 0)` is the part origin,
+/// or `anchor` when that name is set. Bake and part translate / rotate / flip
+/// move the marked cells with that part. The file omits the binding when the
+/// layer is unbound.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolishBind {
+    pub part: String,
+    /// Named anchor. `None` means the part origin is local `(0, 0)`.
+    pub anchor: Option<String>,
 }
 
 impl LayerRole {

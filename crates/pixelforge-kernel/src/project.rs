@@ -25,7 +25,9 @@
 //! omits `curves` and loads with none. An empty curve list is still saved that
 //! way. A file written before constraints existed omits `constraints` and loads
 //! with none. An empty constraint list is still saved that way. `ik` and
-//! `plant` are kinds on that same list. A missing
+//! `plant` are kinds on that same list. A polish layer may name `part` and
+//! an optional `anchor`; both are omitted when the overlay is not bound.
+//! An erase mask is omitted when every cell is unmodified. A missing
 //! `selection` loads as no mask. One rectangle is written as
 //! `{x,y,width,height}`. Several rectangles, or a mask that covers nothing,
 //! are written as `{rects:[...]}`. The field is omitted when the selection is
@@ -43,6 +45,7 @@ use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
 use crate::selection::{Mask, Selection};
 use crate::tag::{normalize_tag_name, LoopMode, Tag};
 use crate::LayerRole;
+use crate::PolishBind;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
@@ -266,6 +269,12 @@ struct LayerNameFile {
     /// Missing means [`LayerRole::Default`]. Only `polish` is written back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    /// Part this polish layer follows. Missing means canvas coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    part: Option<String>,
+    /// Anchor that is local `(0, 0)`. Missing means the part origin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    anchor: Option<String>,
     /// Missing means shown. Only `false` is written back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     visible: Option<bool>,
@@ -278,6 +287,10 @@ struct LayerNameFile {
 #[serde(deny_unknown_fields)]
 struct LayerPixelsFile {
     pixels: Vec<u64>,
+    /// Explicit erase marks. `1` is transparent, distinct from an omitted cell.
+    /// Missing or empty means every cell is unmodified.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    erase: Vec<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -286,6 +299,9 @@ struct FrameFile {
     /// The only layer, or omitted when [`Self::layers`] holds the stack.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pixels: Vec<u64>,
+    /// Explicit erase marks for the single `pixels` buffer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    erase: Vec<u64>,
     /// Milliseconds. Missing in files saved before delays existed.
     #[serde(default = "default_delay_ms", rename = "delayMs")]
     delay_ms: u64,
@@ -373,12 +389,18 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         return Err(invalid(ProjectFileError::EmptyFrames));
     }
     let expected = usize::from(width) * usize::from(height);
-    let (layer_names, layer_roles, layer_visible, layer_opacity) =
+    let (layer_names, layer_roles, layer_visible, layer_opacity, layer_bind_raw) =
         layer_names_from_file(file.layers)?;
     let mut frames = Vec::with_capacity(file.frames.len());
     for (index, frame) in file.frames.into_iter().enumerate() {
-        let buffers =
-            layer_buffers_from_file(index, frame.pixels, frame.layers, expected, &palette)?;
+        let (buffers, erase) = layer_buffers_from_file(
+            index,
+            frame.pixels,
+            frame.erase,
+            frame.layers,
+            expected,
+            &palette,
+        )?;
         if layer_names.is_empty() {
             if buffers.len() != 1 {
                 return Err(invalid(ProjectFileError::LayerCount {
@@ -395,7 +417,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
             }));
         }
         let delay_ms = frame_delay_from_file(index, frame.delay_ms)?;
-        frames.push(Frame::from_layers(buffers, delay_ms));
+        frames.push(Frame::from_layers_with_erase(buffers, erase, delay_ms));
     }
     if file.active_frame >= u64::try_from(frames.len()).expect("frame count fits in u64") {
         return Err(invalid(ProjectFileError::ActiveFrame {
@@ -404,15 +426,22 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         }));
     }
     let active = usize::try_from(file.active_frame).expect("active frame was checked");
-    let (names, roles, visible, opacity) = if layer_names.is_empty() {
+    let (names, roles, visible, opacity, bind_raw) = if layer_names.is_empty() {
         (
             vec![DEFAULT_LAYER_NAME.to_string()],
             vec![LayerRole::Default],
             vec![true],
             vec![LAYER_OPACITY_OPAQUE],
+            vec![(None, None)],
         )
     } else {
-        (layer_names, layer_roles, layer_visible, layer_opacity)
+        (
+            layer_names,
+            layer_roles,
+            layer_visible,
+            layer_opacity,
+            layer_bind_raw,
+        )
     };
     if file.active_layer >= u64::try_from(names.len()).expect("layer count fits in u64") {
         return Err(invalid(ProjectFileError::ActiveLayer {
@@ -425,6 +454,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let selection = selection_from_file(file.selection, width, height)?;
     let tags = tags_from_file(file.tags, frames.len())?;
     let parts = parts_from_file(file.parts, width, height, names.len())?;
+    let binds = binds_from_file(bind_raw, &roles, &parts)?;
     let curves = curves_from_file(file.curves, &parts, frames.len())?;
     let constraints = constraints_from_file(file.constraints, &parts, width, height, frames.len())?;
     Ok(Document::from_stored(
@@ -439,6 +469,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         roles,
         visible,
         opacity,
+        binds,
         active_layer,
         selection,
         tags,
@@ -992,12 +1023,15 @@ impl Document {
                 .map(|(index, name)| {
                     let shown = self.layer_visible(index).expect("layer walks layer_count");
                     let opacity = self.layer_opacity(index).expect("layer walks layer_count");
+                    let bind = self.layer_bind(index).expect("layer walks layer_count");
                     LayerNameFile {
                         name: name.clone(),
                         role: match self.layer_role(index).expect("layer walks layer_count") {
                             LayerRole::Default => None,
                             LayerRole::Polish => Some(LayerRole::Polish.as_str().to_string()),
                         },
+                        part: bind.map(|bind| bind.part.clone()),
+                        anchor: bind.and_then(|bind| bind.anchor.clone()),
                         visible: if shown { None } else { Some(false) },
                         opacity: if opacity == LAYER_OPACITY_OPAQUE {
                             None
@@ -1018,17 +1052,23 @@ impl Document {
                     self.layer_pixels(index, 0)
                         .expect("index walks frame_count"),
                 ),
+                erase: marks_to_file(self.layer_erase(index, 0).expect("index walks frame_count")),
                 delay_ms,
                 layers: Vec::new(),
             }
         } else {
             FrameFile {
                 pixels: Vec::new(),
+                erase: Vec::new(),
                 delay_ms,
                 layers: (0..self.layer_count())
                     .map(|layer| LayerPixelsFile {
                         pixels: indices_to_file(
                             self.layer_pixels(index, layer)
+                                .expect("layer walks layer_count"),
+                        ),
+                        erase: marks_to_file(
+                            self.layer_erase(index, layer)
                                 .expect("layer walks layer_count"),
                         ),
                     })
@@ -1042,20 +1082,78 @@ fn indices_to_file(pixels: &[u8]) -> Vec<u64> {
     pixels.iter().copied().map(u64::from).collect()
 }
 
+fn marks_to_file(marks: &[u8]) -> Vec<u64> {
+    if marks.iter().all(|mark| *mark == 0) {
+        Vec::new()
+    } else {
+        marks.iter().copied().map(u64::from).collect()
+    }
+}
+
 fn layer_names_from_file(
     layers: Vec<LayerNameFile>,
-) -> Result<(Vec<String>, Vec<LayerRole>, Vec<bool>, Vec<u8>), KernelError> {
+) -> Result<
+    (
+        Vec<String>,
+        Vec<LayerRole>,
+        Vec<bool>,
+        Vec<u8>,
+        Vec<(Option<String>, Option<String>)>,
+    ),
+    KernelError,
+> {
     let mut names = Vec::with_capacity(layers.len());
     let mut roles = Vec::with_capacity(layers.len());
     let mut visible = Vec::with_capacity(layers.len());
     let mut opacity = Vec::with_capacity(layers.len());
+    let mut binds = Vec::with_capacity(layers.len());
     for (index, layer) in layers.into_iter().enumerate() {
         names.push(layer_name_from_file(index, &layer.name)?);
         roles.push(layer_role_from_file(index, layer.role)?);
         visible.push(layer.visible.unwrap_or(true));
         opacity.push(layer_opacity_from_file(index, layer.opacity)?);
+        binds.push((layer.part, layer.anchor));
     }
-    Ok((names, roles, visible, opacity))
+    Ok((names, roles, visible, opacity, binds))
+}
+
+fn binds_from_file(
+    raw: Vec<(Option<String>, Option<String>)>,
+    roles: &[LayerRole],
+    parts: &[Part],
+) -> Result<Vec<Option<PolishBind>>, KernelError> {
+    let mut binds = Vec::with_capacity(raw.len());
+    for (index, (part, anchor)) in raw.into_iter().enumerate() {
+        let Some(part) = part else {
+            if anchor.is_some() {
+                return Err(invalid(ProjectFileError::LayerBind { index }));
+            }
+            binds.push(None);
+            continue;
+        };
+        if roles.get(index).copied() != Some(LayerRole::Polish) {
+            return Err(invalid(ProjectFileError::LayerBind { index }));
+        }
+        let part = normalize_part_name(&part)
+            .map_err(|()| invalid(ProjectFileError::LayerBind { index }))?;
+        let found = parts
+            .iter()
+            .find(|candidate| candidate.name == part)
+            .ok_or_else(|| invalid(ProjectFileError::LayerBind { index }))?;
+        let anchor = match anchor {
+            None => None,
+            Some(anchor) => {
+                let anchor = normalize_part_name(&anchor)
+                    .map_err(|()| invalid(ProjectFileError::LayerBind { index }))?;
+                if found.anchors.iter().all(|item| item.name != anchor) {
+                    return Err(invalid(ProjectFileError::LayerBind { index }));
+                }
+                Some(anchor)
+            }
+        };
+        binds.push(Some(PolishBind { part, anchor }));
+    }
+    Ok(binds)
 }
 
 fn layer_opacity_from_file(index: usize, opacity: Option<u64>) -> Result<u8, KernelError> {
@@ -1090,15 +1188,20 @@ fn layer_name_from_file(index: usize, name: &str) -> Result<String, KernelError>
 fn layer_buffers_from_file(
     frame: usize,
     pixels: Vec<u64>,
+    erase: Vec<u64>,
     layers: Vec<LayerPixelsFile>,
     expected: usize,
     palette: &Palette,
-) -> Result<Vec<Vec<u8>>, KernelError> {
+) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), KernelError> {
     if !pixels.is_empty() && !layers.is_empty() {
         return Err(invalid(ProjectFileError::LayerPixels { frame }));
     }
     if !layers.is_empty() {
+        if !erase.is_empty() {
+            return Err(invalid(ProjectFileError::LayerErase { frame, layer: 0 }));
+        }
         let mut buffers = Vec::with_capacity(layers.len());
+        let mut masks = Vec::with_capacity(layers.len());
         for (layer, buffer) in layers.into_iter().enumerate() {
             if buffer.pixels.len() != expected {
                 return Err(invalid(ProjectFileError::LayerLength {
@@ -1108,9 +1211,11 @@ fn layer_buffers_from_file(
                     actual: buffer.pixels.len(),
                 }));
             }
-            buffers.push(decode_indices(frame, buffer.pixels, palette)?);
+            let decoded = decode_indices(frame, buffer.pixels, palette)?;
+            masks.push(decode_erase(frame, layer, buffer.erase, &decoded)?);
+            buffers.push(decoded);
         }
-        return Ok(buffers);
+        return Ok((buffers, masks));
     }
     if pixels.len() != expected {
         return Err(invalid(ProjectFileError::FrameLength {
@@ -1119,7 +1224,31 @@ fn layer_buffers_from_file(
             actual: pixels.len(),
         }));
     }
-    Ok(vec![decode_indices(frame, pixels, palette)?])
+    let decoded = decode_indices(frame, pixels, palette)?;
+    let mask = decode_erase(frame, 0, erase, &decoded)?;
+    Ok((vec![decoded], vec![mask]))
+}
+
+fn decode_erase(
+    frame: usize,
+    layer: usize,
+    erase: Vec<u64>,
+    pixels: &[u8],
+) -> Result<Vec<u8>, KernelError> {
+    if erase.is_empty() {
+        return Ok(vec![0; pixels.len()]);
+    }
+    if erase.len() != pixels.len() {
+        return Err(invalid(ProjectFileError::LayerErase { frame, layer }));
+    }
+    let mut decoded = Vec::with_capacity(erase.len());
+    for (offset, mark) in erase.into_iter().enumerate() {
+        if mark > 1 || (mark == 1 && pixels[offset] != 0) {
+            return Err(invalid(ProjectFileError::LayerErase { frame, layer }));
+        }
+        decoded.push(u8::try_from(mark).expect("erase mark is 0 or 1"));
+    }
+    Ok(decoded)
 }
 
 fn decode_indices(
