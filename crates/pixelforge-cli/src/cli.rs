@@ -24,6 +24,12 @@ Examples:
   pixelforge new --width 16 --height 16 --output hero.json
   pixelforge paint --project hero.json --x 1 --y 2 --color-index 3
   pixelforge fill-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3
+  pixelforge stroke-rect --project hero.json --x 4 --y 8 --width 16 --height 40 --color-index 3
+  pixelforge line --project hero.json --x0 2 --y0 2 --x1 20 --y1 14 --color-index 1
+  pixelforge line --project hero.json --x0 2 --y0 16 --x1 20 --y1 28 --color-index 2 --pixel-perfect
+  pixelforge ellipse --project hero.json --x 8 --y 8 --width 20 --height 12 --color-index 4 --fill
+  pixelforge polygon --project hero.json --point 4,4 --point 20,6 --point 12,18 --color-index 5 --fill
+  pixelforge fill --project hero.json --x 10 --y 10 --color-index 6 --connectivity 4
   pixelforge erase-rect --project hero.json --x 4 --y 8 --width 16 --height 8
   pixelforge copy-rect --project hero.json --src-x 4 --src-y 8 --width 8 --height 12 --dst-x 20 --dst-y 8
   pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 1 --src-x 8 --src-y 16 --width 16 --height 24 --dst-x 8 --dst-y 16
@@ -66,10 +72,11 @@ Examples:
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, palette hash, frame delays) and does not dump pixels. `visible` is
 always true and `opacity` is null: the kernel has no hide flag and no
-per-layer opacity. `--dirty` on paint, erase, fill-rect, erase-rect,
-copy-rect, move-rect, flip, hflip, vflip, rotate, resize, and
-part translate / rotate / flip adds `changed`, `dirty`, and
-`regions`. Omit it and those fields stay absent. `preview` JSON also has
+per-layer opacity. `--dirty` on paint, erase, fill-rect, stroke-rect,
+line, ellipse, polygon, fill, erase-rect, copy-rect, move-rect, flip,
+hflip, vflip, rotate, resize, and part translate / rotate / flip adds
+`changed`, `dirty`, and `regions`. Omit it and those fields stay absent.
+`preview` JSON also has
 `ink`, `bounds`, `indices`, and `pixels`. `diff` JSON also has `bounds`,
 `kinds`, and `changes`.
 
@@ -146,6 +153,14 @@ list, image file name, delay range, and pivot drift into warnings. Overlap,
 out-of-bounds frames, a broken grid, and opaque padding stay errors. Default
 canvas edges are 64, 96, and 128, checked as frameWidth / scale and
 frameHeight / scale.";
+
+fn connectivity_arg(text: &str) -> Result<u8, String> {
+    match text {
+        "4" => Ok(4),
+        "8" => Ok(8),
+        _ => Err(String::from("connectivity must be 4 or 8")),
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -284,6 +299,31 @@ pub enum Command {
     /// One undo step. The rectangle must lie entirely inside the canvas.
     /// Does not write RGB. A locked palette still allows this.
     FillRect(FillRectArgs),
+    /// Draw the border of an axis-aligned rectangle. The interior stays.
+    ///
+    /// One undo step. The rectangle must lie entirely inside the canvas.
+    /// A width or height of 1 draws that whole line. Does not write RGB.
+    StrokeRect(StrokeRectArgs),
+    /// Draw a 1px line between two cells. Bresenham, no gaps.
+    ///
+    /// Both ends must lie on the canvas. `--pixel-perfect` keeps one cell per
+    /// step on the longer axis. One undo step. Does not write RGB.
+    Line(LineArgs),
+    /// Draw an ellipse inscribed in a rectangle. `--fill` paints the interior.
+    ///
+    /// One undo step. The rectangle must lie entirely inside the canvas.
+    /// Does not write RGB.
+    Ellipse(EllipseArgs),
+    /// Draw a closed polygon. Repeat `--point x,y` at least three times.
+    ///
+    /// `--fill` paints the even-odd interior as well as the outline. Every
+    /// vertex must lie on the canvas. One undo step. Does not write RGB.
+    Polygon(PolygonArgs),
+    /// Flood-fill the connected region that holds the seed cell's index.
+    ///
+    /// `--connectivity` is 4 or 8. Cells outside the selection are barriers.
+    /// One undo step. Does not write RGB. Index 0 is refused as the new color.
+    Fill(FloodArgs),
     /// Set one cell back to transparent index 0.
     Erase(EraseArgs),
     /// Clear an axis-aligned rectangle on the active frame to index 0.
@@ -498,6 +538,153 @@ pub struct FillRectArgs {
     /// Palette index to store. Index 0 is refused.
     #[arg(long)]
     pub color_index: u8,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct StrokeRectArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Left column, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Top row, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: u16,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: u16,
+    /// Palette index to store. Index 0 is refused.
+    #[arg(long)]
+    pub color_index: u8,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct LineArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Start column, from 0.
+    #[arg(long)]
+    pub x0: u16,
+    /// Start row, from 0.
+    #[arg(long)]
+    pub y0: u16,
+    /// End column, from 0.
+    #[arg(long)]
+    pub x1: u16,
+    /// End row, from 0.
+    #[arg(long)]
+    pub y1: u16,
+    /// Palette index to store. Index 0 is refused.
+    #[arg(long)]
+    pub color_index: u8,
+    /// One cell per step on the longer axis. Still 8-connected.
+    #[arg(long)]
+    pub pixel_perfect: bool,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct EllipseArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Left column of the bounding rectangle, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Top row of the bounding rectangle, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// Width in cells, from 1.
+    #[arg(long)]
+    pub width: u16,
+    /// Height in cells, from 1.
+    #[arg(long)]
+    pub height: u16,
+    /// Palette index to store. Index 0 is refused.
+    #[arg(long)]
+    pub color_index: u8,
+    /// Paint the interior as well as the outline.
+    #[arg(long)]
+    pub fill: bool,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct PolygonArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Vertex `x,y`. Repeat at least three times, in order.
+    #[arg(long = "point", value_name = "X,Y", required = true)]
+    pub points: Vec<String>,
+    /// Palette index to store. Index 0 is refused.
+    #[arg(long)]
+    pub color_index: u8,
+    /// Paint the even-odd interior as well as the outline.
+    #[arg(long)]
+    pub fill: bool,
+    /// Layer to edit. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Add changed count and dirty bbox to the JSON result.
+    #[arg(long)]
+    pub dirty: bool,
+    /// After the edit, print an ASCII view of the active frame on stderr.
+    #[arg(long)]
+    pub preview: bool,
+}
+
+#[derive(Args)]
+pub struct FloodArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Seed column, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Seed row, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// Palette index to store. Index 0 is refused.
+    #[arg(long)]
+    pub color_index: u8,
+    /// 4 keeps to orthogonal neighbors. 8 also crosses corners.
+    #[arg(long, default_value_t = 4, value_parser = connectivity_arg)]
+    pub connectivity: u8,
     /// Layer to edit. Defaults to the active layer. Does not select it.
     #[arg(long)]
     pub layer: Option<u32>,

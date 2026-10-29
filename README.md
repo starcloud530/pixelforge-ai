@@ -171,7 +171,7 @@ Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。�
 
 | Skill | 说明 |
 | --- | --- |
-| `pixelforge` | 核心。安装与运行、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差，合并相邻同色 `fillRect`，一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
+| `pixelforge` | 核心。安装与运行、索引色不变量、退出码、`inspect` / `tools` / `call`。线段、椭圆、多边形、洪水填充和矩形轮廓。最少编辑路径：同姿复制后改差，合并相邻同色 `fillRect`，一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | 从零画角色、立绘、剪影。剪影（单色）→ 色块 → 细节，每阶段 `preview --scale` 与 ASCII。禁止一像素刷屏，读图要查破洞、头身和体积断点。 |
 | `pixelforge-sprite-4dir` | 四向走 + 闲精灵表。行是朝向，列是 idle 加 walk。`export sheet --cols`、同姿列复制后改差、跨帧 `copy-rect`、`diff` 查脚滑、`hflip` 后修高光。 |
 | `pixelforge-layers` | 身体、装备、四肢分层。合成预览、绘制 `--layer`、`layer flatten`。 |

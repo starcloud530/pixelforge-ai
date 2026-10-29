@@ -28,7 +28,8 @@ interface SchemaProperty {
   maximum?: number;
   enum?: readonly string[];
   items?: {
-    type: "integer" | "string";
+    type: "integer" | "string" | "object";
+    description?: string;
     minimum?: number;
     maximum?: number;
   };
@@ -74,6 +75,91 @@ const BY_NAME = {
       reportDirty: REPORT_DIRTY,
     },
     ["x", "y", "width", "height", "colorIndex"],
+  ),
+  strokeRect: tool(
+    "strokeRect",
+    "Draw the border of an axis-aligned rectangle on the active frame. The interior stays. One undo step. A width or height of 1 draws that whole line. A locked palette still allows this. The rectangle must lie entirely inside the canvas. Index 0 is refused. Cells outside the stored selection are skipped.",
+    {
+      x: int("Left column, 0-based.", 0, 65535),
+      y: int("Top row, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["x", "y", "width", "height", "colorIndex"],
+  ),
+  line: tool(
+    "line",
+    "Draw a 1px continuous Bresenham line. Consecutive cells share an edge or a corner, and both endpoints are included. pixelPerfect walks one cell per step on the longer axis and stays 8-connected. No anti-aliasing. One undo step. Both ends must lie on the canvas. A locked palette still allows an existing index. Index 0 is refused. Cells outside the stored selection are skipped.",
+    {
+      x0: int("Start column, 0-based.", 0, 65535),
+      y0: int("Start row, 0-based.", 0, 65535),
+      x1: int("End column, 0-based.", 0, 65535),
+      y1: int("End row, 0-based.", 0, 65535),
+      colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      pixelPerfect: {
+        type: "boolean",
+        description: "One cell per step on the longer axis. Omit for the continuous Bresenham line.",
+      },
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["x0", "y0", "x1", "y1", "colorIndex"],
+  ),
+  ellipse: tool(
+    "ellipse",
+    "Draw an ellipse inscribed in an axis-aligned rectangle. fill paints the interior and includes the outline. A width or height of 1 is that line. No anti-aliasing. One undo step. The rectangle must lie entirely inside the canvas. Index 0 is refused. Cells outside the stored selection are skipped.",
+    {
+      x: int("Left column of the bounding rectangle, 0-based.", 0, 65535),
+      y: int("Top row of the bounding rectangle, 0-based.", 0, 65535),
+      width: int("Width in cells, at least 1.", 1, 65535),
+      height: int("Height in cells, at least 1.", 1, 65535),
+      colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      fill: {
+        type: "boolean",
+        description: "Paint the interior as well as the outline. Omit for the outline only.",
+      },
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["x", "y", "width", "height", "colorIndex"],
+  ),
+  polygon: tool(
+    "polygon",
+    "Draw a closed polygon through points in order, at least 3 vertices. Edges use the same continuous line as line. fill adds the even-odd interior. No curves and no anti-aliasing. One undo step. Every vertex must lie on the canvas. Index 0 is refused. Cells outside the stored selection are skipped.",
+    {
+      points: {
+        type: "array",
+        description: "Vertices in order. At least 3 and at most 4096. Each item is {x, y}.",
+        items: {
+          type: "object",
+          description: "One vertex. x and y are integers from 0 to 65535.",
+        },
+      },
+      colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      fill: {
+        type: "boolean",
+        description: "Paint the even-odd interior as well as the outline.",
+      },
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["points", "colorIndex"],
+  ),
+  fill: tool(
+    "fill",
+    "Replace the connected region of the seed cell's current index with colorIndex. connectivity 4 walks orthogonal neighbors. 8 also crosses corners. Cells outside the selection are barriers. One undo step. The seed must lie on the canvas. Index 0 is refused as the new color. A locked palette still allows an existing index.",
+    {
+      x: int("Seed column, 0-based.", 0, 65535),
+      y: int("Seed row, 0-based.", 0, 65535),
+      colorIndex: int("Opaque palette index that already exists.", 1, 255),
+      connectivity: int("4 or 8. Omit for 4.", 4, 8),
+      layer: int("Layer to edit. Omit for the active layer. Does not select it.", 0, 4294967295),
+      reportDirty: REPORT_DIRTY,
+    },
+    ["x", "y", "colorIndex"],
   ),
   erase: tool(
     "erase",
@@ -135,7 +221,7 @@ const BY_NAME = {
   ),
   setSelection: tool(
     "setSelection",
-    "Store one rectangle in the project file. Later paint, erase, fillRect, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex skip cells outside it. flipVertical and rotate also require the source cell to sit inside. moveRect requires both rectangles inside it. combineMask can turn this rectangle into a mask. Does not change pixels or the active layer. There is no lasso.",
+    "Store one rectangle in the project file. Later paint, erase, fillRect, strokeRect, line, ellipse, polygon, fill, eraseRect, copyRect, flipHorizontal, flipVertical, rotate, and replaceIndex skip cells outside it. fill does not travel through cells outside the mask. flipVertical and rotate also require the source cell to sit inside. moveRect requires both rectangles inside it. combineMask can turn this rectangle into a mask. Does not change pixels or the active layer. There is no lasso.",
     {
       x: int("Left column, 0-based.", 0, 65535),
       y: int("Top row, 0-based.", 0, 65535),

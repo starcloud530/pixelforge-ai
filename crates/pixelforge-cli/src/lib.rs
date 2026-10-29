@@ -27,10 +27,10 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EraseRectArgs,
-    ExportCmd, FillRectArgs, FlipArgs, FrameCmd, ImportMode, LayerCmd, MaskArgs, MaskCmd,
-    PaintArgs, PaletteCmd, PartCmd, ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs,
-    ScopeArgs, SelectionCmd, TagCmd,
+    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EllipseArgs,
+    EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FloodArgs, FrameCmd, ImportMode, LayerCmd,
+    LineArgs, MaskArgs, MaskCmd, PaintArgs, PaletteCmd, PartCmd, PolygonArgs, ProjectArgs,
+    ReplaceIndexArgs, ResizeArgs, RotateArgs, ScopeArgs, SelectionCmd, StrokeRectArgs, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -88,6 +88,11 @@ fn execute(cli: Cli) -> i32 {
         } => cmd_call(&doc, request, request_file.as_deref(), preview),
         Command::Paint(args) => cmd_paint(args),
         Command::FillRect(args) => cmd_fill_rect(args),
+        Command::StrokeRect(args) => cmd_stroke_rect(args),
+        Command::Line(args) => cmd_line(args),
+        Command::Ellipse(args) => cmd_ellipse(args),
+        Command::Polygon(args) => cmd_polygon(args),
+        Command::Fill(args) => cmd_flood(args),
         Command::Erase(args) => apply(
             &args.doc,
             vec![request(
@@ -345,6 +350,136 @@ fn cmd_fill_rect(args: FillRectArgs) -> i32 {
                         "width": args.width,
                         "height": args.height,
                         "colorIndex": args.color_index,
+                    }),
+                    args.layer,
+                ),
+                args.dirty,
+            ),
+        )],
+        args.preview,
+    )
+}
+
+fn cmd_stroke_rect(args: StrokeRectArgs) -> i32 {
+    apply_with(
+        &args.doc,
+        vec![request(
+            "strokeRect",
+            with_dirty(
+                with_layer(
+                    json!({
+                        "x": args.x,
+                        "y": args.y,
+                        "width": args.width,
+                        "height": args.height,
+                        "colorIndex": args.color_index,
+                    }),
+                    args.layer,
+                ),
+                args.dirty,
+            ),
+        )],
+        args.preview,
+    )
+}
+
+fn cmd_line(args: LineArgs) -> i32 {
+    let mut params = with_layer(
+        json!({
+            "x0": args.x0,
+            "y0": args.y0,
+            "x1": args.x1,
+            "y1": args.y1,
+            "colorIndex": args.color_index,
+        }),
+        args.layer,
+    );
+    if args.pixel_perfect {
+        params["pixelPerfect"] = json!(true);
+    }
+    apply_with(
+        &args.doc,
+        vec![request("line", with_dirty(params, args.dirty))],
+        args.preview,
+    )
+}
+
+fn cmd_ellipse(args: EllipseArgs) -> i32 {
+    let mut params = with_layer(
+        json!({
+            "x": args.x,
+            "y": args.y,
+            "width": args.width,
+            "height": args.height,
+            "colorIndex": args.color_index,
+        }),
+        args.layer,
+    );
+    if args.fill {
+        params["fill"] = json!(true);
+    }
+    apply_with(
+        &args.doc,
+        vec![request("ellipse", with_dirty(params, args.dirty))],
+        args.preview,
+    )
+}
+
+fn cmd_polygon(args: PolygonArgs) -> i32 {
+    let mut points = Vec::with_capacity(args.points.len());
+    for text in &args.points {
+        match parse_point(text) {
+            Ok((x, y)) => points.push(json!({"x": x, "y": y})),
+            Err(message) => {
+                eprintln!("pixelforge: {message}");
+                return 2;
+            }
+        }
+    }
+    let mut params = with_layer(
+        json!({
+            "points": points,
+            "colorIndex": args.color_index,
+        }),
+        args.layer,
+    );
+    if args.fill {
+        params["fill"] = json!(true);
+    }
+    apply_with(
+        &args.doc,
+        vec![request("polygon", with_dirty(params, args.dirty))],
+        args.preview,
+    )
+}
+
+fn parse_point(text: &str) -> Result<(u16, u16), String> {
+    let Some((x, y)) = text.split_once(',') else {
+        return Err(format!("point {text} must be x,y"));
+    };
+    let x = x
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| format!("point {text} must be x,y"))?;
+    let y = y
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| format!("point {text} must be x,y"))?;
+    Ok((x, y))
+}
+
+fn cmd_flood(args: FloodArgs) -> i32 {
+    apply_with(
+        &args.doc,
+        vec![request(
+            "fill",
+            with_dirty(
+                with_layer(
+                    json!({
+                        "x": args.x,
+                        "y": args.y,
+                        "colorIndex": args.color_index,
+                        "connectivity": args.connectivity,
                     }),
                     args.layer,
                 ),

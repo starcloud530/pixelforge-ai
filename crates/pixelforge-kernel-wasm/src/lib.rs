@@ -1,7 +1,7 @@
 //! Browser bridge for [`pixelforge_kernel::Document`].
 //!
 //! The TypeScript shell loads this crate as WebAssembly and keeps using
-//! `snapshot()`, `paint`, `fillRect`, `erase`, `eraseRect`, `copyRect`, `moveRect`, palette edits, palette lock, palette import,
+//! `snapshot()`, `paint`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `erase`, `eraseRect`, `copyRect`, `moveRect`, palette edits, palette lock, palette import,
 //! frame-list methods, per-frame delay, timeline scrub, loop playback, undo /
 //! redo, project save / load, `frameRgba`, and PNG export. `callTool` is the
 //! same Tool API as [`pixelforge_kernel::Document::call_tool`]: one JSON

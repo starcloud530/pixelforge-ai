@@ -66,7 +66,7 @@ pixelforge preview --project hero.json --frame 1 --scale 4
 
 整块身体只用一个已有索引。用 `fill-rect` 铺头、躯干、腿，用 `erase-rect` 切出外轮廓。这一阶段不加第二种颜色。
 
-禁止为一块平涂逐格 `paint` 或 `erase`。一块纯色是一次 `fillRect` 或 `eraseRect`。一次 `call` 里可以放多个矩形，并用 `beginGesture` / `endGesture` 合成一步撤销。
+禁止为一块平涂逐格 `paint` 或 `erase`。一块纯色是一次 `fillRect` 或 `eraseRect`。斜线用一次 `line`，圆或椭圆用一次 `ellipse`，同色连通区换色用一次 `fill`，不要逐格点出来。一次 `call` 里可以放多个矩形，并用 `beginGesture` / `endGesture` 合成一步撤销。
 
 看 ASCII：身体内部不该有无意的 `.`。外轮廓要能单独读出是个人、是侧是正。读不出来就继续改剪影，不要上色。
 
