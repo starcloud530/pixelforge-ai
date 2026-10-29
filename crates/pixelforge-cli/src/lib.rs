@@ -297,6 +297,21 @@ fn cmd_selection(command: SelectionCmd) -> i32 {
             )],
         ),
         SelectionCmd::Clear { doc } => apply(&doc, vec![request("clearSelection", json!({}))]),
+        SelectionCmd::Wand(args) => {
+            let mut params = with_layer(
+                json!({
+                    "x": args.x,
+                    "y": args.y,
+                    "tolerance": args.tolerance,
+                    "connectivity": args.connectivity,
+                }),
+                args.layer,
+            );
+            if let Some(frame) = args.frame {
+                params["frame"] = json!(frame);
+            }
+            apply(&args.doc, vec![request("selectConnected", params)])
+        }
     }
 }
 

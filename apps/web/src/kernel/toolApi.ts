@@ -27,6 +27,7 @@ export const TOOL_NAMES = [
   "setSelection",
   "clearSelection",
   "combineMask",
+  "selectConnected",
   "replaceIndex",
   "setPaletteColor",
   "addPaletteColor",

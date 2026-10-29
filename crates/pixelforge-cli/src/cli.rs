@@ -95,7 +95,8 @@ repeat `--mask x,y,width,height` limits them to that rectangle instead.
 Cells outside are `#` and are not part of `changed`. `mask union`,
 `mask intersect`, and `mask subtract` combine that rectangle with the stored
 selection, or with `--base-x --base-y --base-width --base-height`. The result
-is the selection paint tools already use. There is no lasso. `flip
+is the selection paint tools already use. `selection wand` stores the
+seed cell's connected component as that same mask. There is no lasso. `flip
 --horizontal` / `hflip` mirrors indices left to right. `flip --vertical` /
 `vflip` mirrors them top to bottom. `rotate --degrees 90|180|270` turns
 indices clockwise. 90 and 270 need a square rectangle; the canvas size
@@ -141,9 +142,13 @@ A standing figure still wants a tall canvas (64x128 or 96x128). `selection set`
 stores one rectangle in the project file. Later paint, erase, fill-rect,
 erase-rect, copy-rect, flip, hflip, vflip, rotate, and replace-index leave cells outside
 that rectangle unchanged. `move-rect` fails with SelectionProtected unless
-both rectangles lie inside it. `selection clear` removes the field. There
-is no lasso. The rectangle is not per layer: pass `--layer` to edit a helmet
-without touching the body. `frame
+both rectangles lie inside it. `selection clear` removes the field.
+`selection wand --x --y` replaces the mask with the seed's connected
+component. `--tolerance 0` (the default) matches that palette index.
+`--tolerance N` matches entries whose r, g, b, and a each differ by at most N.
+`--connectivity` is 4 or 8. `--layer` and `--frame` choose the sample and do
+not select that layer or frame. There is no lasso. The mask is not per layer:
+pass `--layer` on the next paint to edit a helmet without touching the body. `frame
 duplicate` does not select the new frame. `layer add` inserts above the
 active layer and selects the new one. `palette enforce` sets indexPolicy
 (`reject` by default, or `clamp`). `palette remap` quantizes with
@@ -371,9 +376,11 @@ pub enum Command {
     /// the new canvas. A part origin moves the same way, and that part is
     /// dropped when the origin would leave. Anchors stay in local cells.
     Resize(ResizeArgs),
-    /// One rectangular mask stored in the project file.
+    /// One mask stored in the project file.
     ///
-    /// Not a lasso. Cells outside the rectangle are protected from paint tools.
+    /// `set` stores one rectangle. `wand` stores the connected component of a
+    /// seed cell as that same mask. Not a lasso. Cells outside it are
+    /// protected from paint tools.
     Selection {
         #[command(subcommand)]
         command: SelectionCmd,
@@ -875,6 +882,11 @@ pub enum SelectionCmd {
         #[command(flatten)]
         doc: ProjectArgs,
     },
+    /// Store the seed cell's connected component as the selection.
+    ///
+    /// Does not change pixels. `--tolerance 0` matches the seed index.
+    /// A higher tolerance is the max channel distance on r, g, b, and a.
+    Wand(SelectionWandArgs),
 }
 
 /// Limit `preview` or `diff` to the stored selection, one rectangle, or a mask.
@@ -994,6 +1006,30 @@ pub struct SelectionSetArgs {
     /// Height in cells, from 1.
     #[arg(long)]
     pub height: u16,
+}
+
+#[derive(Args)]
+pub struct SelectionWandArgs {
+    #[command(flatten)]
+    pub doc: ProjectArgs,
+    /// Seed column, from 0.
+    #[arg(long)]
+    pub x: u16,
+    /// Seed row, from 0.
+    #[arg(long)]
+    pub y: u16,
+    /// 0 matches the seed index. 1..=255 is the max distance on r, g, b, and a.
+    #[arg(long, default_value_t = 0)]
+    pub tolerance: u8,
+    /// 4 keeps to orthogonal neighbors. 8 also crosses corners.
+    #[arg(long, default_value_t = 4, value_parser = connectivity_arg)]
+    pub connectivity: u8,
+    /// Layer to sample. Defaults to the active layer. Does not select it.
+    #[arg(long)]
+    pub layer: Option<u32>,
+    /// Frame to sample. Defaults to the active frame. Does not select it.
+    #[arg(long)]
+    pub frame: Option<u32>,
 }
 
 #[derive(Args)]

@@ -254,6 +254,19 @@ const BY_NAME = {
     },
     ["op"],
   ),
+  selectConnected: tool(
+    "selectConnected",
+    "Store the seed cell's indexed connected component as the selection mask. tolerance 0 matches that palette index. tolerance 1 to 255 is the max distance on r, g, b, and a. connectivity 4 or 8 matches fill. Optional layer and frame sample stored indices and do not select them. Replaces any current mask. Does not change pixels. There is no lasso.",
+    {
+      x: int("Seed column, 0-based.", 0, 65535),
+      y: int("Seed row, 0-based.", 0, 65535),
+      tolerance: int("0 matches the seed index. 1 to 255 is the max channel distance.", 0, 255),
+      connectivity: int("4 orthogonal, or 8 including corners. Default 4.", 4, 8),
+      layer: int("Layer to sample. Omit for the active layer. Does not select it.", 0, 4294967295),
+      frame: int("Frame to sample. Omit for the active frame. Does not select it.", 0, 4294967295),
+    },
+    ["x", "y"],
+  ),
   replaceIndex: tool(
     "replaceIndex",
     "Replace one stored palette index on the active frame. A selection limits the replace to that rectangle. toIndex 0 clears those cells. Optional layer does not select it. Does not change other frames.",

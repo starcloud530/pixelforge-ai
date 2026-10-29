@@ -22,4 +22,16 @@ impl Rgba {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self::new(r, g, b, 255)
     }
+
+    /// Chebyshev distance over `r`, `g`, `b`, and `a`.
+    ///
+    /// A connected-component selection uses this so tolerance stays on the
+    /// stored palette entry and does not invent a new color.
+    pub fn channel_distance(self, other: Self) -> u8 {
+        self.r
+            .abs_diff(other.r)
+            .max(self.g.abs_diff(other.g))
+            .max(self.b.abs_diff(other.b))
+            .max(self.a.abs_diff(other.a))
+    }
 }

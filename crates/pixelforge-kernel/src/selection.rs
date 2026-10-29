@@ -1,10 +1,11 @@
 //! Axis-aligned selection masks.
 //!
-//! A mask is a set of rectangles, not a lasso and not a magic wand. A missing
-//! selection means every cell is writable. An empty mask protects every cell.
-//! The project file stores one rectangle as `{x,y,width,height}` and several
-//! rectangles, or an empty mask, as `{rects:[...]}`. It omits the field when
-//! the selection is clear.
+//! A mask is a set of rectangles, not a lasso. A connected component is stored
+//! as these rectangles, not as a second bitmap. A missing selection means
+//! every cell is writable. An empty mask protects every cell. The project
+//! file stores one rectangle as `{x,y,width,height}` and several rectangles,
+//! or an empty mask, as `{rects:[...]}`. It omits the field when the
+//! selection is clear.
 
 /// Inclusive origin and size, in cells. The rectangle lies on the canvas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +107,26 @@ impl Mask {
     /// A mask that covers `rect` and nothing else.
     pub fn from_rect(rect: Selection) -> Self {
         Self { rects: vec![rect] }
+    }
+
+    /// Canonical rectangles covering `cells` on a canvas of `width` by `height`.
+    ///
+    /// Cells outside the canvas are ignored. Duplicates count once. The
+    /// partition matches a mask boolean: adjacent cells that form one
+    /// rectangle merge, and the list is sorted by `y`, then `x`. An empty
+    /// list is an empty mask.
+    pub fn from_cells(cells: &[(u16, u16)], width: u16, height: u16) -> Self {
+        if width == 0 || height == 0 || cells.is_empty() {
+            return Self::default();
+        }
+        let stride = usize::from(width);
+        let mut bitmap = vec![false; stride * usize::from(height)];
+        for &(x, y) in cells {
+            if x < width && y < height {
+                bitmap[usize::from(y) * stride + usize::from(x)] = true;
+            }
+        }
+        extract(bitmap, stride, usize::from(height), 0, 0)
     }
 
     /// Unions `rects` into one canonical mask.
@@ -402,5 +423,22 @@ mod tests {
         assert_eq!(overlap.as_rect(), Some(rect(2, 2, 2, 2)));
         assert!(body.intersect(&beside).is_empty());
         assert!(Mask::default().union(&feet).as_rect() == Some(rect(1, 3, 2, 1)));
+    }
+
+    #[test]
+    fn from_cells_merges_a_solid_rect_and_keeps_an_l() {
+        let solid = [(1, 1), (2, 1), (1, 2), (2, 2), (1, 1)];
+        assert_eq!(
+            Mask::from_cells(&solid, 4, 4).as_rect(),
+            Some(rect(1, 1, 2, 2))
+        );
+        let ell = [(0, 0), (1, 0), (0, 1), (0, 2), (1, 2), (2, 2)];
+        let mask = Mask::from_cells(&ell, 4, 3);
+        assert_eq!(mask.cell_count(), 6);
+        assert_eq!(
+            mask.rects(),
+            &[rect(0, 0, 2, 1), rect(0, 1, 1, 2), rect(1, 2, 2, 1),]
+        );
+        assert!(Mask::from_cells(&[(9, 9)], 4, 4).is_empty());
     }
 }

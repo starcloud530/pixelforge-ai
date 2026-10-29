@@ -346,6 +346,8 @@ pub fn stroke_rect_cells(x: i32, y: i32, width: i32, height: i32) -> Vec<(i32, i
 ///
 /// A cell that is not writable, or that holds another index, is a barrier.
 /// The seed itself is included when it is writable and holds `source`.
+/// This is [`flood_matching`] with an exact index predicate. A selection
+/// wand uses the same walk when the match is a palette-distance predicate.
 pub fn flood_cells(
     pixels: &[u8],
     width: u16,
@@ -355,6 +357,33 @@ pub fn flood_cells(
     source: u8,
     connectivity: Connectivity,
     writable: &[bool],
+) -> Vec<(u16, u16)> {
+    flood_matching(
+        pixels,
+        width,
+        height,
+        x,
+        y,
+        connectivity,
+        writable,
+        |index| index == source,
+    )
+}
+
+/// Cells reached from `(x, y)` through `writable` cells that `matches` accepts.
+///
+/// A cell that is not writable, or that `matches` rejects, is a barrier.
+/// The seed is included only when it is writable and `matches` accepts its
+/// index. The walk is the same stack as [`flood_cells`].
+pub fn flood_matching(
+    pixels: &[u8],
+    width: u16,
+    height: u16,
+    x: u16,
+    y: u16,
+    connectivity: Connectivity,
+    writable: &[bool],
+    matches: impl Fn(u8) -> bool,
 ) -> Vec<(u16, u16)> {
     let count = usize::from(width) * usize::from(height);
     debug_assert_eq!(pixels.len(), count);
@@ -368,7 +397,7 @@ pub fn flood_cells(
             continue;
         }
         seen[offset] = true;
-        if !writable[offset] || pixels[offset] != source {
+        if !writable[offset] || !matches(pixels[offset]) {
             continue;
         }
         cells.push((cx, cy));
@@ -560,5 +589,24 @@ mod tests {
         let blocked = [true, false, true];
         let cells = flood_cells(&pixels, 3, 1, 0, 0, 0, Connectivity::Four, &blocked);
         assert_eq!(cells, vec![(0, 0)]);
+    }
+
+    #[test]
+    fn flood_matching_uses_the_same_walk_as_an_exact_index() {
+        let pixels = [1u8, 2, 1, 9];
+        let writable = [true; 4];
+        let cells = flood_matching(
+            &pixels,
+            2,
+            2,
+            0,
+            0,
+            Connectivity::Four,
+            &writable,
+            |index| index == 1 || index == 2,
+        );
+        let mut cells = cells;
+        cells.sort_unstable();
+        assert_eq!(cells, vec![(0, 0), (0, 1), (1, 0)]);
     }
 }

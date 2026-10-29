@@ -14,9 +14,9 @@
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
 //! A selection mask, when stored, limits those paint writes to that mask.
-//! The mask is one rectangle, or the rectangles left by union, intersect, and
-//! subtract. The project file stores it and omits it when clear. There is no
-//! lasso and no magic wand.
+//! The mask is one rectangle, the rectangles of a connected component, or the
+//! rectangles left by union, intersect, and subtract. The project file stores
+//! it and omits it when clear. There is no lasso.
 //! Loop playback advances the active frame from those delays. The TypeScript
 //! shell previews this state; it does not own the pixels, the clock, or a
 //! second history.

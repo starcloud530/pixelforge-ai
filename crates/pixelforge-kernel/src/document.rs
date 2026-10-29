@@ -651,6 +651,96 @@ impl Document {
         });
     }
 
+    /// Stores the connected component of the seed cell as the selection.
+    ///
+    /// Samples the active layer of the active frame. See
+    /// [`Self::select_connected_on`].
+    pub fn select_connected(
+        &mut self,
+        x: u16,
+        y: u16,
+        tolerance: u8,
+        connectivity: Connectivity,
+    ) -> Result<u8, KernelError> {
+        self.select_connected_on(
+            self.active,
+            self.active_layer,
+            x,
+            y,
+            tolerance,
+            connectivity,
+        )
+    }
+
+    /// Stores the connected component of `(x, y)` as the selection.
+    ///
+    /// Samples stored indices on one layer of one frame. Does not change
+    /// pixels, [`Self::active_layer`], or the active frame. Visibility and
+    /// opacity are ignored. An existing mask is replaced and is not a barrier.
+    ///
+    /// `tolerance` 0 matches the seed's palette index. A different index does
+    /// not match, even when its RGBA is the same. `tolerance` 1..=255 matches
+    /// a palette entry when each of r, g, b, and a differs from the seed color
+    /// by at most `tolerance`. Connectivity is the same 4- or 8-neighborhood
+    /// as [`Self::flood_fill`]. The component is stored as the canonical
+    /// rectangle mask. The same mask is not recorded. One undo step when the
+    /// mask changes.
+    ///
+    /// Returns the seed's stored index.
+    pub fn select_connected_on(
+        &mut self,
+        frame: usize,
+        layer: usize,
+        x: u16,
+        y: u16,
+        tolerance: u8,
+        connectivity: Connectivity,
+    ) -> Result<u8, KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        let layer = self.layer_or_err(layer)?;
+        let origin = self.offset(x, y)?;
+        let width = self.width;
+        let height = self.height;
+        let source = self.frames[frame].layer_pixels(layer)[origin];
+        let writable = vec![true; self.pixel_count()];
+        let cells = if tolerance == 0 {
+            raster::flood_cells(
+                self.frames[frame].layer_pixels(layer),
+                width,
+                height,
+                x,
+                y,
+                source,
+                connectivity,
+                &writable,
+            )
+        } else {
+            let seed_color = self
+                .palette
+                .get(source)
+                .expect("a stored index is in the palette");
+            let accept: Vec<bool> = self
+                .palette
+                .colors()
+                .iter()
+                .map(|color| seed_color.channel_distance(*color) <= tolerance)
+                .collect();
+            raster::flood_matching(
+                self.frames[frame].layer_pixels(layer),
+                width,
+                height,
+                x,
+                y,
+                connectivity,
+                &writable,
+                |index| accept.get(usize::from(index)).copied().unwrap_or(false),
+            )
+        };
+        debug_assert!(!cells.is_empty(), "the seed matches itself");
+        self.replace_mask(Mask::from_cells(&cells, width, height))?;
+        Ok(source)
+    }
+
     fn ensure_mask_fits(&self, mask: &Mask) -> Result<(), KernelError> {
         for rect in mask.rects() {
             self.inclusive_rect(rect.x, rect.y, rect.width, rect.height)?;

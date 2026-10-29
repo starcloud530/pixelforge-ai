@@ -54,6 +54,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "setSelection",
     "clearSelection",
     "combineMask",
+    "selectConnected",
     "replaceIndex",
     "setPaletteColor",
     "addPaletteColor",
@@ -588,6 +589,29 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 .combine_mask(op, base, operand)
                 .map_err(ToolFailure::Kernel)?;
             Ok(combine_value(document, op))
+        }
+        "selectConnected" => {
+            let parsed = parse_select_connected(params)?;
+            let frame = parsed.frame.unwrap_or_else(|| document.active_frame());
+            let layer = parsed.layer.unwrap_or(document.active_layer());
+            let index = document
+                .select_connected_on(
+                    frame,
+                    layer,
+                    parsed.x,
+                    parsed.y,
+                    parsed.tolerance,
+                    parsed.connectivity,
+                )
+                .map_err(ToolFailure::Kernel)?;
+            Ok(connected_value(
+                document,
+                index,
+                parsed.tolerance,
+                parsed.connectivity,
+                frame,
+                layer,
+            ))
         }
         "replaceIndex" => {
             let (from_index, to_index, layer) = parse_replace(params)?;
@@ -1794,6 +1818,28 @@ fn selection_value(document: &Document) -> Value {
     serde_json::json!({ "selection": selection_json(document) })
 }
 
+fn connected_value(
+    document: &Document,
+    index: u8,
+    tolerance: u8,
+    connectivity: Connectivity,
+    frame: usize,
+    layer: usize,
+) -> Value {
+    let mask = document
+        .selection()
+        .expect("selectConnected stores a mask, and the seed is inside it");
+    serde_json::json!({
+        "selection": mask_json(mask),
+        "cells": mask.cell_count(),
+        "index": index,
+        "tolerance": tolerance,
+        "connectivity": connectivity.as_u8(),
+        "frame": as_u32(frame),
+        "layer": as_u32(layer),
+    })
+}
+
 /// `toIndex` is the index stored. Clamp adds `indexPolicy` and `requestedIndex`.
 fn replace_result(from_index: u8, requested: u8, written: u8, changed: u32) -> Value {
     let mut result = serde_json::json!({
@@ -2225,19 +2271,55 @@ fn parse_flood(params: Value) -> Result<(u16, u16, u8, Connectivity, Option<usiz
     )?;
     let (x, y) = cell_from("fill", &map)?;
     let color_index = require_u8("fill", &map, "colorIndex")?;
-    let connectivity = match map.get("connectivity") {
-        None => Connectivity::Four,
-        Some(Value::Number(number)) => match number.as_u64() {
-            Some(4) => Connectivity::Four,
-            Some(8) => Connectivity::Eight,
-            _ => {
-                return Err(invalid_params("fill", "connectivity must be 4 or 8"));
-            }
-        },
-        Some(_) => return Err(invalid_params("fill", "connectivity must be 4 or 8")),
-    };
+    let connectivity = connectivity_from("fill", &map)?;
     let layer = optional_frame("fill", &map, "layer")?;
     Ok((x, y, color_index, connectivity, layer))
+}
+
+fn connectivity_from(tool: &str, map: &Map<String, Value>) -> Result<Connectivity, ToolFailure> {
+    match map.get("connectivity") {
+        None => Ok(Connectivity::Four),
+        Some(Value::Number(number)) => match number.as_u64() {
+            Some(4) => Ok(Connectivity::Four),
+            Some(8) => Ok(Connectivity::Eight),
+            _ => Err(invalid_params(tool, "connectivity must be 4 or 8")),
+        },
+        Some(_) => Err(invalid_params(tool, "connectivity must be 4 or 8")),
+    }
+}
+
+struct ConnectedArgs {
+    x: u16,
+    y: u16,
+    tolerance: u8,
+    connectivity: Connectivity,
+    layer: Option<usize>,
+    frame: Option<usize>,
+}
+
+fn parse_select_connected(params: Value) -> Result<ConnectedArgs, ToolFailure> {
+    let map = expect_object("selectConnected", params)?;
+    reject_params(
+        "selectConnected",
+        &map,
+        &["x", "y", "tolerance", "connectivity", "layer", "frame"],
+    )?;
+    let (x, y) = cell_from("selectConnected", &map)?;
+    let tolerance = match map.get("tolerance") {
+        None => 0,
+        Some(_) => require_u8("selectConnected", &map, "tolerance")?,
+    };
+    let connectivity = connectivity_from("selectConnected", &map)?;
+    let layer = optional_frame("selectConnected", &map, "layer")?;
+    let frame = optional_frame("selectConnected", &map, "frame")?;
+    Ok(ConnectedArgs {
+        x,
+        y,
+        tolerance,
+        connectivity,
+        layer,
+        frame,
+    })
 }
 
 fn parse_selection(params: Value) -> Result<(u16, u16, u16, u16), ToolFailure> {
