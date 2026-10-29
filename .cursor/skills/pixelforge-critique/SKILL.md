@@ -54,7 +54,7 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 
 画图时怎么把路径缩短，规范在 `pixelforge` 的「最少编辑路径」。这里只读，用来挑已经发生的长路径。不调用 `duplicateFrame`、`fillRect` 或任何会改文件的工具。2026-10-25 的士兵射击动画是 1,191 次工具操作，其中 1,133 次是 `fillRect`：同姿帧整帧重画、扫描行没有合成更高的矩形、空白帧上重填整个人，并且一次批量 `call` 被当成了一步。
 
-有对话里的工具记录时，逐条数绘制请求（`fillRect`、`eraseRect`、`paint`、`erase`、`copyRect`、`moveRect`）。一次 `pixelforge call` 里的每个 `--request` 各算一次。`beginGesture` / `endGesture` 只说明这些请求会合成一步撤销，不把次数收成 1。没有记录时，可合并的 `fillRect` 写「未核」：最终像素看不出当初拆成几笔。
+有对话里的工具记录时，逐条数绘制请求（`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`paint`、`erase`、`copyRect`、`moveRect`）。一条斜线被拆成许多 `paint`，或一整块同色连通区被逐格改色，记为缺陷：短路径是一次 `line` 或一次 `fill`。平涂仍然看能不能合成更高的 `fillRect`。一次 `pixelforge call` 里的每个 `--request` 各算一次。`beginGesture` / `endGesture` 只说明这些请求会合成一步撤销，不把次数收成 1。没有记录时，可合并的 `fillRect` 写「未核」：最终像素看不出当初拆成几笔。
 
 同姿帧用 `diff`。`changed` 为 0 只说明两帧像素相同，看不出是 `duplicateFrame` 还是重画；没有记录就写未核。记录里是 `addFrame` 再对整个人 `fillRect`，而另一帧已经有这个姿势，记为缺陷。短路径是 `duplicateFrame` 后只改差，或在下标已经占死时 `copyRect --from-frame --to-frame` 再改差。
 

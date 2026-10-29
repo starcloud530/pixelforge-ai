@@ -93,6 +93,10 @@ fn help_lists_the_agent_commands() {
         "call",
         "paint",
         "fill-rect",
+        "stroke-rect",
+        "ellipse",
+        "polygon",
+        "--pixel-perfect",
         "erase-rect",
         "copy-rect",
         "move-rect",
@@ -786,6 +790,11 @@ fn tools_lists_the_kernel_catalog() {
         .collect();
     assert!(names.contains(&"paint"));
     assert!(names.contains(&"fillRect"));
+    assert!(names.contains(&"strokeRect"));
+    assert!(names.contains(&"line"));
+    assert!(names.contains(&"ellipse"));
+    assert!(names.contains(&"polygon"));
+    assert!(names.contains(&"fill"));
     assert!(names.contains(&"exportSpriteSheet"));
     assert!(names.contains(&"previewFrame"));
     assert!(names.contains(&"diffFrames"));
@@ -4360,4 +4369,414 @@ fn game_pack_zombie_sheets_pass_strict_validate_atlas() {
             "{atlas}"
         );
     }
+}
+
+fn ok(args: &[&str]) -> Output {
+    let output = pixelforge(&arg(args));
+    assert_eq!(status(&output), 0, "{}", stderr(&output));
+    output
+}
+
+#[test]
+fn primitive_commands_match_the_64_golden_png() {
+    let scratch = Scratch::new();
+    let project = scratch.child("sheet.json");
+    let project_arg = project.to_str().unwrap();
+    ok(&[
+        "new",
+        "--width",
+        "64",
+        "--height",
+        "64",
+        "--output",
+        project_arg,
+    ]);
+    ok(&[
+        "line",
+        "--project",
+        project_arg,
+        "--x0",
+        "1",
+        "--y0",
+        "1",
+        "--x1",
+        "40",
+        "--y1",
+        "20",
+        "--color-index",
+        "1",
+        "--dirty",
+    ]);
+    ok(&[
+        "line",
+        "--project",
+        project_arg,
+        "--x0",
+        "1",
+        "--y0",
+        "24",
+        "--x1",
+        "40",
+        "--y1",
+        "46",
+        "--color-index",
+        "2",
+        "--pixel-perfect",
+    ]);
+    ok(&[
+        "ellipse",
+        "--project",
+        project_arg,
+        "--x",
+        "44",
+        "--y",
+        "2",
+        "--width",
+        "18",
+        "--height",
+        "18",
+        "--color-index",
+        "3",
+    ]);
+    ok(&[
+        "ellipse",
+        "--project",
+        project_arg,
+        "--x",
+        "44",
+        "--y",
+        "24",
+        "--width",
+        "18",
+        "--height",
+        "14",
+        "--color-index",
+        "4",
+        "--fill",
+    ]);
+    ok(&[
+        "polygon",
+        "--project",
+        project_arg,
+        "--point",
+        "2,50",
+        "--point",
+        "20,50",
+        "--point",
+        "18,62",
+        "--point",
+        "4,60",
+        "--color-index",
+        "5",
+    ]);
+    ok(&[
+        "polygon",
+        "--project",
+        project_arg,
+        "--point",
+        "24,50",
+        "--point",
+        "40,52",
+        "--point",
+        "36,62",
+        "--point",
+        "22,60",
+        "--color-index",
+        "6",
+        "--fill",
+    ]);
+    ok(&[
+        "stroke-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "46",
+        "--y",
+        "44",
+        "--width",
+        "16",
+        "--height",
+        "16",
+        "--color-index",
+        "7",
+    ]);
+    ok(&[
+        "fill",
+        "--project",
+        project_arg,
+        "--x",
+        "52",
+        "--y",
+        "52",
+        "--color-index",
+        "8",
+        "--connectivity",
+        "4",
+    ]);
+
+    let out_dir = scratch.child("frames");
+    ok(&[
+        "export",
+        "png",
+        "--project",
+        project_arg,
+        "--out-dir",
+        out_dir.to_str().unwrap(),
+    ]);
+    let png = fs::read(out_dir.join("pixelforge-000.png")).unwrap();
+    assert_eq!(png_size(&png), (64, 64));
+    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../pixelforge-kernel/tests/golden/primitives-64.png");
+    let expected =
+        fs::read(&golden).unwrap_or_else(|err| panic!("missing {} ({err})", golden.display()));
+    assert_eq!(png, expected);
+
+    let stored = load(&project);
+    assert_eq!(stored.get(52, 52).unwrap(), 8);
+    assert_eq!(stored.get(46, 44).unwrap(), 7);
+    assert_eq!(stored.get(1, 1).unwrap(), 1);
+}
+
+#[test]
+fn primitive_commands_refuse_bounds_mask_and_a_locked_recolor() {
+    let scratch = Scratch::new();
+    let project = scratch.child("bounds.json");
+    let project_arg = project.to_str().unwrap();
+    ok(&[
+        "new",
+        "--width",
+        "8",
+        "--height",
+        "8",
+        "--output",
+        project_arg,
+    ]);
+    ok(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "1",
+        "--color-index",
+        "1",
+    ]);
+    let outside = pixelforge(&arg(&[
+        "line",
+        "--project",
+        project_arg,
+        "--x0",
+        "0",
+        "--y0",
+        "0",
+        "--x1",
+        "8",
+        "--y1",
+        "1",
+        "--color-index",
+        "2",
+    ]));
+    assert_eq!(status(&outside), 1, "{}", stderr(&outside));
+    assert_eq!(json_lines(&outside)[0]["error"]["code"], "OutOfBounds");
+    assert_eq!(load(&project).get(1, 1).unwrap(), 1);
+    assert_eq!(load(&project).get(0, 0).unwrap(), 0);
+
+    let ellipse = pixelforge(&arg(&[
+        "ellipse",
+        "--project",
+        project_arg,
+        "--x",
+        "6",
+        "--y",
+        "6",
+        "--width",
+        "4",
+        "--height",
+        "4",
+        "--color-index",
+        "2",
+        "--fill",
+    ]));
+    assert_eq!(status(&ellipse), 1);
+    assert_eq!(json_lines(&ellipse)[0]["error"]["code"], "OutOfBounds");
+
+    ok(&[
+        "selection",
+        "set",
+        "--project",
+        project_arg,
+        "--x",
+        "2",
+        "--y",
+        "0",
+        "--width",
+        "3",
+        "--height",
+        "1",
+    ]);
+    ok(&[
+        "line",
+        "--project",
+        project_arg,
+        "--x0",
+        "0",
+        "--y0",
+        "0",
+        "--x1",
+        "7",
+        "--y1",
+        "0",
+        "--color-index",
+        "3",
+    ]);
+    let masked = load(&project);
+    assert_eq!(masked.get(1, 0).unwrap(), 0);
+    assert_eq!(masked.get(2, 0).unwrap(), 3);
+    assert_eq!(masked.get(4, 0).unwrap(), 3);
+    assert_eq!(masked.get(5, 0).unwrap(), 0);
+
+    ok(&["selection", "clear", "--project", project_arg]);
+    ok(&["palette", "lock", "--project", project_arg]);
+    ok(&[
+        "stroke-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "2",
+        "--width",
+        "4",
+        "--height",
+        "3",
+        "--color-index",
+        "4",
+    ]);
+    assert_eq!(load(&project).get(0, 2).unwrap(), 4);
+    let recolor = pixelforge(&arg(&[
+        "palette",
+        "set",
+        "--project",
+        project_arg,
+        "--index",
+        "1",
+        "--r",
+        "1",
+        "--g",
+        "2",
+        "--b",
+        "3",
+    ]));
+    assert_eq!(status(&recolor), 1, "{}", stderr(&recolor));
+    assert_eq!(json_lines(&recolor)[0]["error"]["code"], "PaletteLocked");
+
+    let two = pixelforge(&arg(&[
+        "polygon",
+        "--project",
+        project_arg,
+        "--point",
+        "0,0",
+        "--point",
+        "1,1",
+        "--color-index",
+        "1",
+    ]));
+    assert_eq!(status(&two), 1);
+    assert_eq!(json_lines(&two)[0]["error"]["code"], "InvalidParams");
+
+    let five = pixelforge(&arg(&[
+        "fill",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "1",
+        "--connectivity",
+        "5",
+    ]));
+    assert_eq!(status(&five), 2, "{}", stderr(&five));
+}
+
+#[test]
+fn line_checkpoint_undo_restores_the_previous_process() {
+    let scratch = Scratch::new();
+    let project = scratch.child("line.json");
+    let project_arg = project.to_str().unwrap();
+    let ckpt = scratch.child("line.ckpt.json");
+    let ckpt_arg = ckpt.to_str().unwrap();
+    ok(&[
+        "new",
+        "--width",
+        "8",
+        "--height",
+        "8",
+        "--output",
+        project_arg,
+    ]);
+    ok(&[
+        "line",
+        "--project",
+        project_arg,
+        "--checkpoint",
+        ckpt_arg,
+        "--x0",
+        "0",
+        "--y0",
+        "0",
+        "--x1",
+        "4",
+        "--y1",
+        "0",
+        "--color-index",
+        "1",
+    ]);
+    assert_eq!(load(&project).get(4, 0).unwrap(), 1);
+    let fresh = pixelforge(&arg(&["undo", "--project", project_arg]));
+    assert_eq!(status(&fresh), 1);
+    assert_eq!(json_lines(&fresh)[0]["error"]["code"], "NothingToUndo");
+    assert_eq!(load(&project).get(4, 0).unwrap(), 1);
+
+    ok(&["undo", "--project", project_arg, "--checkpoint", ckpt_arg]);
+    assert!(load(&project).pixels().iter().all(|cell| *cell == 0));
+    ok(&["redo", "--project", project_arg, "--checkpoint", ckpt_arg]);
+    assert_eq!(load(&project).get(0, 0).unwrap(), 1);
+    assert_eq!(load(&project).get(4, 0).unwrap(), 1);
+
+    ok(&[
+        "frame",
+        "duplicate",
+        "--project",
+        project_arg,
+        "--index",
+        "0",
+    ]);
+    ok(&["frame", "select", "--project", project_arg, "--index", "1"]);
+    ok(&[
+        "fill",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "2",
+        "--connectivity",
+        "4",
+    ]);
+    let diff = ok(&[
+        "diff",
+        "--project",
+        project_arg,
+        "--frame",
+        "0",
+        "--with",
+        "1",
+    ]);
+    let body = &json_lines(&diff)[0];
+    assert!(body["result"]["changed"].as_u64().unwrap() > 0);
 }

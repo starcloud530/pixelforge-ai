@@ -5,7 +5,8 @@
 //! anchors, keyframed part-transform curves, and follow, attach, pin,
 //! short-chain IK, and footprint constraints. Paint, erase, rectangle fill, rectangle erase,
 //! rectangle copy or move, horizontal flip, and canvas resize write palette
-//! indices on the active layer, never raw RGB. Preview, diff, and PNG export
+//! indices on the active layer, never raw RGB. `line`, `ellipse`, `polygon`,
+//! `fill`, and `stroke_rect` are the same kind of indexed write. Preview, diff, and PNG export
 //! composite the stack: index 0 is transparent and any other index covers the
 //! layer under it.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
@@ -47,6 +48,7 @@ mod palette_map;
 mod part;
 mod part_xform;
 mod project;
+mod raster;
 mod scene;
 mod selection;
 mod tag;
@@ -72,6 +74,7 @@ pub use palette_file::PaletteImportMode;
 pub use part::{Anchor, LayerAttach, Part, PartUpdate};
 pub use part_xform::PartPose;
 pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
+pub use raster::Connectivity;
 pub use selection::{Mask, MaskOp, Selection};
 pub use tag::{LoopMode, Tag, TagUpdate};
 pub use tool_api::{TOOL_API_VERSION, TOOL_NAMES};

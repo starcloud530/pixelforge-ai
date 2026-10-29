@@ -70,7 +70,8 @@
 
 | code | 含义 Meaning |
 | --- | --- |
-| `OutOfBounds` | 格子超出画布 |
+| `OutOfBounds` | 格子超出画布。线段、椭圆、多边形、矩形轮廓只要有一端或一格出界，整次不写 |
+| `PolygonPoints` | 多边形少于 3 个顶点。Tool API 在进内核前用 `InvalidParams` 拒绝；直接调用文档方法时是这个码。一格都不写 |
 | `PaletteIndex` | 画笔索引是 0，或超出调色板 |
 | `TransparentSlot` | 改了索引 0 |
 | `PaletteLocked` | 锁定时改色、追加或导入 |
@@ -142,15 +143,15 @@
 
 没有写出的 `result` 字段就是 `{}`。只读工具（`inspect`、`scene`、`saveProject`、两个导出、`previewFrame`、`diffFrames`、`listLayers`、`listParts`、`listCurves`、`sampleCurve`、`samplePart`、`listConstraints`）不进撤销栈。和当前值相同的绘制、矩形填充、矩形擦除、矩形复制或移动、水平翻转、垂直翻转、矩形旋转、画布缩放、改色、改时长、锁定、索引策略、改层名、选层、改标签、改部件、改锚点、部件平移、部件旋转、部件翻转、改关键帧、姿势没有变化的 `solveConstraints`，以及像素和时长都没变的 `bake`，结果相同的 `combineMask`，还有不改变文档的导入、重映射、PNG 压盘和压平，也不进栈。`importAseprite` 和 `loadProject` 一样换掉整份文档，新撤销栈是空的。
 
-`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
+`paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
 *`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
-*`paint`, `erase`, `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
+*`paint`, `erase`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, `solveConstraints`, or `bake` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, `solveConstraints`, or `bake` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -224,7 +225,7 @@ CLI：`pixelforge scene --project hero.json`。
 
 ### 脏区 Dirty region
 
-`paint`、`erase`、`fillRect`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
+`paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 的 `params` 可以多一个 `reportDirty`（布尔）。别的工具带上这个字段仍是 `InvalidParams`。
 
 `true` 时，在这个工具原有的 `result` 字段上再加：
 
@@ -253,7 +254,7 @@ CLI 的 `--dirty` 就是 `reportDirty: true`。不写这个旗标，结果里就
 
 | 工具 | 选区外 |
 | --- | --- |
-| `paint`、`erase`、`fillRect`、`eraseRect` | 跳过。请求的矩形仍须整块在画布内，否则 `OutOfBounds`，一格都不写 |
+| `paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect` | 跳过。请求的端点、顶点或矩形仍须整块在画布内，否则 `OutOfBounds`，一格都不写。`fill` 不穿过选区外的格子，选区外是墙 |
 | `copyRect` | 只跳过目标格。源格可以在选区外，源不被改 |
 | `flipHorizontal`、`flipVertical`、`rotate` | 目标格和它读到的源格必须都在选区内，才写入这一格 |
 | `replaceIndex` | 只替换选区内的格子 |
@@ -274,7 +275,7 @@ CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge ma
 
 *The mask is in canvas coordinates and applies to every frame. It does not belong to a layer and it does not change `activeLayer`. To edit a helmet, set the rectangle on the helmet and pass `layer` for the gear layer. Only that layer is written, and only inside the mask.*
 
-*`paint`, `erase`, `fillRect`, and `eraseRect` skip cells outside the selection. The requested rectangle must still lie on the canvas. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the mask, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection. `translatePart`, `rotatePart`, and `flipPart` do the same when any ink cell on the linked layer, or the cell it would land on, lies outside the selection.*
+*`paint`, `erase`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, and `eraseRect` skip cells outside the selection. Endpoints, vertices, and the requested rectangle must still lie on the canvas. `fill` treats cells outside the mask as barriers and does not flood through them. `copyRect` skips destination cells outside it and does not change the source. `flipHorizontal`, `flipVertical`, and `rotate` write a cell only when that cell and the cell it reads are both inside. `replaceIndex` replaces matching cells inside the mask, or on the whole targeted layer of the active frame when no selection is set. `toIndex` 0 clears those cells. `moveRect` returns `SelectionProtected` and writes nothing unless both rectangles lie inside the selection. `translatePart`, `rotatePart`, and `flipPart` do the same when any ink cell on the linked layer, or the cell it would land on, lies outside the selection.*
 
 *`remapPalette`, `applyPng`, palette edits, frame structure, layer structure, and `flattenLayers` ignore the selection. `resizeCanvas` translates every rectangle by the same offset and clears the whole mask, in that same undo step, when any rectangle would leave the new canvas.*
 
@@ -299,6 +300,66 @@ CLI：`pixelforge selection set`、`pixelforge selection clear`、`pixelforge ma
 *Fills an axis-aligned rectangle on the active frame with one palette index. `x` and `y` are the inclusive top-left cell. Writes an index, not RGB. A locked palette does not block the fill. Cells that already hold the index are not recorded. The rectangle is one undo step; an open gesture absorbs those cells. If any cell would fall outside the canvas, the call fails and writes nothing. A `width` or `height` of 0, a missing field, or a number outside `1..=65535` is `InvalidParams` (for example `fillRect: width must be an integer from 1 to 65535`).*
 
 错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。可选 `layer` 与 `paint` 相同。
+
+### `strokeRect`
+
+`params`：与 `fillRect` 相同（`x`、`y`、`width`、`height`、`colorIndex`，可选 `layer`）。
+
+画轴对齐矩形的轮廓，内部不写。宽或高为 1 时整条都画上，和细的 `fillRect` 一样。边界、锁定调色板、索引 0、选区和一步撤销都与 `fillRect` 相同。已经是该索引的格子不记入撤销。
+
+*Draws the border of an axis-aligned rectangle. The interior stays. A width or height of 1 draws that whole line. Bounds, a locked palette, index 0, the selection, and the single undo step match `fillRect`.*
+
+CLI：`pixelforge stroke-rect`。
+
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。
+
+### `line`
+
+`params`：`x0`、`y0`、`x1`、`y1`（两端，含这两格，须在画布内）、`colorIndex`。可选 `pixelPerfect`（布尔，缺省 `false`）、可选 `layer`。
+
+在当前层画一条 1 像素宽的直线。默认是连续 Bresenham：相邻格子共边或共角，没有断点，两端都画上。`pixelPerfect: true` 沿较长的那条轴一步一格，仍然 8 连通，拐角不叠成两格宽。写入的是索引，不是 RGB。没有抗锯齿。锁定的调色板不阻止。索引 0 拒绝。两端只要有一个出界，整次不写。选区外的格子跳过。改变的格子是一步撤销；已经是该索引的不记入。同一条线再画一次、格子都没变，不进撤销栈。
+
+*Draws a 1px line on the active layer. The default is a continuous Bresenham line: consecutive cells share an edge or a corner, both endpoints are included, and there is no gap. `pixelPerfect: true` plots one cell per step along the longer axis and stays 8-connected. There is no anti-aliasing. A locked palette does not block the write. Index 0 is refused. One endpoint outside the canvas writes nothing. Cells outside the selection are skipped. The cells that change are one undo step.*
+
+CLI：`pixelforge line --x0 --y0 --x1 --y1 --color-index N`。`--pixel-perfect` 对应 `pixelPerfect: true`。
+
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。`pixelPerfect` 不是布尔是 `InvalidParams`。
+
+### `ellipse`
+
+`params`：`x`、`y`、`width`、`height`（外接矩形，规则与 `fillRect` 相同）、`colorIndex`。可选 `fill`（布尔，缺省 `false`）、可选 `layer`。
+
+椭圆内切于这块矩形。缺省只画轮廓。`fill: true` 再涂上内部，轮廓上的格子都在填充里。宽或高为 1 时轮廓和填充都是那一条线。整数中点椭圆，没有抗锯齿。同一输入得到同一组格子。锁定、索引 0、越界、选区、一步撤销与 `fillRect` 相同。
+
+*Inscribes an ellipse in the rectangle. Omit `fill` to draw the outline. `fill: true` paints the interior and includes every outline cell. A width or height of 1 is that line for both. The midpoint ellipse is integer and has no anti-aliasing. The same input yields the same cells. Lock, index 0, bounds, selection, and the undo step match `fillRect`.*
+
+CLI：`pixelforge ellipse`。`--fill` 对应 `fill: true`。
+
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。
+
+### `polygon`
+
+`params`：`points`（至少 3 个、至多 4096 个 `{ "x", "y" }`，按顺序）、`colorIndex`。可选 `fill`（布尔，缺省 `false`）、可选 `layer`。
+
+闭合多边形。边用和 `line` 相同的连续直线，最后一点连回第一点。`fill: true` 在轮廓上再加偶奇规则的内部，所以边和 `line` 走的格子一致，内部被涂上。每个顶点都必须在画布内，否则 `OutOfBounds`，一格都不写。少于 3 个顶点是 `InvalidParams`（`polygon: points needs at least 3 vertices`），不调用内核。自交按偶奇填充。没有抗锯齿，没有曲线。锁定、索引 0、选区、一步撤销与 `fillRect` 相同。
+
+*Closes a polygon. Edges use the same continuous line as `line`, including the edge from the last vertex back to the first. `fill: true` adds the even-odd interior, so the border matches `line`. Every vertex must lie on the canvas. Fewer than 3 vertices is `InvalidParams` and does not call the kernel. A self-intersection uses the even-odd rule. There is no anti-aliasing and no curve. Lock, index 0, selection, and the undo step match `fillRect`.*
+
+CLI：`pixelforge polygon --point x,y`，至少重复三次。`--fill` 对应 `fill: true`。
+
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。顶点对象缺 `x` 或 `y`、多了字段、或不是对象，是 `InvalidParams`。
+
+### `fill`
+
+`params`：`x`、`y`（种子格）、`colorIndex`。可选 `connectivity`（`4` 或 `8`，缺省 `4`）、可选 `layer`。
+
+把种子格所在的同色连通区换成 `colorIndex`。种子上现在的索引（包括 0）决定哪些格子属于这一区。`4` 只走上下左右。`8` 也走斜角。选区外的格子是墙：不写，也不穿过去。种子出画布是 `OutOfBounds`，一格都不写。种子在选区外时成功但不改格子。新颜色和种子已经相同则不进撤销栈。锁定的调色板不阻止。`colorIndex` 为 0 或越界是 `PaletteIndex`。改变的格子是一步撤销。
+
+*Replaces the connected region of the seed cell's current index, including index 0, with `colorIndex`. `connectivity` 4 walks orthogonal neighbors. 8 also crosses corners. Cells outside the selection are barriers: they are not written and the fill does not travel through them. A seed outside the canvas is `OutOfBounds` and writes nothing. A seed outside the selection succeeds and changes nothing. The same index is not recorded. A locked palette does not block the write. Index 0 as the new color is `PaletteIndex`. The cells that change are one undo step.*
+
+CLI：`pixelforge fill --x --y --color-index N`。`--connectivity 4|8`，缺省 4。
+
+错误：`OutOfBounds`、`PaletteIndex`、`LayerIndex`。`connectivity` 不是 4 或 8 是 `InvalidParams`。
 
 ### `erase`
 

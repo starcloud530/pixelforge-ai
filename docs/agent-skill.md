@@ -72,17 +72,17 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 
 ## 不变量 Invariants
 
-- 格子存的是调色板索引。索引 0 是透明。`paint` 和 `fillRect` 写入已经存在的 `1..=255` 索引，不写 RGB。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
+- 格子存的是调色板索引。索引 0 是透明。`paint`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon` 和 `fill` 写入已经存在的 `1..=255` 索引，不写 RGB。`fill` 的种子可以是 0，写入的新颜色不能是 0。`eraseRect` 写入索引 0。`copyRect` 和 `moveRect` 原样复制索引，包括 0。
 - 每一帧共用同一个层栈。下标 0 在最下面。绘制写当前层，或者 `--layer` 指定的那一层，别的层不动。`--layer` 不切换当前层。`preview`、`diff`、`export png` / `export sheet` 看的是合成图：索引 0 露出下面的层，其他索引盖住下层。层与层之间不按调色板 alpha 混合。`preview --layer N` 和 `diff --layer N` 只看那一层。`layer flatten` 把合成结果压成名为 `Layer 1` 的单层，文件就回到旧的单层工程。仍然是这一层默认状态时，文件里不写 `layers` 和 `activeLayer`。`role` 缺省 `default`。`polish` 是 `bake` 不写的精修覆盖层。
 - 新建工程带工作室调色板，索引 1 到 8 可以直接画。要新颜色，先 `palette add` 或 `palette set`，再用返回的索引去画。
-- `palette lock` 之后仍可用 `paint` 和 `fillRect` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
+- `palette lock` 之后仍可用 `paint`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon` 和 `fill` 画已有索引，但不能改色、追加、导入或 `remap`。`apply-png` 只写索引，锁定时仍可用。
 - 画笔默认拒绝越界索引（`indexPolicy: reject`）。`palette enforce --mode clamp` 把越界索引写成最后一项不透明色。索引 0 仍然拒绝。`import` 的 `replace` 不看这个策略。
 - 不要手改工程 JSON 去塞一个颜色。越界索引会让文件打不开。不要把扩散图写回工程。
 - 一次进程是一份文档。同一次 `pixelforge call` 里的多个 `--request` 共享撤销栈。工程文件不保存撤销栈。不带 `--checkpoint` 时下一个进程是空栈，和在编辑器里重新打开这份文件一样，`pixelforge undo` 得到 `NothingToUndo`。长流程在每条会改工程的命令上带同一个 `--checkpoint FILE`，进程退出后用 `pixelforge undo --project hero.json --checkpoint FILE`（或 `redo`）恢复；检查点一步是该进程对工程文件的净修改，进程内的 `undo` 仍按内核操作逐条撤回。对不上当前工程的检查点是 `CheckpointMismatch`（退出码 2），不改文件。
 - 失败的那一次调用不改文档。一批请求里，失败之前的成功调用会保存，失败之后的不再执行。
 - 导出在内核里把索引解析成 RGBA。不要自己给 PNG 重新上色。`diff` / `diffFrames` 画出洋葱皮视图，不把它写回像素。`flip`、`vflip`、`rotate` 只搬索引，不改高光颜色。
 
-*Cells store palette indices. Index 0 is transparent. `paint` and `fillRect` write an existing index, never RGB. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A stored `selection` is one rectangle or a mask of rectangles. Paint tools skip cells outside it, and the file omits the field when the selection is clear. `preview --selection` and `diff --selection` count only that mask. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint and rectangle fill of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
+*Cells store palette indices. Index 0 is transparent. `paint`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, and `fill` write an existing index, never RGB. `fill` may start on index 0 and still refuses to write 0. `eraseRect` writes index 0. `copyRect` and `moveRect` copy stored indices, including 0. A stored `selection` is one rectangle or a mask of rectangles. Paint tools skip cells outside it, and the file omits the field when the selection is clear. `preview --selection` and `diff --selection` count only that mask. Every frame shares one layer stack. Index 0 is the bottom. Drawing writes the active layer, or `--layer`, and leaves the other layers alone. `preview`, `diff`, and export show the composite: index 0 shows the layer underneath, and any other index covers it. Palette alpha is not blended between layers. `layer flatten` writes that composite into one layer named `Layer 1`. A new project ships the studio palette, indices 1 through 8. Add or recolor a palette entry before painting a new color. A locked palette still accepts paint, rectangle fill, line, ellipse, polygon, flood fill, and rectangle outline of an existing index and refuses recolor, append, import, and remap. Out-of-range paint indices are rejected unless `indexPolicy` is `clamp`. Do not hand-edit the project JSON to plant a color, and do not write a diffusion image back into the project.*
 
 *One process is one document. Several `--request` flags on one `pixelforge call` share the undo stack. The project file does not store that stack. Without `--checkpoint`, the next process starts empty, the same as reopening the file, and `pixelforge undo` returns `NothingToUndo`. A long workflow passes the same `--checkpoint FILE` on every command that edits the project, then restores with `pixelforge undo --project hero.json --checkpoint FILE` (or `redo`). One checkpoint step is that process's net change to the project file, and `undo` inside the process still walks kernel operations. A checkpoint that does not match the project is `CheckpointMismatch` (exit 2) and writes nothing. A refused call does not change the document. Earlier calls in that batch are saved; later calls are not run. Export resolves indices in the kernel. `diff` / `diffFrames` draws an onion view and does not write it into pixels. `flip`, `vflip`, and `rotate` move indices only and do not recolor highlights.*
 
@@ -162,6 +162,19 @@ pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 ```
 
 `fill-rect` 在当前帧上用一个调色板索引填一块轴对齐矩形。`x`、`y` 是左上角。`width` 和 `height` 至少为 1，整块必须落在画布里；只要有一格会出界，一格都不写。色板锁定时仍然可以填。`call` 里的工具名是 `fillRect`。
+
+`stroke-rect` 只画矩形边（`strokeRect`）。`line` 画连续 Bresenham 直线（`line`：`x0`、`y0`、`x1`、`y1`），`--pixel-perfect` 沿长轴一步一格，仍然 8 连通、没有断点。`ellipse` 把椭圆内切在矩形里（`ellipse`），`--fill` 涂内部。`polygon` 按 `--point x,y` 的顺序闭合（`polygon` 的 `points`），至少三个顶点，`--fill` 用偶奇规则涂内部。`fill` 把种子格的同色连通区换成一个已有索引（`fill`），`--connectivity` 是 `4` 或 `8`，选区外的格子是墙。每条都是一步撤销。越界整次不写。没有曲线、笔刷形状或抗锯齿。
+
+```bash
+pixelforge line --project hero.json --x0 2 --y0 2 --x1 20 --y1 14 --color-index 1
+pixelforge line --project hero.json --x0 2 --y0 16 --x1 20 --y1 28 --color-index 2 --pixel-perfect
+pixelforge ellipse --project hero.json --x 8 --y 8 --width 20 --height 12 --color-index 4 --fill
+pixelforge polygon --project hero.json --point 4,4 --point 20,6 --point 12,18 --color-index 5 --fill
+pixelforge stroke-rect --project hero.json --x 4 --y 30 --width 16 --height 10 --color-index 3
+pixelforge fill --project hero.json --x 8 --y 34 --color-index 6 --connectivity 4
+```
+
+*`stroke-rect` is the rectangle outline (`strokeRect`). `line` is a continuous Bresenham line; `--pixel-perfect` walks the longer axis one cell at a time and stays 8-connected. `ellipse --fill` paints the interior. `polygon` closes `--point x,y` vertices and `--fill` uses the even-odd rule. `fill` replaces the seed's connected index. `--connectivity` is 4 or 8, and cells outside the selection are barriers. Each command is one undo step. One cell outside the canvas writes nothing. There is no curve, brush shape, or anti-aliasing.*
 
 *`fill-rect` writes one palette index into an axis-aligned rectangle on the active frame. `x` and `y` are the top-left cell. `width` and `height` are at least 1, and the whole rectangle must sit inside the canvas; if any cell would fall outside, nothing is written. A locked palette still allows the fill. The tool name inside `call` is `fillRect`.*
 

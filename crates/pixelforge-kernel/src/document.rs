@@ -23,6 +23,7 @@ use crate::part::{
     PartUpdate,
 };
 use crate::part_xform::{self, map_point, CellMap, Motion, PartPose};
+use crate::raster::{self, Connectivity};
 use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
@@ -1136,6 +1137,243 @@ impl Document {
         }
         self.history.record_group(changes);
         Ok(())
+    }
+
+    /// Draws a 1px line on the active layer of the active frame.
+    ///
+    /// Both endpoints must lie on the canvas. The line is Bresenham and
+    /// 8-connected, so it has no gaps. `pixel_perfect` walks the longer axis
+    /// one cell at a time and is still 8-connected. Cells store `color_index`,
+    /// not RGB. Cells that already hold that index are skipped. The cells that
+    /// change are one undo step, or part of the open gesture. A line that
+    /// changes nothing is not recorded. A locked palette does not block this
+    /// write. Index 0 is rejected. A selection skips cells outside the mask
+    /// and still requires both endpoints on the canvas.
+    pub fn line(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        x1: u16,
+        y1: u16,
+        color_index: u8,
+        pixel_perfect: bool,
+    ) -> Result<(), KernelError> {
+        self.line_on(
+            self.active_layer,
+            x0,
+            y0,
+            x1,
+            y1,
+            color_index,
+            pixel_perfect,
+        )
+    }
+
+    /// [`Self::line`] on one layer. Does not change the active layer.
+    pub fn line_on(
+        &mut self,
+        layer: usize,
+        x0: u16,
+        y0: u16,
+        x1: u16,
+        y1: u16,
+        color_index: u8,
+        pixel_perfect: bool,
+    ) -> Result<(), KernelError> {
+        let color_index = self.resolve_paint_index(color_index)?;
+        let layer = self.layer_or_err(layer)?;
+        self.offset(x0, y0)?;
+        self.offset(x1, y1)?;
+        let cells = if pixel_perfect {
+            raster::line_perfect(i32::from(x0), i32::from(y0), i32::from(x1), i32::from(y1))
+        } else {
+            raster::line_continuous(i32::from(x0), i32::from(y0), i32::from(x1), i32::from(y1))
+        };
+        let cells = self.canvas_cells(&cells)?;
+        self.stamp_cells(layer, color_index, &cells)
+    }
+
+    /// Draws an ellipse inscribed in an axis-aligned rectangle.
+    ///
+    /// Bounds match [`Self::fill_rect`]. `fill` paints the interior as well as
+    /// the outline. A width or height of 1 is that line, filled or not. One
+    /// undo step. A locked palette does not block this write. Index 0 is
+    /// rejected. A selection skips cells outside the mask.
+    pub fn ellipse(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+        fill: bool,
+    ) -> Result<(), KernelError> {
+        self.ellipse_on(self.active_layer, x, y, width, height, color_index, fill)
+    }
+
+    /// [`Self::ellipse`] on one layer. Does not change the active layer.
+    pub fn ellipse_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+        fill: bool,
+    ) -> Result<(), KernelError> {
+        let color_index = self.resolve_paint_index(color_index)?;
+        let layer = self.layer_or_err(layer)?;
+        let _ = self.inclusive_rect(x, y, width, height)?;
+        let cells = raster::ellipse_cells(
+            i32::from(x),
+            i32::from(y),
+            i32::from(width),
+            i32::from(height),
+            fill,
+        );
+        let cells = self.canvas_cells(&cells)?;
+        self.stamp_cells(layer, color_index, &cells)
+    }
+
+    /// Draws a closed polygon through `points` on the active layer.
+    ///
+    /// At least three vertices are required. Every vertex must lie on the
+    /// canvas. The outline uses the same continuous line as [`Self::line`].
+    /// `fill` adds the even-odd interior. One undo step. A locked palette
+    /// does not block this write. Index 0 is rejected. A selection skips
+    /// cells outside the mask.
+    pub fn polygon(
+        &mut self,
+        points: &[(u16, u16)],
+        color_index: u8,
+        fill: bool,
+    ) -> Result<(), KernelError> {
+        self.polygon_on(self.active_layer, points, color_index, fill)
+    }
+
+    /// [`Self::polygon`] on one layer. Does not change the active layer.
+    pub fn polygon_on(
+        &mut self,
+        layer: usize,
+        points: &[(u16, u16)],
+        color_index: u8,
+        fill: bool,
+    ) -> Result<(), KernelError> {
+        let color_index = self.resolve_paint_index(color_index)?;
+        let layer = self.layer_or_err(layer)?;
+        if points.len() < 3 {
+            return Err(KernelError::PolygonPoints);
+        }
+        for &(x, y) in points {
+            self.offset(x, y)?;
+        }
+        let raw: Vec<(i32, i32)> = points
+            .iter()
+            .map(|&(x, y)| (i32::from(x), i32::from(y)))
+            .collect();
+        let cells = raster::polygon_cells(&raw, fill);
+        let cells = self.canvas_cells(&cells)?;
+        self.stamp_cells(layer, color_index, &cells)
+    }
+
+    /// Replaces the connected region of the seed cell's index.
+    ///
+    /// The seed must lie on the canvas. Connectivity is 4 or 8. Cells outside
+    /// the selection are barriers and are not written. The same index is not
+    /// recorded. One undo step. A locked palette does not block this write.
+    /// Index 0 is rejected as the new color. The seed's current index, including
+    /// 0, is the region that changes.
+    pub fn flood_fill(
+        &mut self,
+        x: u16,
+        y: u16,
+        color_index: u8,
+        connectivity: Connectivity,
+    ) -> Result<(), KernelError> {
+        self.flood_fill_on(self.active_layer, x, y, color_index, connectivity)
+    }
+
+    /// [`Self::flood_fill`] on one layer. Does not change the active layer.
+    pub fn flood_fill_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        color_index: u8,
+        connectivity: Connectivity,
+    ) -> Result<(), KernelError> {
+        let color_index = self.resolve_paint_index(color_index)?;
+        let layer = self.layer_or_err(layer)?;
+        let origin = self.offset(x, y)?;
+        if !self.accepts_write(x, y) {
+            return Ok(());
+        }
+        let frame = self.active;
+        let source = self.frames[frame].layer_pixels(layer)[origin];
+        if source == color_index {
+            return Ok(());
+        }
+        let count = self.pixel_count();
+        let mut writable = vec![false; count];
+        for row in 0..self.height {
+            for col in 0..self.width {
+                if self.accepts_write(col, row) {
+                    writable[pixel_len(self.width, row) + usize::from(col)] = true;
+                }
+            }
+        }
+        let cells = raster::flood_cells(
+            self.frames[frame].layer_pixels(layer),
+            self.width,
+            self.height,
+            x,
+            y,
+            source,
+            connectivity,
+            &writable,
+        );
+        self.stamp_cells(layer, color_index, &cells)
+    }
+
+    /// Draws the border of an axis-aligned rectangle.
+    ///
+    /// Bounds match [`Self::fill_rect`]. A width or height of 1 is that whole
+    /// rectangle. The interior stays. One undo step. A locked palette does not
+    /// block this write. Index 0 is rejected. A selection skips cells outside
+    /// the mask.
+    pub fn stroke_rect(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+    ) -> Result<(), KernelError> {
+        self.stroke_rect_on(self.active_layer, x, y, width, height, color_index)
+    }
+
+    /// [`Self::stroke_rect`] on one layer. Does not change the active layer.
+    pub fn stroke_rect_on(
+        &mut self,
+        layer: usize,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        color_index: u8,
+    ) -> Result<(), KernelError> {
+        let color_index = self.resolve_paint_index(color_index)?;
+        let layer = self.layer_or_err(layer)?;
+        let _ = self.inclusive_rect(x, y, width, height)?;
+        let cells = raster::stroke_rect_cells(
+            i32::from(x),
+            i32::from(y),
+            i32::from(width),
+            i32::from(height),
+        );
+        let cells = self.canvas_cells(&cells)?;
+        self.stamp_cells(layer, color_index, &cells)
     }
 
     /// Copies palette indices from one rectangle to another on the active frame.
@@ -4398,6 +4636,72 @@ impl Document {
 
     fn pixel_count(&self) -> usize {
         pixel_len(self.width, self.height)
+    }
+
+    /// Writes each cell at most once, in row-major order, as one undo step.
+    ///
+    /// Cells outside the selection are skipped. A cell that already holds
+    /// `color` is skipped. An empty change is not recorded.
+    fn stamp_cells(
+        &mut self,
+        layer: usize,
+        color: u8,
+        cells: &[(u16, u16)],
+    ) -> Result<(), KernelError> {
+        let frame = self.active;
+        let mut seen = vec![false; self.pixel_count()];
+        let mut offsets = Vec::new();
+        for &(x, y) in cells {
+            if !self.accepts_write(x, y) {
+                continue;
+            }
+            let offset = pixel_len(self.width, y) + usize::from(x);
+            if seen[offset] {
+                continue;
+            }
+            seen[offset] = true;
+            if self.frames[frame].layer_pixels(layer)[offset] == color {
+                continue;
+            }
+            offsets.push(offset);
+        }
+        offsets.sort_unstable();
+        let mut changes = Vec::with_capacity(offsets.len());
+        for offset in offsets {
+            let before = self.frames[frame].layer_pixels(layer)[offset];
+            self.frames[frame].set_on(layer, offset, color);
+            changes.push(Change::Pixel {
+                frame,
+                layer,
+                offset,
+                before,
+                after: color,
+            });
+        }
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Maps raster cells onto the canvas. One cell outside fails the whole call.
+    fn canvas_cells(&self, cells: &[(i32, i32)]) -> Result<Vec<(u16, u16)>, KernelError> {
+        let mut out = Vec::with_capacity(cells.len());
+        for &(x, y) in cells {
+            if x < 0 || y < 0 || x >= i32::from(self.width) || y >= i32::from(self.height) {
+                let x = u16::try_from(x).unwrap_or(0);
+                let y = u16::try_from(y).unwrap_or(0);
+                return Err(KernelError::OutOfBounds {
+                    x,
+                    y,
+                    width: self.width,
+                    height: self.height,
+                });
+            }
+            out.push((
+                u16::try_from(x).expect("x was checked"),
+                u16::try_from(y).expect("y was checked"),
+            ));
+        }
+        Ok(out)
     }
 
     /// A cell outside the selection is protected. No selection accepts every cell.
