@@ -795,6 +795,7 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"ellipse"));
     assert!(names.contains(&"polygon"));
     assert!(names.contains(&"fill"));
+    assert!(names.contains(&"selectConnected"));
     assert!(names.contains(&"exportSpriteSheet"));
     assert!(names.contains(&"previewFrame"));
     assert!(names.contains(&"diffFrames"));
@@ -4932,4 +4933,296 @@ fn layer_hide_and_opacity_export_and_checkpoint() {
     let layer = &json_lines(&scene)[0]["result"]["layers"][0];
     assert_eq!(layer["visible"], true);
     assert_eq!(layer["opacity"], 255);
+}
+
+#[test]
+fn selection_wand_stores_a_component_and_limits_fill_and_diff() {
+    let scratch = Scratch::new();
+    let project = scratch.child("wand.json");
+    let project_arg = project.to_str().unwrap();
+    ok(&[
+        "new",
+        "--width",
+        "4",
+        "--height",
+        "1",
+        "--output",
+        project_arg,
+    ]);
+    ok(&[
+        "fill-rect",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--width",
+        "3",
+        "--height",
+        "1",
+        "--color-index",
+        "1",
+    ]);
+    ok(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "3",
+        "--y",
+        "0",
+        "--color-index",
+        "2",
+    ]);
+    let before = load(&project).pixels().to_vec();
+    let wand = ok(&[
+        "selection",
+        "wand",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+    ]);
+    let result = &json_lines(&wand)[0]["result"];
+    assert_eq!(result["cells"], 3);
+    assert_eq!(result["index"], 1);
+    assert_eq!(result["tolerance"], 0);
+    assert_eq!(result["connectivity"], 4);
+    assert_eq!(
+        result["selection"],
+        json!({"x": 0, "y": 0, "width": 3, "height": 1})
+    );
+    assert_eq!(load(&project).pixels(), before.as_slice());
+    assert!(fs::read_to_string(&project)
+        .unwrap()
+        .contains("\"selection\""));
+    ok(&["selection", "clear", "--project", project_arg]);
+
+    ok(&[
+        "frame",
+        "duplicate",
+        "--project",
+        project_arg,
+        "--index",
+        "0",
+    ]);
+    ok(&["frame", "select", "--project", project_arg, "--index", "1"]);
+    ok(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--color-index",
+        "3",
+    ]);
+    ok(&[
+        "paint",
+        "--project",
+        project_arg,
+        "--x",
+        "3",
+        "--y",
+        "0",
+        "--color-index",
+        "4",
+    ]);
+    ok(&["frame", "select", "--project", project_arg, "--index", "0"]);
+    ok(&[
+        "selection",
+        "wand",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+    ]);
+    let diff = ok(&[
+        "diff",
+        "--project",
+        project_arg,
+        "--frame",
+        "0",
+        "--with",
+        "1",
+        "--selection",
+    ]);
+    let diff = &json_lines(&diff)[0]["result"];
+    assert_eq!(diff["scope"], "selection");
+    assert_eq!(diff["changed"], 1);
+    assert_eq!(diff["diffRows"][0], ".!.#");
+
+    ok(&[
+        "mask",
+        "subtract",
+        "--project",
+        project_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--width",
+        "1",
+        "--height",
+        "1",
+    ]);
+    ok(&[
+        "fill",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "6",
+        "--connectivity",
+        "4",
+    ]);
+    let doc = load(&project);
+    assert_eq!(doc.get(0, 0).unwrap(), 6);
+    assert_eq!(doc.get(1, 0).unwrap(), 1);
+    assert_eq!(doc.get(2, 0).unwrap(), 1);
+    assert_eq!(doc.get(3, 0).unwrap(), 2);
+    assert_eq!(doc.active_frame(), 0);
+
+    let outside = pixelforge(&arg(&[
+        "selection",
+        "wand",
+        "--project",
+        project_arg,
+        "--x",
+        "9",
+        "--y",
+        "0",
+    ]));
+    assert_eq!(status(&outside), 1);
+    assert_eq!(json_lines(&outside)[0]["error"]["code"], "OutOfBounds");
+    let bad = pixelforge(&arg(&[
+        "selection",
+        "wand",
+        "--project",
+        project_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--connectivity",
+        "5",
+    ]));
+    assert_eq!(status(&bad), 2, "{}", stderr(&bad));
+
+    let near = scratch.child("near.json");
+    let near_arg = near.to_str().unwrap();
+    ok(&["new", "--width", "3", "--height", "1", "--output", near_arg]);
+    ok(&[
+        "palette",
+        "set",
+        "--project",
+        near_arg,
+        "--index",
+        "1",
+        "--r",
+        "10",
+        "--g",
+        "20",
+        "--b",
+        "30",
+    ]);
+    ok(&[
+        "palette",
+        "set",
+        "--project",
+        near_arg,
+        "--index",
+        "2",
+        "--r",
+        "12",
+        "--g",
+        "20",
+        "--b",
+        "30",
+    ]);
+    ok(&[
+        "paint",
+        "--project",
+        near_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--color-index",
+        "1",
+    ]);
+    ok(&[
+        "paint",
+        "--project",
+        near_arg,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--color-index",
+        "2",
+    ]);
+    ok(&[
+        "paint",
+        "--project",
+        near_arg,
+        "--x",
+        "2",
+        "--y",
+        "0",
+        "--color-index",
+        "1",
+    ]);
+    let exact = ok(&[
+        "selection",
+        "wand",
+        "--project",
+        near_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--tolerance",
+        "0",
+    ]);
+    assert_eq!(json_lines(&exact)[0]["result"]["cells"], 1);
+    let wide = ok(&[
+        "selection",
+        "wand",
+        "--project",
+        near_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--tolerance",
+        "2",
+        "--connectivity",
+        "8",
+    ]);
+    assert_eq!(json_lines(&wide)[0]["result"]["cells"], 3);
+    assert_eq!(json_lines(&wide)[0]["result"]["connectivity"], 8);
+    let tight = ok(&[
+        "selection",
+        "wand",
+        "--project",
+        near_arg,
+        "--x",
+        "0",
+        "--y",
+        "0",
+        "--tolerance",
+        "1",
+    ]);
+    assert_eq!(json_lines(&tight)[0]["result"]["cells"], 1);
+    assert_eq!(load(&near).get(1, 0).unwrap(), 2);
 }

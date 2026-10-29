@@ -445,7 +445,7 @@ fn a_bad_selection_field_refuses_the_project_file() {
 }
 
 #[test]
-fn lasso_and_magic_wand_are_not_tools() {
+fn lasso_is_not_a_tool_and_magic_wand_is_not_the_tool_name() {
     let mut document = Document::new(4, 4).unwrap();
     assert_eq!(
         tool_err(&mut document, "lasso", json!({}))["code"],
