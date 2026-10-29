@@ -48,7 +48,7 @@ const BY_NAME = {
   ),
   scene: tool(
     "scene",
-    "Read a compact summary: canvas size, active frame and layer, layer names, palette hash, and frame delays. Does not return pixels. visible is always true and opacity is null. Changes nothing.",
+    "Read a compact summary: canvas size, active frame and layer, layer names, visibility, opacity, palette hash, and frame delays. Does not return pixels. visible is a boolean. opacity is 0 to 255; 255 is fully opaque. Changes nothing.",
   ),
   paint: tool(
     "paint",
@@ -817,7 +817,7 @@ const BY_NAME = {
   ),
   listLayers: tool(
     "listLayers",
-    "Read the layer stack. Index 0 is the bottom. Does not change the document.",
+    "Read the layer stack. Index 0 is the bottom. Each layer has role, visible, and opacity (0 to 255, 255 fully opaque). Does not change the document.",
   ),
   addLayer: tool(
     "addLayer",
@@ -843,6 +843,24 @@ const BY_NAME = {
       },
     },
     ["role"],
+  ),
+  setLayerVisible: tool(
+    "setLayerVisible",
+    "Show or hide one layer in the composite. Hidden layers are skipped by preview, diff, export, and flatten. Stored indices stay, and drawing that layer still writes them. previewFrame with layer set still shows it. The same value is not recorded. Omit index for the active layer. One undo step when the flag changes.",
+    {
+      index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
+      visible: { type: "boolean", description: "true shows the layer. false skips it in the composite." },
+    },
+    ["visible"],
+  ),
+  setLayerOpacity: tool(
+    "setLayerOpacity",
+    "Set composite opacity from 0 to 255. 255 covers with the palette color and does not blend palette alpha into the layer underneath. 0 skips the layer. 1 to 254 still covers in the index composite and blends in RGBA export with straight-alpha source-over. The blend is not snapped to a palette index and is not written back. The same value is not recorded. Omit index for the active layer.",
+    {
+      index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
+      opacity: int("0 to 255. 255 is fully opaque. 128 is the nearest step to 50%.", 0, 255),
+    },
+    ["opacity"],
   ),
   deleteLayer: tool(
     "deleteLayer",
@@ -879,7 +897,7 @@ const BY_NAME = {
   ),
   flattenLayers: tool(
     "flattenLayers",
-    "Composite every frame into one layer named Layer 1. Index 0 shows through; any other index covers the layer under it. The saved file is a single-layer project. One undo step. A document that is already that one layer is not recorded.",
+    "Composite every frame into one layer named Layer 1. Hidden layers and opacity 0 are omitted. Partial opacity still covers with its index; the RGBA blend is not baked. The result is visible and fully opaque. One undo step. A document that is already that one default layer is not recorded.",
   ),
 } satisfies Record<ToolName, ChatTool>;
 

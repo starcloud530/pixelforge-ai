@@ -1,13 +1,16 @@
 //! Transparent PNG export.
 //!
-//! Frames stay indexed inside the document. Export resolves each index through
-//! the palette into RGBA and encodes that buffer. Index 0 is the transparent
-//! slot (`a = 0`). Any other entry keeps the alpha stored on the palette.
+//! Frames stay indexed inside the document. Export composites the layer stack
+//! into RGBA and encodes that buffer. A hidden layer, or a layer at opacity 0,
+//! is skipped. Index 0 is the transparent slot (`a = 0`). Opacity 255 replaces
+//! the cell with the palette color, so palette alpha is not blended into the
+//! layer underneath. Opacity 1..=254 blends with straight-alpha source-over
+//! and is not snapped back to a palette index.
 //!
 //! A sequence is one PNG per frame, in timeline order. A sprite sheet packs
 //! those same frames into one PNG. See [`sprite_sheet_layout`] for the grid.
-//! `scale` repeats each index into a square block before palette resolution
-//! (nearest neighbor, no filtering). Scale 1 is the canvas size.
+//! `scale` repeats each composited cell into a square block (nearest neighbor,
+//! no filtering). Scale 1 is the canvas size.
 //! [`Document::frame_rgba`] returns that same resolved buffer for a view such
 //! as onion skin. It is not stored and is not encoded into the file.
 
@@ -18,6 +21,7 @@ use crate::document::Document;
 use crate::error::KernelError;
 use crate::selection::Mask;
 use crate::Rgba;
+use crate::LAYER_OPACITY_OPAQUE;
 
 /// View-only color for a cell outside a preview or diff mask.
 ///
@@ -196,16 +200,22 @@ pub struct FrameDiff {
 impl Document {
     /// Packed `r, g, b, a` for one frame's composite, row-major, length `width * height * 4`.
     ///
-    /// Same palette resolution as [`Self::export_frame_png`]: index 0 is
-    /// transparent, and every other index keeps the alpha stored on the palette.
-    /// Layers are stacked first: a non-zero index covers the layer under it,
-    /// and palette alpha is not blended between layers. Onion skin reads this
-    /// buffer and composites it in the shell. The bytes are not stored on the
-    /// document, so they cannot land in the project file or in an export
-    /// unless a caller writes them there.
+    /// Same composite as [`Self::export_frame_png`]. A hidden layer, or a layer
+    /// at opacity 0, is skipped. Index 0 does not cover. Opacity 255 replaces
+    /// the cell with that palette color, including its alpha, and does not
+    /// blend into the layer underneath. Opacity 1..=254 blends with
+    /// straight-alpha source-over: source alpha is
+    /// `round(palette.a * opacity / 255)`, ties away from zero. The blend is
+    /// not written back and is not snapped to a palette index. Onion skin
+    /// reads this buffer. The bytes are not stored on the document.
     pub fn frame_rgba(&self, index: usize) -> Result<Vec<u8>, KernelError> {
-        let pixels = self.composite_pixels(index)?;
-        Ok(expand_indexed(self.palette_colors(), &pixels))
+        let layers = self.frame_layer_buffers(index)?;
+        Ok(blend_layers(
+            layers,
+            self.layer_visibility_flags(),
+            self.layer_opacity_values(),
+            self.palette_colors(),
+        ))
     }
 
     /// RGBA PNG of one frame at scale 1.
@@ -232,8 +242,9 @@ impl Document {
 
     /// [`Self::export_frame_png_scaled`] of the composite, or of one layer.
     ///
-    /// `layer == None` stacks every layer. Index 0 does not cover. A set layer
-    /// is that buffer alone, including its transparent cells.
+    /// `layer == None` is the RGBA composite. A set layer is that buffer alone,
+    /// including its transparent cells, and ignores the layer's visibility and
+    /// opacity so a hidden layer can still be inspected.
     pub fn export_view_png(
         &self,
         index: usize,
@@ -254,15 +265,15 @@ impl Document {
         layer: Option<usize>,
         mask: Option<&Mask>,
     ) -> Result<Vec<u8>, KernelError> {
-        let pixels = self.view_pixels(index, layer)?;
-        let (width, height, rgba) = frame_rgba_scaled_masked(
-            self.palette_colors(),
-            &pixels,
-            self.width(),
-            self.height(),
-            scale,
-            mask,
-        )?;
+        let unscaled = match layer {
+            Some(layer) => {
+                let pixels = self.layer_pixels(index, layer)?;
+                expand_indexed(self.palette_colors(), pixels)
+            }
+            None => self.frame_rgba(index)?,
+        };
+        let (width, height, rgba) =
+            scale_rgba_masked(&unscaled, self.width(), self.height(), scale, mask)?;
         Ok(encode_rgba_png(width, height, &rgba))
     }
 
@@ -361,7 +372,6 @@ impl Document {
             .map_err(|_| KernelError::ExportScale { scale })?;
         let cell_height = usize::try_from(mul_scale(u32::from(self.height()), scale)?)
             .map_err(|_| KernelError::ExportScale { scale })?;
-        let palette = self.palette_colors();
         let sheet_stride =
             usize::try_from(sheet_width).map_err(|_| KernelError::ExportScale { scale })?;
         for index in 0..self.frame_count() {
@@ -369,10 +379,10 @@ impl Document {
             let origin_x = mul_scale(origin_x, scale)?;
             let origin_y = mul_scale(origin_y, scale)?;
             let pixels = self
-                .composite_pixels(index)
+                .frame_rgba(index)
                 .expect("frame index comes from the frame list");
-            let scaled = nearest_indices(&pixels, self.width(), self.height(), scale)?;
-            blit_frame(
+            let scaled = nearest_rgba(&pixels, self.width(), self.height(), scale)?;
+            blit_rgba(
                 &mut rgba,
                 sheet_stride,
                 usize::try_from(origin_x).map_err(|_| KernelError::ExportScale { scale })?,
@@ -380,7 +390,6 @@ impl Document {
                 cell_width,
                 cell_height,
                 &scaled,
-                palette,
             );
         }
         Ok(encode_rgba_png(sheet_width, sheet_height, &rgba))
@@ -545,9 +554,8 @@ fn rgba_byte_len(width: u32, height: u32, scale: u32) -> Result<usize, KernelErr
         .ok_or(KernelError::ExportScale { scale })
 }
 
-fn frame_rgba_scaled_masked(
-    palette: &[Rgba],
-    pixels: &[u8],
+fn scale_rgba_masked(
+    rgba: &[u8],
     width: u16,
     height: u16,
     scale: u32,
@@ -556,8 +564,7 @@ fn frame_rgba_scaled_masked(
     let scale = require_scale(scale)?;
     let out_width = mul_scale(u32::from(width), scale)?;
     let out_height = mul_scale(u32::from(height), scale)?;
-    let indexed = nearest_indices(pixels, width, height, scale)?;
-    let mut rgba = expand_indexed(palette, &indexed);
+    let mut rgba = nearest_rgba(rgba, width, height, scale)?;
     if let Some(mask) = mask {
         let scale_usize = usize::try_from(scale).map_err(|_| KernelError::ExportScale { scale })?;
         let out_stride =
@@ -582,40 +589,29 @@ fn frame_rgba_scaled_masked(
     Ok((out_width, out_height, rgba))
 }
 
-/// Repeats each index into a `scale` by `scale` block. Scale 1 clones `pixels`.
-fn nearest_indices(
-    pixels: &[u8],
-    width: u16,
-    height: u16,
-    scale: u32,
-) -> Result<Vec<u8>, KernelError> {
+/// Repeats each RGBA cell into a `scale` by `scale` block. Scale 1 clones `rgba`.
+fn nearest_rgba(rgba: &[u8], width: u16, height: u16, scale: u32) -> Result<Vec<u8>, KernelError> {
     let scale = require_scale(scale)?;
     if scale == 1 {
-        return Ok(pixels.to_vec());
+        return Ok(rgba.to_vec());
     }
     let out_width = mul_scale(u32::from(width), scale)?;
     let out_height = mul_scale(u32::from(height), scale)?;
-    let len = usize::try_from(out_width)
-        .ok()
-        .and_then(|w| {
-            usize::try_from(out_height)
-                .ok()
-                .and_then(|h| w.checked_mul(h))
-        })
-        .ok_or(KernelError::ExportScale { scale })?;
+    let len = rgba_byte_len(out_width, out_height, scale)?;
     let mut out = vec![0u8; len];
     let src_width = usize::from(width);
     let out_stride = usize::try_from(out_width).map_err(|_| KernelError::ExportScale { scale })?;
     let scale_usize = usize::try_from(scale).map_err(|_| KernelError::ExportScale { scale })?;
-    for y in 0..u32::from(height) {
-        for x in 0..u32::from(width) {
-            let index = pixels[y as usize * src_width + x as usize];
-            let x0 = (x as usize) * scale_usize;
-            let y0 = (y as usize) * scale_usize;
+    for y in 0..usize::from(height) {
+        for x in 0..src_width {
+            let pixel = &rgba[(y * src_width + x) * 4..(y * src_width + x) * 4 + 4];
+            let x0 = x * scale_usize;
+            let y0 = y * scale_usize;
             for dy in 0..scale_usize {
                 let row = (y0 + dy) * out_stride;
                 for dx in 0..scale_usize {
-                    out[row + x0 + dx] = index;
+                    let offset = (row + x0 + dx) * 4;
+                    out[offset..offset + 4].copy_from_slice(pixel);
                 }
             }
         }
@@ -632,6 +628,70 @@ fn columns_for(frame_count: usize) -> u32 {
     columns
 }
 
+/// Bottom-to-top RGBA composite.
+///
+/// Hidden layers and opacity 0 are skipped. Index 0 does not cover. Opacity
+/// [`LAYER_OPACITY_OPAQUE`] replaces the cell with the palette color. A lower
+/// opacity blends with straight-alpha source-over and does not invent an index.
+fn blend_layers(layers: &[Vec<u8>], visible: &[bool], opacity: &[u8], palette: &[Rgba]) -> Vec<u8> {
+    debug_assert_eq!(visible.len(), layers.len());
+    debug_assert_eq!(opacity.len(), layers.len());
+    let mut out = vec![0u8; layers[0].len() * 4];
+    for (layer, (&shown, &layer_opacity)) in layers.iter().zip(visible.iter().zip(opacity.iter())) {
+        if !shown || layer_opacity == 0 {
+            continue;
+        }
+        for (cell, index) in layer.iter().copied().enumerate() {
+            if index == 0 {
+                continue;
+            }
+            let color = rgba_of(palette, index);
+            let offset = cell * 4;
+            if layer_opacity == LAYER_OPACITY_OPAQUE {
+                out[offset..offset + 4].copy_from_slice(&color);
+            } else {
+                let mut pixel = [
+                    out[offset],
+                    out[offset + 1],
+                    out[offset + 2],
+                    out[offset + 3],
+                ];
+                source_over(&mut pixel, color, mul_u8(color[3], layer_opacity));
+                out[offset..offset + 4].copy_from_slice(&pixel);
+            }
+        }
+    }
+    out
+}
+
+/// `round(left * right / 255)`, ties away from zero.
+fn mul_u8(left: u8, right: u8) -> u8 {
+    u8::try_from((u16::from(left) * u16::from(right) + 127) / 255).expect("product fits in u8")
+}
+
+/// Straight-alpha source-over. `src_a` is the source alpha after layer opacity.
+///
+/// Channel rounding is nearest, ties away from zero (`+ 127` before `/ 255`,
+/// and `+ out_a / 2` before `/ out_a`).
+fn source_over(dst: &mut [u8; 4], src: [u8; 4], src_a: u8) {
+    if src_a == 0 {
+        return;
+    }
+    let inv = 255u32 - u32::from(src_a);
+    let out_a = u32::from(src_a) + (u32::from(dst[3]) * inv + 127) / 255;
+    if out_a == 0 {
+        *dst = [0, 0, 0, 0];
+        return;
+    }
+    for channel in 0..3 {
+        let src_term = u32::from(src[channel]) * u32::from(src_a);
+        let dst_term = (u32::from(dst[channel]) * u32::from(dst[3]) * inv + 127) / 255;
+        let mixed = (src_term + dst_term + out_a / 2) / out_a;
+        dst[channel] = u8::try_from(mixed.min(255)).expect("channel was clamped");
+    }
+    dst[3] = u8::try_from(out_a.min(255)).expect("alpha was clamped");
+}
+
 fn expand_indexed(palette: &[Rgba], pixels: &[u8]) -> Vec<u8> {
     let mut rgba = Vec::with_capacity(pixels.len() * 4);
     for index in pixels {
@@ -640,23 +700,22 @@ fn expand_indexed(palette: &[Rgba], pixels: &[u8]) -> Vec<u8> {
     rgba
 }
 
-fn blit_frame(
+fn blit_rgba(
     dest: &mut [u8],
     dest_width: usize,
     origin_x: usize,
     origin_y: usize,
     frame_width: usize,
     frame_height: usize,
-    pixels: &[u8],
-    palette: &[Rgba],
+    rgba: &[u8],
 ) {
     for y in 0..frame_height {
         for x in 0..frame_width {
-            let color = rgba_of(palette, pixels[y * frame_width + x]);
+            let src = (y * frame_width + x) * 4;
             let dest_x = origin_x + x;
             let dest_y = origin_y + y;
             let offset = (dest_y * dest_width + dest_x) * 4;
-            dest[offset..offset + 4].copy_from_slice(&color);
+            dest[offset..offset + 4].copy_from_slice(&rgba[src..src + 4]);
         }
     }
 }

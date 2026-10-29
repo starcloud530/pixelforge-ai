@@ -110,6 +110,8 @@ pub const TOOL_NAMES: &[&str] = &[
     "deleteLayer",
     "renameLayer",
     "setLayerRole",
+    "setLayerVisible",
+    "setLayerOpacity",
     "setActiveLayer",
     "reorderLayer",
     "flattenLayers",
@@ -1163,6 +1165,8 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "index": as_u32(index),
                 "name": document.layer_name(index).expect("new layer is in range"),
                 "role": document.layer_role(index).expect("new layer is in range").as_str(),
+                "visible": document.layer_visible(index).expect("new layer is in range"),
+                "opacity": document.layer_opacity(index).expect("new layer is in range"),
                 "activeLayer": as_u32(document.active_layer()),
             }))
         }
@@ -1193,6 +1197,26 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(serde_json::json!({
                 "index": as_u32(index),
                 "role": document.layer_role(index).expect("layer role is in range").as_str(),
+            }))
+        }
+        "setLayerVisible" => {
+            let (index, visible) = parse_set_layer_visible(params, document.active_layer())?;
+            document
+                .set_layer_visible(index, visible)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "visible": document.layer_visible(index).expect("layer visibility is in range"),
+            }))
+        }
+        "setLayerOpacity" => {
+            let (index, opacity) = parse_set_layer_opacity(params, document.active_layer())?;
+            document
+                .set_layer_opacity(index, opacity)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "index": as_u32(index),
+                "opacity": document.layer_opacity(index).expect("layer opacity is in range"),
             }))
         }
         "setActiveLayer" => {
@@ -1315,20 +1339,7 @@ fn palette_entries(document: &Document) -> Vec<Value> {
 }
 
 fn scene_layers(document: &Document) -> Vec<Value> {
-    document
-        .layer_names()
-        .iter()
-        .enumerate()
-        .map(|(index, name)| {
-            serde_json::json!({
-                "index": index,
-                "name": name,
-                "role": document.layer_role(index).expect("scene layer is in range").as_str(),
-                "visible": true,
-                "opacity": Value::Null,
-            })
-        })
-        .collect()
+    layer_entries(document)
 }
 
 fn layers_value(document: &Document) -> Value {
@@ -1349,6 +1360,8 @@ fn layer_entries(document: &Document) -> Vec<Value> {
                 "index": index,
                 "name": name,
                 "role": document.layer_role(index).expect("listed layer is in range").as_str(),
+                "visible": document.layer_visible(index).expect("listed layer is in range"),
+                "opacity": document.layer_opacity(index).expect("listed layer is in range"),
             })
         })
         .collect()
@@ -3287,6 +3300,25 @@ fn parse_add_layer(params: Value) -> Result<(Option<String>, LayerRole), ToolFai
     };
     let role = optional_layer_role("addLayer", &map)?.unwrap_or(LayerRole::Default);
     Ok((name, role))
+}
+
+fn parse_set_layer_visible(params: Value, active: usize) -> Result<(usize, bool), ToolFailure> {
+    let map = expect_object("setLayerVisible", params)?;
+    reject_params("setLayerVisible", &map, &["index", "visible"])?;
+    let index = optional_frame("setLayerVisible", &map, "index")?.unwrap_or(active);
+    let visible = require_bool("setLayerVisible", &map, "visible")?;
+    Ok((index, visible))
+}
+
+fn parse_set_layer_opacity(params: Value, active: usize) -> Result<(usize, u8), ToolFailure> {
+    let map = expect_object("setLayerOpacity", params)?;
+    reject_params("setLayerOpacity", &map, &["index", "opacity"])?;
+    let index = optional_frame("setLayerOpacity", &map, "index")?.unwrap_or(active);
+    let opacity = require_int("setLayerOpacity", &map, "opacity", 255)?;
+    Ok((
+        index,
+        u8::try_from(opacity).expect("opacity was bounded by 255"),
+    ))
 }
 
 fn parse_set_layer_role(params: Value, active: usize) -> Result<(usize, LayerRole), ToolFailure> {

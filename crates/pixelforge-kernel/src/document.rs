@@ -32,6 +32,7 @@ use crate::LayerRole;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
+use crate::LAYER_OPACITY_OPAQUE;
 use crate::MAX_BAKE_FRAMES;
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_FRAME_DELAY_MS;
@@ -349,6 +350,16 @@ pub struct Document {
     /// [`LayerRole::Polish`] is an overlay bake never rebuilds. The file omits
     /// the role when it is [`LayerRole::Default`].
     layer_roles: Vec<LayerRole>,
+    /// Composite visibility. Same length as [`Self::layer_names`].
+    ///
+    /// `false` skips the layer in every composite. The file omits the flag
+    /// when it is `true`. Drawing still writes a hidden layer.
+    layer_visible: Vec<bool>,
+    /// Composite opacity, `0..=255`. Same length as [`Self::layer_names`].
+    ///
+    /// `0` skips the layer. [`LAYER_OPACITY_OPAQUE`] covers and is omitted
+    /// from the file. A value in between blends in the RGBA composite only.
+    layer_opacity: Vec<u8>,
     active_layer: usize,
     /// Canvas mask shared by every frame and layer, or none.
     ///
@@ -407,6 +418,8 @@ impl Document {
             active: 0,
             layer_names: vec![DEFAULT_LAYER_NAME.to_string()],
             layer_roles: vec![LayerRole::Default],
+            layer_visible: vec![true],
+            layer_opacity: vec![LAYER_OPACITY_OPAQUE],
             active_layer: 0,
             selection: None,
             tags: Vec::new(),
@@ -491,14 +504,15 @@ impl Document {
         Ok(self.frames[frame].layer_pixels(layer))
     }
 
-    /// Bottom-to-top composite of one frame.
+    /// Bottom-to-top index composite of one frame.
     ///
-    /// Index 0 leaves the lower layer visible. Any other index replaces it.
-    /// The winning index is resolved to RGBA only at preview and export time,
-    /// so a translucent palette entry does not blend with the layer under it.
+    /// A hidden layer, or a layer at opacity 0, is skipped. Index 0 leaves the
+    /// lower layer visible. Any other index replaces it, including when that
+    /// layer's opacity is only partial. Partial opacity is not quantized to a
+    /// palette index. [`Self::frame_rgba`] blends it for PNG export.
     pub fn composite_pixels(&self, frame: usize) -> Result<Vec<u8>, KernelError> {
         let frame = self.frame_or_err(frame)?;
-        Ok(self.frames[frame].composite())
+        Ok(self.frames[frame].composite(&self.layer_visible, &self.layer_opacity))
     }
 
     /// Composite, or one layer when `layer` is set.
@@ -640,6 +654,77 @@ impl Document {
     /// Bake role of every layer, bottom to top.
     pub fn layer_roles(&self) -> &[LayerRole] {
         &self.layer_roles
+    }
+
+    pub(crate) fn layer_visibility_flags(&self) -> &[bool] {
+        &self.layer_visible
+    }
+
+    pub(crate) fn layer_opacity_values(&self) -> &[u8] {
+        &self.layer_opacity
+    }
+
+    pub(crate) fn frame_layer_buffers(&self, frame: usize) -> Result<&[Vec<u8>], KernelError> {
+        let frame = self.frame_or_err(frame)?;
+        Ok(self.frames[frame].layers())
+    }
+
+    /// Whether this layer is included in the composite.
+    ///
+    /// `false` skips it in preview, diff, export, and flatten. The stored
+    /// indices stay, and drawing this layer still writes them.
+    pub fn layer_visible(&self, index: usize) -> Result<bool, KernelError> {
+        let index = self.layer_or_err(index)?;
+        Ok(self.layer_visible[index])
+    }
+
+    /// Composite opacity, `0..=255`. [`LAYER_OPACITY_OPAQUE`] is fully opaque.
+    ///
+    /// `0` skips the layer the same way a hidden layer is skipped. The visible
+    /// flag stays whatever it was. `1..=254` still covers in
+    /// [`Self::composite_pixels`] and blends in [`Self::frame_rgba`].
+    pub fn layer_opacity(&self, index: usize) -> Result<u8, KernelError> {
+        let index = self.layer_or_err(index)?;
+        Ok(self.layer_opacity[index])
+    }
+
+    /// Shows or hides one layer in the composite. The same value is not recorded.
+    ///
+    /// Pixels stay. One undo step when the flag changes. A hidden layer is
+    /// still a paint target.
+    pub fn set_layer_visible(&mut self, index: usize, visible: bool) -> Result<(), KernelError> {
+        let index = self.layer_or_err(index)?;
+        if self.layer_visible[index] == visible {
+            return Ok(());
+        }
+        let before = self.layer_visible[index];
+        self.layer_visible[index] = visible;
+        self.history.record(Change::LayerVisible {
+            index,
+            before,
+            after: visible,
+        });
+        Ok(())
+    }
+
+    /// Sets one layer's composite opacity. The same value is not recorded.
+    ///
+    /// `opacity` is `0..=255`. Pixels stay. One undo step when the value
+    /// changes. `0` skips the layer. [`LAYER_OPACITY_OPAQUE`] covers without
+    /// blending. Any other value blends only in the RGBA composite.
+    pub fn set_layer_opacity(&mut self, index: usize, opacity: u8) -> Result<(), KernelError> {
+        let index = self.layer_or_err(index)?;
+        if self.layer_opacity[index] == opacity {
+            return Ok(());
+        }
+        let before = self.layer_opacity[index];
+        self.layer_opacity[index] = opacity;
+        self.history.record(Change::LayerOpacity {
+            index,
+            before,
+            after: opacity,
+        });
+        Ok(())
     }
 
     pub fn get(&self, x: u16, y: u16) -> Result<u8, KernelError> {
@@ -2225,6 +2310,8 @@ impl Document {
         }
         self.layer_names.insert(index, name.clone());
         self.layer_roles.insert(index, role);
+        self.layer_visible.insert(index, true);
+        self.layer_opacity.insert(index, LAYER_OPACITY_OPAQUE);
         self.active_layer = index;
         self.parts = parts_after_layer_insert(&before_parts, index);
         self.record_with_parts(
@@ -2253,6 +2340,8 @@ impl Document {
         let before_parts = self.parts.clone();
         let name = self.layer_names.remove(index);
         let role = self.layer_roles.remove(index);
+        let visible = self.layer_visible.remove(index);
+        let opacity = self.layer_opacity.remove(index);
         let mut pixels = Vec::with_capacity(self.frames.len());
         for frame in &mut self.frames {
             pixels.push(frame.remove_layer(index));
@@ -2271,6 +2360,8 @@ impl Document {
                 index,
                 name,
                 role,
+                visible,
+                opacity,
                 pixels,
                 active_before,
                 active_after: self.active_layer,
@@ -2360,19 +2451,25 @@ impl Document {
 
     /// Composites every frame into one layer named [`DEFAULT_LAYER_NAME`].
     ///
-    /// The result is the single-layer project file downstream tools already
-    /// open. A document that is already that one default layer is not recorded.
-    /// One undo restores the previous stack.
+    /// The result is the index composite: hidden layers and opacity 0 are
+    /// omitted, and a partial opacity still covers with its index. The RGBA
+    /// blend is not baked. The new layer is visible and fully opaque. A
+    /// document that is already that one default layer is not recorded.
+    /// One undo restores the previous stack, including visibility and opacity.
     pub fn flatten(&mut self) -> Result<(), KernelError> {
         if self.layer_names.len() == 1
             && self.layer_names[0] == DEFAULT_LAYER_NAME
             && self.active_layer == 0
             && self.layer_roles[0] == LayerRole::Default
+            && self.layer_visible[0]
+            && self.layer_opacity[0] == LAYER_OPACITY_OPAQUE
         {
             return Ok(());
         }
         let before_names = self.layer_names.clone();
         let before_roles = self.layer_roles.clone();
+        let before_visible = self.layer_visible.clone();
+        let before_opacity = self.layer_opacity.clone();
         let before_pixels = self
             .frames
             .iter()
@@ -2380,12 +2477,18 @@ impl Document {
             .collect();
         let before_active = self.active_layer;
         let before_parts = self.parts.clone();
-        let after_pixels: Vec<Vec<u8>> = self.frames.iter().map(Frame::composite).collect();
+        let after_pixels: Vec<Vec<u8>> = self
+            .frames
+            .iter()
+            .map(|frame| frame.composite(&self.layer_visible, &self.layer_opacity))
+            .collect();
         for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
             frame.set_all_layers(vec![pixels]);
         }
         self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
         self.layer_roles = vec![LayerRole::Default];
+        self.layer_visible = vec![true];
+        self.layer_opacity = vec![LAYER_OPACITY_OPAQUE];
         self.active_layer = 0;
         self.parts = parts_after_flatten(&before_parts);
         self.record_with_parts(
@@ -2393,6 +2496,8 @@ impl Document {
             Change::Flatten {
                 before_names,
                 before_roles,
+                before_visible,
+                before_opacity,
                 before_pixels,
                 before_active,
                 after_pixels,
@@ -4009,6 +4114,8 @@ impl Document {
         active: usize,
         layer_names: Vec<String>,
         layer_roles: Vec<LayerRole>,
+        layer_visible: Vec<bool>,
+        layer_opacity: Vec<u8>,
         active_layer: usize,
         selection: Option<Mask>,
         tags: Vec<Tag>,
@@ -4027,6 +4134,16 @@ impl Document {
             layer_roles.len(),
             layer_names.len(),
             "each layer has a bake role"
+        );
+        debug_assert_eq!(
+            layer_visible.len(),
+            layer_names.len(),
+            "each layer has a visibility flag"
+        );
+        debug_assert_eq!(
+            layer_opacity.len(),
+            layer_names.len(),
+            "each layer has an opacity"
         );
         debug_assert!(
             selection.as_ref().is_none_or(|sel| sel.fits(width, height)),
@@ -4085,6 +4202,8 @@ impl Document {
             active,
             layer_names,
             layer_roles,
+            layer_visible,
+            layer_opacity,
             active_layer,
             selection,
             tags,
@@ -4290,6 +4409,10 @@ impl Document {
         self.layer_names.insert(to, name);
         let role = self.layer_roles.remove(from);
         self.layer_roles.insert(to, role);
+        let visible = self.layer_visible.remove(from);
+        self.layer_visible.insert(to, visible);
+        let opacity = self.layer_opacity.remove(from);
+        self.layer_opacity.insert(to, opacity);
         for frame in &mut self.frames {
             let pixels = frame.remove_layer(from);
             frame.insert_layer(to, pixels);
@@ -4453,10 +4576,14 @@ impl Document {
                     }
                     self.layer_names.insert(*index, name.clone());
                     self.layer_roles.insert(*index, *role);
+                    self.layer_visible.insert(*index, true);
+                    self.layer_opacity.insert(*index, LAYER_OPACITY_OPAQUE);
                     self.active_layer = *active_after;
                 } else {
                     self.layer_names.remove(*index);
                     self.layer_roles.remove(*index);
+                    self.layer_visible.remove(*index);
+                    self.layer_opacity.remove(*index);
                     for frame in &mut self.frames {
                         frame.remove_layer(*index);
                     }
@@ -4467,6 +4594,8 @@ impl Document {
                 index,
                 name,
                 role,
+                visible,
+                opacity,
                 pixels,
                 active_before,
                 active_after,
@@ -4474,6 +4603,8 @@ impl Document {
                 if forward {
                     self.layer_names.remove(*index);
                     self.layer_roles.remove(*index);
+                    self.layer_visible.remove(*index);
+                    self.layer_opacity.remove(*index);
                     for frame in &mut self.frames {
                         frame.remove_layer(*index);
                     }
@@ -4482,6 +4613,8 @@ impl Document {
                     debug_assert_eq!(pixels.len(), self.frames.len());
                     self.layer_names.insert(*index, name.clone());
                     self.layer_roles.insert(*index, *role);
+                    self.layer_visible.insert(*index, *visible);
+                    self.layer_opacity.insert(*index, *opacity);
                     for (frame, buffer) in self.frames.iter_mut().zip(pixels.iter()) {
                         frame.insert_layer(*index, buffer.clone());
                     }
@@ -4505,6 +4638,20 @@ impl Document {
                 after,
             } => {
                 self.layer_roles[*index] = if forward { *after } else { *before };
+            }
+            Change::LayerVisible {
+                index,
+                before,
+                after,
+            } => {
+                self.layer_visible[*index] = if forward { *after } else { *before };
+            }
+            Change::LayerOpacity {
+                index,
+                before,
+                after,
+            } => {
+                self.layer_opacity[*index] = if forward { *after } else { *before };
             }
             Change::ActiveLayer { before, after } => {
                 self.active_layer = if forward { *after } else { *before };
@@ -4561,6 +4708,8 @@ impl Document {
             Change::Flatten {
                 before_names,
                 before_roles,
+                before_visible,
+                before_opacity,
                 before_pixels,
                 before_active,
                 after_pixels,
@@ -4572,15 +4721,21 @@ impl Document {
                     }
                     self.layer_names = vec![DEFAULT_LAYER_NAME.to_string()];
                     self.layer_roles = vec![LayerRole::Default];
+                    self.layer_visible = vec![true];
+                    self.layer_opacity = vec![LAYER_OPACITY_OPAQUE];
                     self.active_layer = 0;
                 } else {
                     debug_assert_eq!(before_pixels.len(), self.frames.len());
                     debug_assert_eq!(before_roles.len(), before_names.len());
+                    debug_assert_eq!(before_visible.len(), before_names.len());
+                    debug_assert_eq!(before_opacity.len(), before_names.len());
                     for (frame, layers) in self.frames.iter_mut().zip(before_pixels.iter()) {
                         frame.set_all_layers(layers.clone());
                     }
                     self.layer_names = before_names.clone();
                     self.layer_roles = before_roles.clone();
+                    self.layer_visible = before_visible.clone();
+                    self.layer_opacity = before_opacity.clone();
                     self.active_layer = *before_active;
                 }
             }

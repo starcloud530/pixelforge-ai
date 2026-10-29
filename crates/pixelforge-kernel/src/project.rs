@@ -46,6 +46,7 @@ use crate::LayerRole;
 use crate::Rgba;
 use crate::DEFAULT_FRAME_DELAY_MS;
 use crate::DEFAULT_LAYER_NAME;
+use crate::LAYER_OPACITY_OPAQUE;
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_FRAME_DELAY_MS;
 use crate::MAX_LAYER_NAME_CHARS;
@@ -265,6 +266,12 @@ struct LayerNameFile {
     /// Missing means [`LayerRole::Default`]. Only `polish` is written back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     role: Option<String>,
+    /// Missing means shown. Only `false` is written back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    visible: Option<bool>,
+    /// Missing means [`LAYER_OPACITY_OPAQUE`]. `0..=255` otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    opacity: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -366,7 +373,8 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         return Err(invalid(ProjectFileError::EmptyFrames));
     }
     let expected = usize::from(width) * usize::from(height);
-    let (layer_names, layer_roles) = layer_names_from_file(file.layers)?;
+    let (layer_names, layer_roles, layer_visible, layer_opacity) =
+        layer_names_from_file(file.layers)?;
     let mut frames = Vec::with_capacity(file.frames.len());
     for (index, frame) in file.frames.into_iter().enumerate() {
         let buffers =
@@ -396,13 +404,15 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         }));
     }
     let active = usize::try_from(file.active_frame).expect("active frame was checked");
-    let (names, roles) = if layer_names.is_empty() {
+    let (names, roles, visible, opacity) = if layer_names.is_empty() {
         (
             vec![DEFAULT_LAYER_NAME.to_string()],
             vec![LayerRole::Default],
+            vec![true],
+            vec![LAYER_OPACITY_OPAQUE],
         )
     } else {
-        (layer_names, layer_roles)
+        (layer_names, layer_roles, layer_visible, layer_opacity)
     };
     if file.active_layer >= u64::try_from(names.len()).expect("layer count fits in u64") {
         return Err(invalid(ProjectFileError::ActiveLayer {
@@ -427,6 +437,8 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         active,
         names,
         roles,
+        visible,
+        opacity,
         active_layer,
         selection,
         tags,
@@ -968,19 +980,31 @@ impl Document {
         let legacy = self.layer_count() == 1
             && self.layer_name(0).expect("a document has a layer") == DEFAULT_LAYER_NAME
             && self.active_layer() == 0
-            && self.layer_role(0).expect("a document has a layer") == LayerRole::Default;
+            && self.layer_role(0).expect("a document has a layer") == LayerRole::Default
+            && self.layer_visible(0).expect("a document has a layer")
+            && self.layer_opacity(0).expect("a document has a layer") == LAYER_OPACITY_OPAQUE;
         if legacy {
             Vec::new()
         } else {
             self.layer_names()
                 .iter()
                 .enumerate()
-                .map(|(index, name)| LayerNameFile {
-                    name: name.clone(),
-                    role: match self.layer_role(index).expect("layer walks layer_count") {
-                        LayerRole::Default => None,
-                        LayerRole::Polish => Some(LayerRole::Polish.as_str().to_string()),
-                    },
+                .map(|(index, name)| {
+                    let shown = self.layer_visible(index).expect("layer walks layer_count");
+                    let opacity = self.layer_opacity(index).expect("layer walks layer_count");
+                    LayerNameFile {
+                        name: name.clone(),
+                        role: match self.layer_role(index).expect("layer walks layer_count") {
+                            LayerRole::Default => None,
+                            LayerRole::Polish => Some(LayerRole::Polish.as_str().to_string()),
+                        },
+                        visible: if shown { None } else { Some(false) },
+                        opacity: if opacity == LAYER_OPACITY_OPAQUE {
+                            None
+                        } else {
+                            Some(u64::from(opacity))
+                        },
+                    }
                 })
                 .collect()
         }
@@ -1020,14 +1044,28 @@ fn indices_to_file(pixels: &[u8]) -> Vec<u64> {
 
 fn layer_names_from_file(
     layers: Vec<LayerNameFile>,
-) -> Result<(Vec<String>, Vec<LayerRole>), KernelError> {
+) -> Result<(Vec<String>, Vec<LayerRole>, Vec<bool>, Vec<u8>), KernelError> {
     let mut names = Vec::with_capacity(layers.len());
     let mut roles = Vec::with_capacity(layers.len());
+    let mut visible = Vec::with_capacity(layers.len());
+    let mut opacity = Vec::with_capacity(layers.len());
     for (index, layer) in layers.into_iter().enumerate() {
         names.push(layer_name_from_file(index, &layer.name)?);
         roles.push(layer_role_from_file(index, layer.role)?);
+        visible.push(layer.visible.unwrap_or(true));
+        opacity.push(layer_opacity_from_file(index, layer.opacity)?);
     }
-    Ok((names, roles))
+    Ok((names, roles, visible, opacity))
+}
+
+fn layer_opacity_from_file(index: usize, opacity: Option<u64>) -> Result<u8, KernelError> {
+    match opacity {
+        None => Ok(LAYER_OPACITY_OPAQUE),
+        Some(value) if value <= u64::from(LAYER_OPACITY_OPAQUE) => {
+            Ok(u8::try_from(value).expect("opacity was bounded by 255"))
+        }
+        Some(_) => Err(invalid(ProjectFileError::LayerOpacity { index })),
+    }
 }
 
 fn layer_role_from_file(index: usize, role: Option<String>) -> Result<LayerRole, KernelError> {

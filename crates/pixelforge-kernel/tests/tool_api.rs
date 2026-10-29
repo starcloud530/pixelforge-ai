@@ -696,7 +696,7 @@ fn export_scale_is_nearest_neighbor_and_defaults_to_one() {
 
 #[test]
 fn every_catalog_name_is_a_known_tool() {
-    assert_eq!(TOOL_NAMES.len(), 75);
+    assert_eq!(TOOL_NAMES.len(), 77);
     for name in TOOL_NAMES {
         let mut document = doc();
         let response = call(&mut document, json!({ "tool": name }));
@@ -883,7 +883,7 @@ fn scene_summary_lists_canvas_layers_palette_hash_and_delays() {
     assert_eq!(scene["layerCount"], json!(1));
     assert_eq!(scene["layers"][0]["name"], json!("Layer 1"));
     assert_eq!(scene["layers"][0]["visible"], json!(true));
-    assert!(scene["layers"][0]["opacity"].is_null());
+    assert_eq!(scene["layers"][0]["opacity"], json!(255));
     assert!(scene.get("pixels").is_none());
     assert_eq!(scene["paletteCount"], json!(9));
     assert_eq!(scene["paletteHash"], json!("efb5af0bb69fc10e"));
@@ -908,7 +908,7 @@ fn scene_summary_lists_canvas_layers_palette_hash_and_delays() {
     let scene = tool(&mut document, "scene", json!({}));
     assert_eq!(scene["layers"][1]["name"], json!("gear"));
     assert_eq!(scene["layers"][1]["visible"], json!(true));
-    assert!(scene["layers"][1]["opacity"].is_null());
+    assert_eq!(scene["layers"][1]["opacity"], json!(255));
     assert_eq!(scene["activeLayer"], json!(1));
     assert_eq!(scene["frames"][0]["delayMs"], json!(80));
     assert_ne!(scene["paletteHash"], json!("efb5af0bb69fc10e"));

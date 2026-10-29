@@ -1068,6 +1068,31 @@ fn cmd_layer(command: LayerCmd) -> i32 {
             }
             apply(&doc, vec![request("setLayerRole", params)])
         }
+        LayerCmd::Show { doc, index } => {
+            let mut params = json!({ "visible": true });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("setLayerVisible", params)])
+        }
+        LayerCmd::Hide { doc, index } => {
+            let mut params = json!({ "visible": false });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("setLayerVisible", params)])
+        }
+        LayerCmd::Opacity {
+            doc,
+            index,
+            opacity,
+        } => {
+            let mut params = json!({ "opacity": opacity });
+            if let Some(index) = index {
+                params["index"] = json!(index);
+            }
+            apply(&doc, vec![request("setLayerOpacity", params)])
+        }
         LayerCmd::Remove { doc, index } => {
             let mut params = json!({});
             if let Some(index) = index {

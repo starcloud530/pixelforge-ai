@@ -70,9 +70,10 @@ Examples:
   pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
-names, palette hash, frame delays) and does not dump pixels. `visible` is
-always true and `opacity` is null: the kernel has no hide flag and no
-per-layer opacity. `--dirty` on paint, erase, fill-rect, stroke-rect,
+names, visibility, opacity, palette hash, frame delays) and does not dump
+pixels. `visible` is a boolean. `opacity` is 0..=255; 255 is fully opaque.
+`layer hide` and opacity 0 skip that layer in the composite. Partial opacity
+blends only in the RGBA PNG. `--dirty` on paint, erase, fill-rect, stroke-rect,
 line, ellipse, polygon, fill, erase-rect, copy-rect, move-rect, flip,
 hflip, vflip, rotate, resize, and part translate / rotate / flip adds
 `changed`, `dirty`, and `regions`. Omit it and those fields stay absent.
@@ -216,8 +217,8 @@ pub enum Command {
     },
     /// Print a compact scene summary. Does not write the file or return pixels.
     ///
-    /// Canvas size, active frame and layer, layer names, palette hash, and
-    /// per-frame delay. `visible` is always true. `opacity` is null.
+    /// Canvas size, active frame and layer, layer names, visibility, opacity
+    /// (0..=255), palette hash, and per-frame delay.
     Scene {
         #[command(flatten)]
         doc: ProjectArgs,
@@ -1226,6 +1227,40 @@ pub enum LayerCmd {
         #[arg(long, value_enum)]
         role: LayerRoleArg,
     },
+    /// Show a layer in the composite. The same value is not recorded.
+    Show {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+    },
+    /// Hide a layer. Preview, diff, export, and flatten skip it.
+    ///
+    /// The stored indices stay, and drawing this layer still writes them.
+    /// `preview --layer` and `diff --layer` still show it.
+    Hide {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+    },
+    /// Set composite opacity from 0 to 255. 255 is fully opaque.
+    ///
+    /// 0 skips the layer. 255 covers with the palette color and does not blend.
+    /// 1..=254 still covers in the index preview and blends in the RGBA PNG.
+    /// The blend is not snapped back to a palette index. The same value is not recorded.
+    Opacity {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+        /// Opacity from 0 to 255. 255 is 100%. 128 is the nearest step to 50%.
+        #[arg(long)]
+        opacity: u8,
+    },
     /// Remove a layer from every frame. The last layer is refused.
     #[command(alias = "delete")]
     Remove {
@@ -1267,7 +1302,10 @@ pub enum LayerCmd {
     },
     /// Composite every frame into one layer named `Layer 1`.
     ///
-    /// The saved file is the single-layer project older tools already open.
+    /// Hidden layers and opacity 0 are left out. Partial opacity still covers
+    /// with its index; the RGBA blend is not baked. The result is visible and
+    /// fully opaque. The saved file is the single-layer project older tools
+    /// already open.
     Flatten {
         #[command(flatten)]
         doc: ProjectArgs,

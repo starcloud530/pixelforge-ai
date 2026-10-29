@@ -3,9 +3,10 @@ name: pixelforge-layers
 description: >-
   Split a PixelForge frame into body, gear, and limb layers. Use when the user
   says 分层, 装备, 身体, body, gear, or limbs, or when adding or selecting
-  layers, drawing with --layer without switching the active layer, previewing
-  the composite versus one layer, reordering the stack, or flattening back to
-  a single layer. Follow the pixelforge skill's index-color invariants first.
+  layers, drawing with --layer without switching the active layer, showing or
+  hiding a layer, setting layer opacity, previewing the composite versus one
+  layer, reordering the stack, or flattening back to a single layer. Follow
+  the pixelforge skill's index-color invariants first.
   Shape on a layer still follows pixelforge-draw. A four-direction sheet layout
   is pixelforge-sprite-4dir. A read-only review is pixelforge-critique.
 ---
@@ -32,7 +33,7 @@ description: >-
 
 手臂不挡着躯干、也不单独循环时，留在 `body` 上，用 `move-rect` 挪。不要为了「整齐」多加一层。
 
-同一格不要在两层上各画一个非 0 索引。上层的非 0 盖住下层，层与层之间不按调色板 alpha 混合。上层的索引 0 露出下面的层。
+同一格不要在两层上各画一个非 0 索引。上层的非 0 在 `opacity` 为 255 时盖住下层，调色板 alpha 不与下层混合。上层的索引 0 露出下面的层。`layer hide` 让这一层退出合成，像素还在，`preview --layer` 仍能看见。`layer opacity --opacity 128` 让 RGBA 导出按直通 alpha 混合；ASCII 和 `flatten` 仍是整格覆盖，不收成最近色。细节在 `pixelforge` skill。
 
 ## Draw
 
@@ -74,9 +75,25 @@ pixelforge layer add --project hero.json --name polish --role polish
 pixelforge paint --project hero.json --x 26 --y 14 --color-index 7
 ```
 
-`layer role --role polish` 改已经有的层。`default` 又变回普通层。压平会把覆盖层合成进 `Layer 1`，角色回到 `default`。细节见 `pixelforge` skill 的「抬枪微调不丢修过的手指」。
+`layer role --role polish` 改已经有的层。`default` 又变回普通层。压平会把覆盖层的索引合成进 `Layer 1`，角色回到 `default`，结果层可见且不透明。隐藏层和 opacity 0 不进入压平。半透明混合不会烤进索引。细节见 `pixelforge` skill 的「抬枪微调不丢修过的手指」。
 
-*Bake rebuilds a layer a curve or constraint manages. A finger fix on that layer is replaced. Put the fix on a `polish` overlay, and do not link a moving part to it. `layer role` changes an existing layer. Flatten composites the overlay into `Layer 1` and clears the role.*
+## 可见性和透明度 Visibility and opacity
+
+换装层先 `layer hide`，再 `layer show`，不必删像素。`opacity` 是 0 到 255，255 是完全不透明，128 最接近 50%。0 在合成里跳过，和隐藏的画面一样，但 `visible` 可以仍是 true。
+
+```bash
+pixelforge layer hide --project hero.json --index 1
+pixelforge layer show --project hero.json --index 1
+pixelforge layer opacity --project hero.json --index 1 --opacity 128
+pixelforge layer list --project hero.json
+pixelforge scene --project hero.json
+```
+
+`scene` 和 `layer list` 的每一层都有 `visible` 和 `opacity`。彩色 PNG 才看得到半透明。ASCII 的 `rows` 仍是盖住的索引。`--checkpoint` 能在下一个进程撤回 `hide` 和 `opacity`。
+
+*Hide a gear layer without deleting its pixels. Opacity is 0..=255. 255 covers. 128 is the nearest step to 50% and blends only in the RGBA PNG. ASCII rows stay the covering index. `layer list` and `scene` report both fields.*
+
+*Bake rebuilds a layer a curve or constraint manages. A finger fix on that layer is replaced. Put the fix on a `polish` overlay, and do not link a moving part to it. `layer role` changes an existing layer. Flatten writes the index composite into `Layer 1` and clears the role. Hidden layers and opacity 0 are omitted. The result is visible and fully opaque.*
 
 ## Flatten
 
@@ -86,7 +103,7 @@ pixelforge paint --project hero.json --x 26 --y 14 --color-index 7
 pixelforge layer flatten --project hero.json
 ```
 
-合成写进名为 `Layer 1` 的一层。文件回到单层工程，不再写 `layers` 和 `activeLayer`。压平之前用 `preview` 确认合成就是要留下的图。压平是一步撤销，但下一个进程没有这个栈；要留着分层就先复制文件。
+索引合成写进名为 `Layer 1` 的一层：隐藏层和 opacity 0 不进入，半透明层留下盖住的索引，RGBA 混合不烤进去。结果层可见且不透明。文件回到单层工程，不再写 `layers` 和 `activeLayer`。压平之前用 preview 的彩色 PNG 确认要留下的颜色；ASCII 和压平结果一致，和半透明 PNG 不一定一致。压平是一步撤销，但下一个进程没有这个栈；要留着分层就先复制文件，或在命令上带 `--checkpoint`。
 
 *`--layer` does not select the layer. `preview` without `--layer` is the composite. `layer flatten` writes one layer named `Layer 1`.*
 
