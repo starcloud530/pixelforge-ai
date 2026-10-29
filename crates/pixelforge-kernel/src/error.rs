@@ -122,8 +122,13 @@ pub enum KernelError {
     /// solved constraint manages a part on it.
     ///
     /// The call writes nothing. Polish pixels stay only when no managed part
-    /// is linked to that layer.
+    /// is linked to that layer. Binding the overlay to a part is separate:
+    /// the part's linked layer stays a `default` layer.
     PolishLayer { layer: usize },
+    /// This layer is not a polish overlay, so it cannot bind to a part.
+    ///
+    /// The call writes nothing.
+    PolishBind { layer: usize },
     /// A short IK chain could not put its end effector on the target cell.
     ///
     /// The call writes nothing. The solver does not leave the effector on a
@@ -210,6 +215,10 @@ pub enum ProjectFileError {
     LayerRole { index: usize },
     /// A layer `opacity` is present and is not an integer from 0 to 255.
     LayerOpacity { index: usize },
+    /// A polish binding names a missing part or anchor, or a layer that is not polish.
+    LayerBind { index: usize },
+    /// An erase mask is the wrong length, not 0/1, or set on a painted cell.
+    LayerErase { frame: usize, layer: usize },
     /// A frame stores both a legacy `pixels` buffer and a `layers` array.
     LayerPixels { frame: usize },
     /// A frame's layer count does not match the document layer stack.
@@ -345,6 +354,7 @@ impl KernelError {
             Self::ConstraintConflict { .. } => "ConstraintConflict",
             Self::ConstraintLayer { .. } => "ConstraintLayer",
             Self::PolishLayer { .. } => "PolishLayer",
+            Self::PolishBind { .. } => "PolishBind",
             Self::IkUnreachable { .. } => "IkUnreachable",
             Self::BakeRange { .. } => "BakeRange",
             Self::BakeFps => "BakeFps",
@@ -498,6 +508,10 @@ impl fmt::Display for KernelError {
                 f,
                 "layer {layer} is a polish overlay; bake does not rebuild it. Move the managed part to another layer"
             ),
+            Self::PolishBind { layer } => write!(
+                f,
+                "layer {layer} is not a polish overlay; only polish can bind to a part"
+            ),
             Self::IkUnreachable { name, x, y } => {
                 write!(f, "ik \"{name}\" cannot place the end effector on {x},{y}")
             }
@@ -583,6 +597,14 @@ impl fmt::Display for ProjectFileError {
             Self::LayerOpacity { index } => {
                 write!(f, "layer {index} opacity must be an integer from 0 to 255")
             },
+            Self::LayerBind { index } => write!(
+                f,
+                "layer {index} part binding must name a polish layer and an existing part"
+            ),
+            Self::LayerErase { frame, layer } => write!(
+                f,
+                "frame {frame} layer {layer} erase mask must be 0 or 1 and match the buffer"
+            ),
             Self::LayerPixels { frame } => {
                 write!(f, "frame {frame} stores both pixels and layers")
             }

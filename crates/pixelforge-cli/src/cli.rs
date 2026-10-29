@@ -119,9 +119,12 @@ Solving does not walk the timeline. `bake` does: it samples that pose onto
 each frame in a range and leaves the curves in place. It rebuilds every
 layer a curve or constraint manages, including a pose that returned to zero.
 A retouch on that layer is replaced. `layer add --role polish` (or
-`layer role --role polish`) is an overlay bake never writes, so a finger
-fix stays when the raise changes. Polish cells stay on the canvas cells
-where they were painted.
+`layer role --role polish`) is an overlay. Unbound, bake does not write it,
+so a finger fix stays on the canvas cell where it was painted. `layer bind
+--part hand` makes bake and `part translate` / `rotate` / `flip` move that
+overlay with the part. `--anchor` names the local origin; omit it to use the
+part origin. `erase-rect` on that layer is an explicit transparent cell.
+`--unmodified` clears it back to pass-through.
 `import-aseprite --file sprite.aseprite --output hero.json`
 reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
@@ -722,6 +725,13 @@ pub struct EraseRectArgs {
     /// After the edit, print an ASCII view of the active frame on stderr.
     #[arg(long)]
     pub preview: bool,
+    /// On a polish layer, clear the cell back to pass-through.
+    ///
+    /// Without this flag an erase on polish is explicit transparent: the
+    /// composite cell becomes empty, which is different from leaving it
+    /// unmodified. On a default layer both writes store index 0.
+    #[arg(long)]
+    pub unmodified: bool,
 }
 
 #[derive(Args)]
@@ -1215,6 +1225,32 @@ pub enum LayerCmd {
         /// `default` or `polish`. `polish` is an overlay bake never writes.
         #[arg(long, value_enum)]
         role: Option<LayerRoleArg>,
+    },
+    /// Bind a polish layer to a part so bake and part transforms move it.
+    ///
+    /// Cells stay in canvas coordinates of the rest pose. Local `(0, 0)` is
+    /// the part origin, or `--anchor` when that name is set. The same binding
+    /// is not recorded.
+    Bind {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
+        /// Part the overlay follows.
+        #[arg(long)]
+        part: String,
+        /// Anchor that is local `(0, 0)`. Omit to use the part origin.
+        #[arg(long)]
+        anchor: Option<String>,
+    },
+    /// Leave a polish layer in canvas coordinates. Bake will not move it.
+    Unbind {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Layer index, from 0. Defaults to the active layer.
+        #[arg(long)]
+        index: Option<u32>,
     },
     /// Set whether bake may rebuild this layer. Pixels stay.
     Role {
