@@ -9,6 +9,8 @@
 //!
 //! A sequence is one PNG per frame, in timeline order. A sprite sheet packs
 //! those same frames into one PNG. See [`sprite_sheet_layout`] for the grid.
+//! [`Document::export_apng`] packs that same composite into one looping APNG.
+//! The APNG is a playable preview, not a sprite sheet.
 //! `scale` repeats each composited cell into a square block (nearest neighbor,
 //! no filtering). Scale 1 is the canvas size.
 //! [`Document::frame_rgba`] returns that same resolved buffer for a view such
@@ -17,9 +19,11 @@
 use png::{BitDepth, ColorType, Encoder};
 use serde::Serialize;
 
+use crate::apng::{self, ApngExport, ApngFrame, ApngSource, PngFrame};
 use crate::document::Document;
 use crate::error::KernelError;
 use crate::selection::Mask;
+use crate::tag::{normalize_tag_name, LoopMode};
 use crate::Rgba;
 use crate::LAYER_OPACITY_OPAQUE;
 
@@ -398,6 +402,54 @@ impl Document {
         Ok(encode_rgba_png(sheet_width, sheet_height, &rgba))
     }
 
+    /// Looping APNG of one tag, or of an inclusive frame range.
+    ///
+    /// Each frame is the same RGBA composite as [`Self::export_frame_png_scaled`]:
+    /// a hidden layer or opacity 0 is skipped, opacity 255 replaces the cell
+    /// with the palette color, and opacity 1..=254 blends. `scale` repeats
+    /// that composite nearest-neighbor. The document is not changed and the
+    /// call does not push undo.
+    ///
+    /// [`ApngSource::Tag`] uses that tag's inclusive range and loop mode.
+    /// [`ApngSource::Range`] fills a missing end from the whole timeline.
+    /// `forward`, `reverse`, and `pingpong` set `plays` to 0. `once` sets it
+    /// to 1. Ping-pong does not hold either end for an extra frame. Every
+    /// appearance keeps that frame's delay, stored as `delayMs / 1000`.
+    ///
+    /// The file is a preview. It is not a sprite sheet.
+    pub fn export_apng(&self, scale: u32, source: ApngSource) -> Result<ApngExport, KernelError> {
+        let scale = require_scale(scale)?;
+        let (from, to, loop_mode, tag) = resolve_apng_source(self, source)?;
+        let order = apng::playback_order(from, to, loop_mode);
+        let (width, height) = self.scaled_frame_size(scale)?;
+        let mut encoded = Vec::with_capacity(order.len());
+        let mut frames = Vec::with_capacity(order.len());
+        for index in order {
+            let rgba = self.frame_rgba(index)?;
+            let scaled = nearest_rgba(&rgba, self.width(), self.height(), scale)?;
+            let delay_ms = self.frame_delay(index)?;
+            encoded.push(PngFrame {
+                png: encode_rgba_png(width, height, &scaled),
+                delay_ms,
+            });
+            frames.push(ApngFrame {
+                index: u32::try_from(index).expect("frame index fits in u32"),
+                delay_ms,
+            });
+        }
+        let plays = apng::plays_for(loop_mode);
+        Ok(ApngExport {
+            bytes: apng::assemble(&encoded, plays),
+            width,
+            height,
+            scale,
+            loop_mode,
+            plays,
+            frames,
+            tag,
+        })
+    }
+
     /// Atlas for the same grid as [`Self::export_sprite_sheet_scaled_with`].
     ///
     /// Does not encode a PNG and does not change the document. Frame rectangles
@@ -748,6 +800,36 @@ fn blit_rgba(
     }
 }
 
+fn resolve_apng_source(
+    document: &Document,
+    source: ApngSource,
+) -> Result<(usize, usize, LoopMode, Option<String>), KernelError> {
+    match source {
+        ApngSource::Tag(name) => {
+            let name = normalize_tag_name(&name).map_err(|()| KernelError::TagName)?;
+            let tag = document
+                .tags()
+                .iter()
+                .find(|tag| tag.name == name)
+                .ok_or(KernelError::TagMissing)?;
+            Ok((tag.from, tag.to, tag.loop_mode, Some(name)))
+        }
+        ApngSource::Range {
+            from,
+            to,
+            loop_mode,
+        } => {
+            let len = document.frame_count();
+            let from = from.unwrap_or(0);
+            let to = to.unwrap_or(len.saturating_sub(1));
+            if len == 0 || from > to || to >= len {
+                return Err(KernelError::PreviewRange { from, to, len });
+            }
+            Ok((from, to, loop_mode, None))
+        }
+    }
+}
+
 fn rgba_of(palette: &[Rgba], index: u8) -> [u8; 4] {
     match palette.get(usize::from(index)) {
         Some(color) => [color.r, color.g, color.b, color.a],
@@ -862,7 +944,7 @@ fn diff_rgba(
     Ok((png_width, png_height, rgba))
 }
 
-fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+pub(crate) fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     debug_assert_eq!(rgba.len(), width as usize * height as usize * 4);
     let mut bytes = Vec::new();
     {

@@ -192,6 +192,95 @@ pub fn export_sprite_sheet(
     finish_summary(&summary)
 }
 
+pub fn export_apng(
+    session: &mut Session,
+    output: &Path,
+    scale: u32,
+    tag: Option<&str>,
+    from: Option<u32>,
+    to: Option<u32>,
+    loop_mode: Option<&str>,
+) -> i32 {
+    let mut params = serde_json::json!({ "scale": scale });
+    if let Some(tag) = tag {
+        params["tag"] = serde_json::json!(tag);
+    }
+    if let Some(from) = from {
+        params["from"] = serde_json::json!(from);
+    }
+    if let Some(to) = to {
+        params["to"] = serde_json::json!(to);
+    }
+    if let Some(loop_mode) = loop_mode {
+        params["loop"] = serde_json::json!(loop_mode);
+    }
+    let request = serde_json::json!({
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "exportApng",
+        "params": params,
+    })
+    .to_string();
+    let response = session.call(&request);
+    if let Some(code) = refuse_or_print(&response) {
+        return code;
+    }
+    let value: Value = match serde_json::from_str(&response) {
+        Ok(value) => value,
+        Err(_) => {
+            return crate::output::emit(CliFailure::new("Cli", "tool response is not JSON"));
+        }
+    };
+    let result = &value["result"];
+    let Some(text) = result["apng"].as_str() else {
+        return crate::output::emit(CliFailure::new("Cli", "exportApng result is missing apng"));
+    };
+    let bytes = match STANDARD.decode(text) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return crate::output::emit(CliFailure::new("Cli", "exportApng apng is not base64"));
+        }
+    };
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            if let Err(failure) = fs::create_dir_all(parent) {
+                return crate::output::emit(CliFailure::io(parent, failure));
+            }
+        }
+    }
+    if let Err(failure) = fs::write(output, &bytes) {
+        return crate::output::emit(CliFailure::io(output, failure));
+    }
+    eprintln!("pixelforge: wrote {}", output.display());
+    let Some(path_text) = output.to_str() else {
+        return crate::output::emit(CliFailure::new(
+            "Cli",
+            format!("path is not UTF-8: {}", output.display()),
+        ));
+    };
+    let mut summary_result = json!({
+        "path": path_text,
+        "bytes": bytes.len(),
+        "format": result["format"].clone(),
+        "width": result["width"].clone(),
+        "height": result["height"].clone(),
+        "scale": result["scale"].clone(),
+        "loop": result["loop"].clone(),
+        "plays": result["plays"].clone(),
+        "frameCount": result["frameCount"].clone(),
+        "frames": result["frames"].clone(),
+    });
+    if let Some(tag) = result.get("tag") {
+        summary_result["tag"] = tag.clone();
+    }
+    let summary = json!({
+        "ok": true,
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "exportApng",
+        "result": summary_result,
+    });
+    finish_summary(&summary)
+}
+
 fn write_atlas(path: &Path, atlas: &Value) -> Result<(), CliFailure> {
     let mut text = serde_json::to_string_pretty(atlas).expect("atlas is JSON");
     text.push('\n');

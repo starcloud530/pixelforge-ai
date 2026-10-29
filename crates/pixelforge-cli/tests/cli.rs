@@ -119,6 +119,7 @@ fn help_lists_the_agent_commands() {
         "--horizontal",
         "--cols",
         "export",
+        "apng",
         "validate-atlas",
         "inspect",
         "--checkpoint",
@@ -797,6 +798,7 @@ fn tools_lists_the_kernel_catalog() {
     assert!(names.contains(&"fill"));
     assert!(names.contains(&"selectConnected"));
     assert!(names.contains(&"exportSpriteSheet"));
+    assert!(names.contains(&"exportApng"));
     assert!(names.contains(&"previewFrame"));
     assert!(names.contains(&"diffFrames"));
     assert!(names.contains(&"flipHorizontal"));
@@ -5225,4 +5227,156 @@ fn selection_wand_stores_a_component_and_limits_fill_and_diff() {
     ]);
     assert_eq!(json_lines(&tight)[0]["result"]["cells"], 1);
     assert_eq!(load(&near).get(1, 0).unwrap(), 2);
+}
+
+#[test]
+fn export_apng_writes_a_tag_preview_and_leaves_the_project() {
+    let scratch = Scratch::new();
+    let project = scratch.child("walk.json");
+    let project_arg = project.to_str().unwrap();
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "4",
+            "--height",
+            "2",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    let edited = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--request",
+        r#"{"tool":"paint","params":{"x":0,"y":0,"colorIndex":1}}"#,
+        "--request",
+        r#"{"tool":"addFrame"}"#,
+        "--request",
+        r#"{"tool":"setActiveFrame","params":{"index":1}}"#,
+        "--request",
+        r#"{"tool":"paint","params":{"x":1,"y":0,"colorIndex":2}}"#,
+        "--request",
+        r#"{"tool":"setFrameDelay","params":{"index":0,"delayMs":83}}"#,
+        "--request",
+        r#"{"tool":"setFrameDelay","params":{"index":1,"delayMs":120}}"#,
+        "--request",
+        r#"{"tool":"addTag","params":{"name":"walk_down","from":0,"to":1,"loop":"reverse"}}"#,
+    ]));
+    assert_eq!(status(&edited), 0, "{}", stderr(&edited));
+    let before = fs::read(&project).unwrap();
+
+    let output = scratch.child("walk.apng");
+    let exported = pixelforge(&arg(&[
+        "export",
+        "apng",
+        "--project",
+        project_arg,
+        "--output",
+        output.to_str().unwrap(),
+        "--tag",
+        "walk_down",
+        "--scale",
+        "2",
+    ]));
+    assert_eq!(status(&exported), 0, "{}", stderr(&exported));
+    let body = &json_lines(&exported)[0];
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["tool"], "exportApng");
+    assert!(body["result"].get("apng").is_none());
+    assert_eq!(body["result"]["format"], "apng");
+    assert_eq!(body["result"]["width"], 8);
+    assert_eq!(body["result"]["height"], 4);
+    assert_eq!(body["result"]["scale"], 2);
+    assert_eq!(body["result"]["loop"], "reverse");
+    assert_eq!(body["result"]["plays"], 0);
+    assert_eq!(body["result"]["frameCount"], 2);
+    assert_eq!(body["result"]["tag"], "walk_down");
+    assert_eq!(body["result"]["frames"][0]["index"], 1);
+    assert_eq!(body["result"]["frames"][0]["delayMs"], 120);
+    assert_eq!(body["result"]["frames"][1]["index"], 0);
+    assert_eq!(body["result"]["frames"][1]["delayMs"], 83);
+    let bytes = fs::read(&output).unwrap();
+    assert_eq!(png_size(&bytes), (8, 4));
+    assert_eq!(body["result"]["bytes"], bytes.len());
+    assert_eq!(apng_playback(&bytes), (0, vec![120, 83]));
+    assert_eq!(fs::read(&project).unwrap(), before);
+    assert!(stderr(&exported).contains("wrote"));
+
+    let raw = pixelforge(&arg(&[
+        "call",
+        "--project",
+        project_arg,
+        "--request",
+        r#"{"tool":"exportApng","params":{"tag":"walk_down"}}"#,
+    ]));
+    assert_eq!(status(&raw), 0, "{}", stderr(&raw));
+    let raw_body = &json_lines(&raw)[0];
+    assert!(raw_body["result"]["apng"]
+        .as_str()
+        .unwrap()
+        .starts_with("iVBORw0KGgo"));
+    assert_eq!(raw_body["result"]["frameCount"], 2);
+    assert_eq!(raw_body["result"]["loop"], "reverse");
+    assert_eq!(fs::read(&project).unwrap(), before);
+
+    let missing = pixelforge(&arg(&[
+        "export",
+        "apng",
+        "--project",
+        project_arg,
+        "--output",
+        output.to_str().unwrap(),
+        "--tag",
+        "nope",
+    ]));
+    assert_eq!(status(&missing), 1, "{}", stderr(&missing));
+    assert_eq!(json_lines(&missing)[0]["error"]["code"], "TagMissing");
+    assert_eq!(fs::read(&project).unwrap(), before);
+
+    let clash = pixelforge(&arg(&[
+        "export",
+        "apng",
+        "--project",
+        project_arg,
+        "--output",
+        output.to_str().unwrap(),
+        "--tag",
+        "walk_down",
+        "--from",
+        "0",
+    ]));
+    assert_eq!(status(&clash), 2, "{}", stderr(&clash));
+    assert!(
+        stderr(&clash).contains("cannot be used with"),
+        "{}",
+        stderr(&clash)
+    );
+}
+
+fn apng_playback(bytes: &[u8]) -> (u32, Vec<u16>) {
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+    let mut offset = 8;
+    let mut plays = 0;
+    let mut delays = Vec::new();
+    let mut frames = 0u32;
+    while offset + 12 <= bytes.len() {
+        let len = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        let kind = &bytes[offset + 4..offset + 8];
+        let data = &bytes[offset + 8..offset + 8 + len];
+        if kind == b"acTL" {
+            frames = u32::from_be_bytes(data[0..4].try_into().unwrap());
+            plays = u32::from_be_bytes(data[4..8].try_into().unwrap());
+        } else if kind == b"fcTL" {
+            delays.push(u16::from_be_bytes(data[20..22].try_into().unwrap()));
+            assert_eq!(u16::from_be_bytes(data[22..24].try_into().unwrap()), 1000);
+        } else if kind == b"IEND" {
+            break;
+        }
+        offset += 12 + len;
+    }
+    assert_eq!(frames as usize, delays.len());
+    (plays, delays)
 }

@@ -107,6 +107,16 @@ Windows 的 zip 根目录就是 `pixelforge.exe`，旁边有 `LICENSE` 和 `READ
 ./pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 ```
 
+要看一段动画循环：
+
+```bash
+./pixelforge export apng --project hero.json --output walk.apng --tag walk_down
+```
+
+这张 APNG 是预览，不是进游戏的 sprite sheet。
+
+*A PNG sequence is `export png`. A looping look at one tag is `export apng`. That APNG is a preview, not the sprite sheet a game imports.*
+
 仓库公开之后，可以用一行安装脚本，把 `pixelforge` 装进 `~/.pixelforge/bin` 并写进 PATH。正式版：
 
 ```bash
@@ -139,7 +149,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 - **层透明度不写回索引。** `opacity` 是 `0..=255`。隐藏层和 0 不进入合成。255 用调色板颜色整格覆盖，不把调色板 alpha 混进下层。1 到 254 只在 RGBA 导出、preview 彩色 PNG 和 `frame_rgba` 里做直通 alpha 混合，不量化成最近的调色板色。ASCII、`diff` 和 `layer flatten` 仍是盖住的索引，所以压平之后半透明会变成不透明的那一格。没有 multiply / screen。见 [#98](https://github.com/starcloud530/pixelforge-ai/issues/98)。
 
-- **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
+- **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。`export apng` 是可循环播放的预览，不是引擎用的 sprite sheet，`validate-atlas` 不读它。像素和 PNG 导出是同一份直通 RGBA，不把调色板收成 GIF 的索引色，也不抖动；调色板 alpha 和 1 到 254 的层透明度都留着。时长按毫秒写入（分母 1000），不收成百分之一秒。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
 
 *An unbound `polish` overlay stays on the canvas cell where it was painted. That is still the [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) behavior: `bake` does not write it. A polish layer bound to a part stores the correction in that part's local frame. Local `(0, 0)` is the part origin, or the anchor named by `layer bind --anchor`. `bake` and `part translate` / `rotate` / `flip` move those cells, including an explicit erase. An explicit erase is a transparent overlay cell, distinct from a cell that was never touched. `erase-rect --unmodified` (Tool API `mode: pass`) clears it back to pass-through. A layer a curve or constraint manages is still rebuilt from the source frame, so the fix does not belong on that generated layer. Rotation sealing stays lossy when the bound overlay turns with the part. One polish layer binds to one part. See [#99](https://github.com/starcloud530/pixelforge-ai/issues/99). Bake commands: [docs/agent-skill.md](docs/agent-skill.md).*
 
@@ -149,7 +159,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 *Short-chain IK is two or three parts. `pin` and `plant` hold a foot on a contact. The solve places joints. It does not author a natural gait, and it does not turn one rest pose into a walk cycle. There is no full IK tree, no gait generator, and no physics. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). `examples/soldier-walk.py` plants contact frames. Walk frames are still keyed, or duplicated and edited, then baked.*
 
-*`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. See [docs/export.md](docs/export.md) and [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md).*
+*`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. `export apng` is a looping preview, not the engine sprite sheet, and `validate-atlas` does not read it. The pixels are the same straight RGBA as PNG export: no GIF palette quantization and no dither, so palette alpha and opacity 1..=254 stay. Delays are stored in milliseconds (denominator 1000), not centiseconds. See [docs/export.md](docs/export.md) and [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md).*
 
 ## 源码构建 Source build
 
