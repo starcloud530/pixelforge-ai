@@ -40,7 +40,7 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 
 ## 如何读状态
 
-先 `pixelforge scene --project hero.json`。它不改文件。用 `result.width` / `height`、`activeFrame`、`activeLayer`、`layers`、`paletteHash`、`frameCount`、`frames[].delayMs` 确认你在看哪一帧、哪一层、哪套颜色。`visible` 恒为 true，`opacity` 恒为 null：内核没有逐层隐藏，也没有逐层透明度。`scene` 不带像素；格子在 `preview` 和 `diff` 里。
+先 `pixelforge scene --project hero.json`。它不改文件。用 `result.width` / `height`、`activeFrame`、`activeLayer`、`layers`、`paletteHash`、`frameCount`、`frames[].delayMs` 确认你在看哪一帧、哪一层、哪套颜色。`visible` 是布尔，`opacity` 是 `0..=255`。隐藏层和 opacity 0 不在合成里。半透明的 ASCII 仍是盖住的索引，颜色以彩色 PNG 为准。`scene` 不带像素；格子在 `preview` 和 `diff` 里。
 
 `preview` 的 `result.bounds` 是有墨格子的外接矩形，`result.ink` 是非 0 格数，`result.indices` 是每个索引用了几次，`result.pixels` 是这一张视图的索引。头身和脚的行号可以从 `bounds` 和 `pixels` 数，不必只靠 ASCII。字形 `*` 把 62 及以上折成同一个字符。
 
