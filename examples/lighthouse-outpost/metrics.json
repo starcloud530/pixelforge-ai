@@ -1,0 +1,156 @@
+{
+  "canvas": {
+    "width": 32,
+    "height": 64
+  },
+  "palette": [
+    {
+      "a": 0,
+      "b": 0,
+      "g": 0,
+      "r": 0
+    },
+    {
+      "a": 255,
+      "b": 36,
+      "g": 28,
+      "r": 26
+    },
+    {
+      "a": 255,
+      "b": 222,
+      "g": 241,
+      "r": 244
+    },
+    {
+      "a": 255,
+      "b": 76,
+      "g": 93,
+      "r": 232
+    },
+    {
+      "a": 255,
+      "b": 89,
+      "g": 162,
+      "r": 244
+    },
+    {
+      "a": 255,
+      "b": 102,
+      "g": 204,
+      "r": 242
+    },
+    {
+      "a": 255,
+      "b": 106,
+      "g": 176,
+      "r": 106
+    },
+    {
+      "a": 255,
+      "b": 196,
+      "g": 140,
+      "r": 74
+    },
+    {
+      "a": 255,
+      "b": 184,
+      "g": 110,
+      "r": 140
+    },
+    {
+      "a": 255,
+      "b": 112,
+      "g": 124,
+      "r": 132
+    },
+    {
+      "a": 255,
+      "b": 62,
+      "g": 66,
+      "r": 72
+    }
+  ],
+  "paletteCount": 11,
+  "layers": [
+    {
+      "name": "masonry",
+      "opacity": 255,
+      "visible": true
+    },
+    {
+      "name": "lantern",
+      "opacity": 255,
+      "visible": true
+    },
+    {
+      "name": "beam",
+      "opacity": 128,
+      "visible": true
+    }
+  ],
+  "drawingRequests": 25,
+  "requestsByTool": {
+    "ellipse": 5,
+    "polygon": 4,
+    "selectConnected": 1,
+    "fillRect": 6,
+    "clearSelection": 1,
+    "paint": 1,
+    "line": 3,
+    "strokeRect": 2,
+    "fill": 2
+  },
+  "cliCommands": 22,
+  "cliSeconds": 0.22,
+  "flatten": {
+    "beamOpacity": 128,
+    "partialAlphaBefore": 213,
+    "partialAlphaAfter": 0,
+    "indexChanges": 28,
+    "indexChangeHistogram": {
+      "5->9": 24,
+      "5->4": 4
+    },
+    "samples": [
+      {
+        "x": 20,
+        "y": 14,
+        "beforeIndex": 5,
+        "afterIndex": 9,
+        "beforeRgba": [
+          134,
+          116,
+          69,
+          255
+        ],
+        "afterRgba": [
+          132,
+          124,
+          112,
+          255
+        ]
+      },
+      {
+        "x": 18,
+        "y": 26,
+        "beforeIndex": 5,
+        "afterIndex": 4,
+        "beforeRgba": [
+          237,
+          149,
+          89,
+          255
+        ],
+        "afterRgba": [
+          244,
+          162,
+          89,
+          255
+        ]
+      }
+    ],
+    "opacity127ClearsPartialSky": 213,
+    "opacity127PartialCells": 213
+  }
+}

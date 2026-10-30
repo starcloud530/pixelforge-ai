@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>据点与灯塔</title>
+  <style>
+    body {
+      margin: 0;
+      background: #14161c;
+      color: #f4f1de;
+      font: 15px/1.45 ui-sans-serif, sans-serif;
+    }
+    main { padding: 16px 20px 28px; max-width: 52rem; }
+    canvas {
+      display: block;
+      margin: 12px 0;
+      background: #14161c;
+      image-rendering: pixelated;
+      outline: 1px solid #3a3d48;
+    }
+    a { color: #f2cc66; }
+    p { margin: 0.4rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>据点与灯塔</h1>
+    <p>地面和围墙来自 <code>examples/base-tiles/base.tmj</code> 与旁边的 <code>tiles.png</code>。灯塔是压平后的导出精灵。方向键或 WASD 移动看守，围墙格走不进去。</p>
+    <p>
+      <a href="play.html">压平后的灯塔</a>
+      ·
+      <a href="play.html?sprite=before">压平前（光束仍半透明）</a>
+    </p>
+    <canvas id="view" tabindex="0" width="480" height="384"></canvas>
+    <p id="status">正在加载导出的地图…</p>
+  </main>
+  <script src="play.js"></script>
+</body>
+</html>
