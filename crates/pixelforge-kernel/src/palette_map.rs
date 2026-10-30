@@ -74,6 +74,12 @@ pub(crate) enum DecodedPng {
     },
 }
 
+/// Blended alpha below this value becomes index 0.
+///
+/// [`crush_rgba`] and [`bake_composite`] share the cutoff. 128 is the same
+/// threshold `applyPng` already uses.
+pub(crate) const INDEX_ALPHA_CUTOFF: u8 = 128;
+
 /// Nearest opaque palette entry for `rgb`. Index 0 is never chosen.
 pub(crate) fn nearest_opaque(colors: &[Rgba], rgb: (u8, u8, u8)) -> Option<Nearest> {
     let mut best: Option<Nearest> = None;
@@ -231,9 +237,69 @@ pub(crate) fn plan_target(
     Ok(finish(new_colors, map, merges, Vec::new()))
 }
 
-/// Crush expanded RGBA onto `palette`. Alpha below 128 becomes index 0.
+/// Snap one frame's RGBA composite onto palette indices.
+///
+/// This is the `layer flatten` rule. It reads the same straight-alpha buffer
+/// as color preview and PNG export, then writes an index:
+///
+/// - Alpha below [`INDEX_ALPHA_CUTOFF`] becomes index 0.
+/// - Otherwise the nearest palette entry at index 1 or above, by squared RGB.
+///   Alpha is not part of that distance. A tie keeps the lower index.
+/// - A cell whose RGBA already equals the covering index's palette color keeps
+///   that index. An opaque stack therefore does not move when two entries
+///   share a color.
+///
+/// The result layer is fully opaque, so a blend whose only translucency came
+/// from layer opacity is stored as that palette entry, not as a new alpha.
+pub(crate) fn bake_composite(
+    palette: &[Rgba],
+    rgba: &[u8],
+    cover: &[u8],
+) -> Result<Vec<u8>, KernelError> {
+    debug_assert_eq!(
+        rgba.len(),
+        cover.len().saturating_mul(4),
+        "blend and cover index the same cells"
+    );
+    let mut out = Vec::with_capacity(cover.len());
+    for (cell, &cover_index) in cover.iter().enumerate() {
+        let offset = cell * 4;
+        let pixel = [
+            rgba[offset],
+            rgba[offset + 1],
+            rgba[offset + 2],
+            rgba[offset + 3],
+        ];
+        if pixel == palette_bytes(palette, cover_index) {
+            out.push(cover_index);
+            continue;
+        }
+        out.push(quantize_pixel(palette, pixel)?);
+    }
+    Ok(out)
+}
+
+fn quantize_pixel(palette: &[Rgba], pixel: [u8; 4]) -> Result<u8, KernelError> {
+    if pixel[3] < INDEX_ALPHA_CUTOFF {
+        return Ok(0);
+    }
+    nearest_opaque(palette, (pixel[0], pixel[1], pixel[2]))
+        .map(|nearest| nearest.index)
+        .ok_or(KernelError::NoPaintColor)
+}
+
+fn palette_bytes(palette: &[Rgba], index: u8) -> [u8; 4] {
+    match palette.get(usize::from(index)) {
+        Some(color) => [color.r, color.g, color.b, color.a],
+        None => [0, 0, 0, 0],
+    }
+}
+
+/// Crush expanded RGBA onto `palette`. Alpha below [`INDEX_ALPHA_CUTOFF`] becomes index 0.
 ///
 /// `pixels_changed` stays 0. The caller counts cells whose stored index moved.
+/// [`bake_composite`] uses the same cutoff and the same nearest-index rule,
+/// and additionally keeps a covering index whose RGBA already matches.
 pub(crate) fn crush_rgba(
     palette: &[Rgba],
     rgba: &[u8],
@@ -244,7 +310,7 @@ pub(crate) fn crush_rgba(
     let mut indices = Vec::with_capacity(rgba.len() / 4);
     let mut groups: BTreeMap<(u8, u8, u8), (u32, u8, Rgba, u32)> = BTreeMap::new();
     for pixel in rgba.chunks_exact(4) {
-        if pixel[3] < 128 {
+        if pixel[3] < INDEX_ALPHA_CUTOFF {
             indices.push(0);
             continue;
         }
@@ -521,5 +587,42 @@ mod tests {
                 height: 1
             })
         ));
+    }
+
+    #[test]
+    fn bake_composite_snaps_a_blend_and_keeps_an_exact_cover() {
+        let palette = vec![
+            Rgba::TRANSPARENT,
+            Rgba::rgb(0, 0, 255),
+            Rgba::rgb(255, 0, 0),
+            Rgba::rgb(0, 0, 255),
+            Rgba::new(0, 0, 10, 100),
+        ];
+        // Cover index 3 is the higher blue. An exact RGBA match stays 3
+        // instead of tying down to index 1.
+        let exact = bake_composite(&palette, &[0, 0, 255, 255], &[3]).unwrap();
+        assert_eq!(exact, vec![3]);
+        // (200, 0, 40) is closer to red than to either blue.
+        let snapped = bake_composite(&palette, &[200, 0, 40, 255], &[3]).unwrap();
+        assert_eq!(snapped, vec![2]);
+        // Alpha below the cutoff is index 0, unless it already is the cover.
+        let faint = bake_composite(&palette, &[255, 0, 0, 127], &[2]).unwrap();
+        assert_eq!(faint, vec![0]);
+        let kept = bake_composite(&palette, &[0, 0, 10, 100], &[4]).unwrap();
+        assert_eq!(kept, vec![4]);
+        // (128, 0, 128) is equidistant from red index 1 and blue index 2.
+        // The tie keeps the lower index.
+        let tied = bake_composite(
+            &[
+                Rgba::TRANSPARENT,
+                Rgba::rgb(255, 0, 0),
+                Rgba::rgb(0, 0, 255),
+            ],
+            &[128, 0, 128, 255],
+            &[2],
+        )
+        .unwrap();
+        assert_eq!(tied, vec![1]);
+        assert!(bake_composite(&[Rgba::TRANSPARENT], &[1, 2, 3, 200], &[0]).is_err());
     }
 }

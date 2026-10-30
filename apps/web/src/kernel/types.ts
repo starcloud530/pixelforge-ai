@@ -23,7 +23,8 @@ export const TIMELINE_RATIO_PPM = 1_000_000;
  * `pixels` are the composite palette indices of the active frame, row-major,
  * length `width * height`. A hidden layer or opacity 0 is skipped. Index 0
  * shows the layer underneath. Partial opacity still covers here; `frameRgba`
- * blends it. Paint still writes the active layer.
+ * blends it. `flatten` snaps that blend onto the nearest palette index.
+ * Paint still writes the active layer.
  */
 export interface KernelSnapshot {
   width: number;
