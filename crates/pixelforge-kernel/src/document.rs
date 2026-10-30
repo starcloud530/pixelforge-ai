@@ -28,6 +28,7 @@ use crate::selection::{Mask, MaskOp, Selection};
 use crate::tag::{
     normalize_tag_name, tags_after_insert, tags_after_remove, LoopMode, Tag, TagUpdate,
 };
+use crate::tiles::{TilesetDecl, TilesetExport, TilesetReport};
 use crate::LayerRole;
 use crate::PolishBind;
 use crate::Rgba;
@@ -404,6 +405,11 @@ pub struct Document {
     /// Follow, attach, and pin definitions. Empty when the file omits
     /// `constraints`. Solving them is a separate call.
     constraints: Vec<Constraint>,
+    /// Tile size when this project is a tileset. `None` omits the field.
+    ///
+    /// Each frame is one tile. The canvas has to equal this size before a
+    /// tileset export. Paint tools do not read it.
+    tileset: Option<TilesetDecl>,
     history: History,
     playback: Playback,
 }
@@ -453,6 +459,7 @@ impl Document {
             parts: Vec::new(),
             curves: Vec::new(),
             constraints: Vec::new(),
+            tileset: None,
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -955,6 +962,103 @@ impl Document {
             before,
             after: locked,
         });
+    }
+
+    /// Declared tile size, when this project is a tileset.
+    pub fn tileset(&self) -> Option<TilesetDecl> {
+        self.tileset
+    }
+
+    /// Marks the project as a tileset. The canvas must already be that tile.
+    ///
+    /// Edges are 16 or 32. The same size is not recorded. One undo step.
+    pub fn set_tileset(&mut self, tile_width: u16, tile_height: u16) -> Result<(), KernelError> {
+        let decl = TilesetDecl::aligned(tile_width, tile_height, self.width, self.height)?;
+        if self.tileset == Some(decl) {
+            return Ok(());
+        }
+        let before = self.tileset;
+        self.tileset = Some(decl);
+        self.history.record(Change::Tileset {
+            before,
+            after: Some(decl),
+        });
+        Ok(())
+    }
+
+    /// Drops the tileset size. A project that is not a tileset is not recorded.
+    pub fn clear_tileset(&mut self) {
+        if self.tileset.is_none() {
+            return;
+        }
+        let before = self.tileset;
+        self.tileset = None;
+        self.history.record(Change::Tileset {
+            before,
+            after: None,
+        });
+    }
+
+    /// The canvas is one tile and the declaration is 16 or 32.
+    ///
+    /// `tile_count` is the frame count. Frame 0 is tile id 0.
+    pub fn validate_tileset(&self) -> Result<TilesetReport, KernelError> {
+        let decl = self.tileset.ok_or(KernelError::TilesetMissing)?;
+        TilesetDecl::aligned(decl.tile_width, decl.tile_height, self.width, self.height)?;
+        let tile_count = u32::try_from(self.frame_count()).unwrap_or(u32::MAX);
+        if tile_count == 0 || tile_count > 65_536 {
+            return Err(KernelError::TileCount {
+                map: tile_count,
+                tileset: 0,
+            });
+        }
+        Ok(TilesetReport {
+            tile_width: decl.tile_width,
+            tile_height: decl.tile_height,
+            tile_count,
+        })
+    }
+
+    /// Tileset PNG and `pixelforge-tileset` metadata.
+    ///
+    /// `columns` omitted packs one row, so the sheet has no padding when the
+    /// count is the column count. `image` is the file name stored in the
+    /// metadata. This does not write a file and does not change the document.
+    pub fn export_tileset(
+        &self,
+        scale: u32,
+        columns: Option<u32>,
+        image: &str,
+    ) -> Result<TilesetExport, KernelError> {
+        let report = self.validate_tileset()?;
+        let image = crate::tiles::check_image_name(image)?;
+        let columns = columns.unwrap_or(report.tile_count.max(1));
+        let (image_width, image_height) = self.scaled_sheet_size_with(scale, Some(columns))?;
+        let layout = self.sprite_sheet_layout_with(Some(columns))?;
+        let png = self.export_sprite_sheet_scaled_with(scale, Some(columns))?;
+        let tile_width = u32::from(report.tile_width)
+            .checked_mul(scale)
+            .ok_or(KernelError::ExportScale { scale })?;
+        let tile_height = u32::from(report.tile_height)
+            .checked_mul(scale)
+            .ok_or(KernelError::ExportScale { scale })?;
+        let mut export = TilesetExport {
+            png,
+            meta: serde_json::Value::Null,
+            columns: layout.columns,
+            rows: layout.rows,
+            scale,
+            image_width,
+            image_height,
+            tile_width,
+            tile_height,
+            source_tile_width: report.tile_width,
+            source_tile_height: report.tile_height,
+            tile_count: report.tile_count,
+            image,
+        };
+        export.meta = crate::tiles::tileset_meta(&export);
+        Ok(export)
     }
 
     /// Sets how out-of-range paint indices are treated.
@@ -4630,6 +4734,7 @@ impl Document {
         parts: Vec<Part>,
         curves: Vec<Curve>,
         constraints: Vec<Constraint>,
+        tileset: Option<TilesetDecl>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -4725,6 +4830,7 @@ impl Document {
             parts,
             curves,
             constraints,
+            tileset,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -5193,6 +5299,9 @@ impl Document {
             }
             Change::IndexPolicy { before, after } => {
                 self.index_policy = if forward { *after } else { *before };
+            }
+            Change::Tileset { before, after } => {
+                self.tileset = if forward { *after } else { *before };
             }
             Change::CanvasResize {
                 before_width,

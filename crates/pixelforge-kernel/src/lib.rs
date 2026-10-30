@@ -28,6 +28,9 @@
 //! sheet.
 //! [`validate_atlas`] checks that sheet against its `pixelforge-atlas` and does
 //! not edit pixels.
+//! A tileset is this same document with a 16 or 32 tile size and one tile per
+//! frame. A tilemap, 4-neighbor autotile rules, and Tiled `.tmj` export live in
+//! [`tiles`] and do not add a second pixel buffer.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
 //! as onion skin; it is not part of the document. [`Document::call_tool`] is
 //! the stable Tool API: named JSON tools that dispatch onto this document and
@@ -57,6 +60,7 @@ mod raster;
 mod scene;
 mod selection;
 mod tag;
+mod tiles;
 mod tool_api;
 
 pub use apng::{ApngExport, ApngFrame, ApngSource};
@@ -83,6 +87,12 @@ pub use project::{PROJECT_FORMAT, PROJECT_VERSION};
 pub use raster::Connectivity;
 pub use selection::{Mask, MaskOp, Selection};
 pub use tag::{LoopMode, Tag, TagUpdate};
+pub use tiles::{
+    parse_autotile, AutotileRules, TileCell, TileMap, TilemapExport, TilesetDecl, TilesetExport,
+    TilesetReport, AUTOTILE_EAST, AUTOTILE_FORMAT, AUTOTILE_NORTH, AUTOTILE_SOUTH, AUTOTILE_WEST,
+    FLIPPED_HORIZONTALLY_FLAG, FLIPPED_VERTICALLY_FLAG, TILEMAP_FORMAT, TILEMAP_TOOL_NAMES,
+    TILESET_FORMAT,
+};
 pub use tool_api::{TOOL_API_VERSION, TOOL_NAMES};
 
 /// Oldest undo entries past this depth are dropped.
@@ -90,6 +100,9 @@ pub const MAX_UNDO: usize = 100;
 
 /// Largest canvas edge this skeleton accepts. M1 sizes are 16 and 32.
 pub const MAX_CANVAS_EDGE: u16 = 256;
+
+/// Largest tilemap edge, in cells. A tilemap is not a pixel canvas.
+pub const MAX_TILEMAP_EDGE: u16 = 256;
 
 /// Palette index of an empty cell. Paint cannot write this index; erase can.
 pub const TRANSPARENT_INDEX: u8 = 0;

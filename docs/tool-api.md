@@ -132,6 +132,18 @@
 | `AsepritePixel` | 像素索引超出调色板长度 |
 | `AsepriteLayers` | 跳过组和参考层之后，没有图像层可导入 |
 | `RotateSquare` | `rotate` 的 90° 或 270° 矩形不是正方形。一格都不写 |
+| `TileAlign` | 图块边长不是 16 或 32，或画布不是正好一块图块。地图格子尺寸和 tileset 不一致时也是这个码。整次不写 |
+| `TilesetMissing` | 工程没有 tileset 尺寸。像素命令仍可用，导出图块集会拒绝 |
+| `TileId` | tile id 不在 `0..tileCount`。整次不写 |
+| `TileCount` | 地图的 `tileCount` 和 tileset 帧数不一致，或数量不在 `1..=65536` |
+| `TileBounds` | 地图格子或矩形超出地图。整次不写 |
+| `MapSize` | 地图宽或高不在 `1..=256` |
+| `TileLayer` | 图层名字不合法、重名，或没有这一层 |
+| `TileImage` | 图块集图片名不是相对的 `.png` 文件名 |
+| `TileMapFile` | 不是 version 1 的 `pixelforge-tilemap` |
+| `AutotileFile` | 不是 version 1 的 `pixelforge-autotile` |
+| `AutotileNeighbors` | `neighbors` 不是 4。8 邻接不在这一版 |
+| `AutotileRule` | 16 种掩码缺了、重复了，或位序不是 `n,e,s,w`。整次不写 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
 
@@ -1470,6 +1482,71 @@ CLI：`layer list`、`layer add --name gear`、`layer add --name polish --role p
 *`preview`, `diff`, and `export png` / `export sheet` / `export apng` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
 
 *`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `setLayerVisible` and `setLayerOpacity` change the composite and do not move pixels. The same value is not recorded. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the index composite into one layer named `Layer 1`, visible and fully opaque, and clears a polish role.*
+
+## 图块与地图 Tileset, autotile, tilemap
+
+图块集不是第二种像素缓冲。它是一份 `pixelforge-project`：画布等于图块（宽和高各自是 16 或 32），每一帧是一个图块，帧下标就是 tile id。`paint`、`fillRect`、调色板、`preview`、`diff` 照旧。`tileset` 字段省略时，工程不是图块集。
+
+*A tileset is not a second pixel buffer. It is a `pixelforge-project` whose canvas is one tile, 16 or 32 on each edge, and whose frames are the tiles. The frame index is the tile id. `paint`, `fillRect`, the palette, `preview`, and `diff` are unchanged. The file omits `tileset` when the project is not a tileset.*
+
+地图是另一份文件，`format` 为 `pixelforge-tilemap`，version 1。宽高是格子数，不是像素。每一层的 `cells` 行优先，长度是 `width * height`。空格是 `null`。没有翻转时格子是 tile id 整数。有翻转时是 `{ "tile", "flipH", "flipV" }`。层 0 在最下面。文件不保存撤销栈。`pixelforge call --project map.json` 发现这份 format 之后走地图工具，不走像素文档。`--checkpoint` 不能用在地图上。
+
+*A map is a separate `pixelforge-tilemap` version 1 file. Width and height count cells, not pixels. Each layer's `cells` are row-major and `width * height` long. An empty cell is `null`. A cell with no flip is an integer tile id. A flipped cell is `{ "tile", "flipH", "flipV" }`. Layer 0 is the bottom. The file does not store undo. `pixelforge call --project map.json` dispatches the tilemap tools when the format is `pixelforge-tilemap`. `--checkpoint` is refused on a map.*
+
+四邻接 autotile 的掩码是 0 到 15。北 = 1，东 = 2，南 = 4，西 = 8。地图外的邻居算空。占格是「这一格不是 null」，不看 tile id。规则文件是 `pixelforge-autotile` version 1，`neighbors` 必须是 4，`rules` 必须正好覆盖 16 个 mask 各一次。同一次输入写出同一张图。8 邻接返回 `AutotileNeighbors`，不写格子。
+
+*Four-neighbor autotile masks are 0 through 15. North is 1, east is 2, south is 4, west is 8. A neighbor outside the map is empty. A cell is occupied when it is not null, whatever the tile id is. Rules are `pixelforge-autotile` version 1. `neighbors` must be 4, and `rules` must contain each mask once. The same input writes the same cells. Eight neighbors return `AutotileNeighbors` and write nothing.*
+
+Tiled `.tmj` 是正交 JSON 地图，version `"1.10"`。`firstgid` 是 1，所以 tile id 0 的 GID 是 1，空格是 0。水平翻转置 `0x80000000`，垂直翻转置 `0x40000000`。不写对角翻转。`export tileset` 和 `export tilemap` 要用同一套 `--cols` 和 `--scale`，`.tmj` 里的 `image` 是图块 PNG 的文件名。
+
+*A Tiled `.tmj` is an orthogonal JSON map, version `"1.10"`. `firstgid` is 1, so tile id 0 is GID 1 and an empty cell is 0. Horizontal flip sets `0x80000000`. Vertical flip sets `0x40000000`. There is no diagonal flip. `export tileset` and `export tilemap` must use the same `--cols` and `--scale`. The `.tmj` `image` is the tileset PNG file name.*
+
+### `setTileset` / `clearTileset` / `validateTileset`
+
+`setTileset` 的 `params`：`tileWidth`、`tileHeight`。画布必须已经等于这个尺寸，边长只能是 16 或 32。相同的值不进撤销栈。
+
+`clearTileset` 和 `validateTileset` 没有参数。还不是图块集时，`clearTileset` 不进栈；`validateTileset` 返回 `TilesetMissing`。
+
+`validateTileset` 的 `result`：`tileWidth`、`tileHeight`、`tileCount`（帧数）。
+
+CLI：`pixelforge tileset set --tile-width 16 --tile-height 16`、`tileset clear`、`tileset validate`。
+
+错误：`TileAlign`、`TilesetMissing`。
+
+### `exportTileset`
+
+`params`：可选 `scale`（默认 1）、`columns`（默认一行，列数等于帧数）、`image`（默认 `tiles.png`，必须是相对 `.png` 文件名）。
+
+`result`：`png`（base64）、`meta`（`pixelforge-tileset` version 1）、`columns`、`rows`、`scale`、`imageWidth`、`imageHeight`、`tileWidth`、`tileHeight`（放大后的像素）、`sourceTileWidth`、`sourceTileHeight`、`tileCount`、`image`。
+
+不改文档。CLI `export tileset` 把 PNG 和 meta 写到磁盘，stdout 里是路径，没有 base64。
+
+错误：`TilesetMissing`、`TileAlign`、`TileImage`、`ExportScale`、`SheetColumns`。
+
+### 地图工具 Tilemap tools
+
+这些名字在 `pixelforge tools` 的 `tilemapTools` 里，不在像素文档的 `tools` 里。`TileMap::call_tool` 用同一份信封。
+
+| tool | params | 作用 |
+| --- | --- | --- |
+| `inspectTilemap` | 无 | 宽、高、图块尺寸、`tileCount`、层名和已填格数 |
+| `getTile` | `x`、`y`，可选 `layer` 或 `name` | 读一格。空格的 `tile` 是 null |
+| `setTile` | 上面的，再加 `tile`（null 清空）、可选 `flipH`、`flipV` | 写一格。相同的值不进撤销栈 |
+| `fillTiles` | `x`、`y`、`width`、`height`、`tile`，可选翻转和层 | 矩形必须整块在地图内 |
+| `clearTiles` | `x`、`y`、`width`、`height`，可选层 | 清成空格 |
+| `addTileLayer` | `name` | 在最上面加一层空层。最多 32 层 |
+| `autotile` | `rules`（对象或 JSON 字符串），可选层 | 用占格的四邻接换块。空格不动 |
+| `validateTilemap` | 可选 `rules` | 查越界 id；给了规则再查规则里的 tile |
+| `exportTilemap` | `tilesetProject`（工程 JSON 字符串），可选 `image`、`columns`、`scale` | `png` 是 base64 预览，`tmj` 是 Tiled 对象 |
+| `undo` / `redo` | 无 | 只撤销这一进程里的地图编辑 |
+
+CLI：`tilemap new`、`tilemap inspect`、`tilemap get`、`tilemap set`、`tilemap fill`、`tilemap clear`、`tilemap layer add`、`autotile apply`、`autotile validate`、`export tilemap`、`validate-tiles`。
+
+`validate-tiles` 可以同时收 `--project`、`--map`、`--rules`。至少给一个。对不齐或越界是退出码 1。文件打不开是退出码 2。
+
+*Tilemap tool names are `tilemapTools` from `pixelforge tools`, not the pixel-document `tools` list. `TileMap::call_tool` uses the same envelope. `validate-tiles` accepts `--project`, `--map`, and `--rules`, at least one. A kernel error exits 1. An unreadable file exits 2.*
+
+例子：`examples/base-tiles/`。地面是 tile 0，围墙规则把 mask 映射到 tile `mask + 1`，导出 `base.tmj` 和旁边的 `tiles.png`。
 
 ## 不变量 Invariants
 

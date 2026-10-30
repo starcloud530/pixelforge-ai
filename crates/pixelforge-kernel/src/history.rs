@@ -20,6 +20,7 @@ use crate::palette::IndexPolicy;
 use crate::part::Part;
 use crate::selection::Mask;
 use crate::tag::Tag;
+use crate::tiles::TilesetDecl;
 use crate::LayerRole;
 use crate::PolishBind;
 use crate::Rgba;
@@ -159,6 +160,11 @@ pub(crate) enum Change {
     IndexPolicy {
         before: IndexPolicy,
         after: IndexPolicy,
+    },
+    /// The tileset size was set or cleared. `None` means the project is not a tileset.
+    Tileset {
+        before: Option<TilesetDecl>,
+        after: Option<TilesetDecl>,
     },
     /// The canvas size changed. Each frame keeps its delay; only indices move.
     ///
