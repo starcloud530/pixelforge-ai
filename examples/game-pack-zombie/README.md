@@ -8,7 +8,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
-| `zombie/zombie.json` | 16 帧工程。行序 down、left、right、up；列是 idle、walk A、walk B、walk C |
+| `zombie/zombie.json` | 16 帧工程。行序 down、left、right、up（S/W/E/N）；列是 idle、walk A、walk B、walk C。`directionLayout` 是 `{count: 4, columns: 4}` |
 | `zombie/zombie-sheet.png` | 256×256，`--cols 4`，`--scale 1` |
 | `zombie/zombie-sheet.json` | `pixelforge-atlas`。标签 `idle_*` / `walk_*`，`loop` 为 `forward` |
 | `zombie/zombie-rules.json` | strict，边长 64，`fourDirection: on`，原点 `(32, 57)` |
@@ -62,6 +62,6 @@ pixelforge validate-atlas \
 python3 examples/game-pack-zombie/validate.py
 ```
 
-`cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查。表坏了，这个测试失败。
+`cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查，并对丧尸工程跑 `direction validate`。表坏了，或四向 idle/walk 帧段缺了，这个测试失败。`direction validate` 通过只说明朝向和帧段齐，不是自然步态，也不是审美通过。
 
 右朝向是左朝向 `hflip` 之后把高光画回画面左上。不要整帧重画。槽位已经占死后用 `copyRect`，不要 `duplicateFrame` 插进一行中间。

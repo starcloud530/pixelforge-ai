@@ -700,6 +700,18 @@ def build_zombie(binary: str) -> None:
             }
         )
     cli.call(delays)
+    cli.run(
+        [
+            "direction",
+            "set",
+            "--project",
+            str(project),
+            "--count",
+            "4",
+            "--columns",
+            "4",
+        ]
+    )
     assert_soles(cli, range(16))
     png = folder / "zombie-sheet.png"
     atlas = folder / "zombie-sheet.json"

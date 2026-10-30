@@ -98,7 +98,7 @@ stdout 是一行 JSON。`tool` 是 `validateAtlas`。`result.errors` 和 `result
 | 帧下标不连续、标签下标不连续、区间越界、`loop` 不是 `forward` / `reverse` / `pingpong` / `once`、标签重名 | `frameIndex` / `tagIndex` / `tagRange` / `loop` / `tagName` | error | error |
 | 规则 `requireTags` 里的名字不在 | `missingTags` | error | error |
 | 未缩放画布边长不在允许档里。比的是 `frameWidth / scale` 和 `frameHeight / scale`，默认 **64、96、128**。两条边都在档内才通过，所以 64×128 通过，32×64 不通过。`scale` 为 2 的 64×64 仍是 64，不是 128 | `size` | error | warning |
-| 已有 `{idle\|walk}_{down\|left\|right\|up}` 时，名字或区间不符合四向约定：行序是 `down`、`left`、`right`、`up`；idle 只占该行第一格；walk 占该行剩下的格子；这一行没有 idle 时，整行只打 `walk_{朝向}` | `naming`，缺的那一格是 `missingTags` | error | warning |
+| 已有 `{idle\|walk}_{朝向}` 时，名字或区间不符合方向约定。四向行序是 `down`、`left`、`right`、`up`（S/W/E/N）。后缀也可以是罗盘别名（`south`/`s` 等）。表有 8 行，或出现 `downleft`/`sw` 这类对角名字时，按八向查：前四行不变，后面是 `downleft`、`downright`、`upleft`、`upright`。idle 只占该行第一格；walk 占剩下的格子；这一行没有 idle 时，整行只打 `walk_{朝向}` | `naming`，缺的那一格是 `missingTags` | error | warning |
 | 一个标签都没有，而且这次没有按四向在查 | `missingTags` | error | warning |
 | `image` 和 PNG 文件名不一致 | `image` | error | warning |
 | `delayMs` 不在 `1..=65535` | `delay` | error | warning |
@@ -107,7 +107,9 @@ stdout 是一行 JSON。`tool` 是 `validateAtlas`。`result.errors` 和 `result
 
 导出不写 `pivot`。没有这份字段、规则里也没有时，`checks.pivot` 是 `skipped`。可选的 atlas `pivot` 是 `{ "x", "y" }`，可以写在根上，也可以写在某一帧上。这仍是同一份 version 1 对象，不是第二条格式。
 
-规则文件是 `pixelforge-atlas-rules` version 1。未知字段会拒绝，避免把写错的键当成没写。命令行上出现的旗标覆盖文件里的同名字段。`sizes: []` 表示不查尺寸档。`tagPolicy: optional` 表示空标签列表不记一笔，`requireTags` 仍然要有。`fourDirection` 是 `auto`（默认：出现四向名字才查）、`on` 或 `off`。
+规则文件是 `pixelforge-atlas-rules` version 1。未知字段会拒绝，避免把写错的键当成没写。命令行上出现的旗标覆盖文件里的同名字段。`sizes: []` 表示不查尺寸档。`tagPolicy: optional` 表示空标签列表不记一笔，`requireTags` 仍然要有。`fourDirection` 是 `auto`（默认：出现四向或八向名字才查）、`on` 或 `off`。`--loose` 仍把方向名字降成 warning。
+
+工程里的硬门槛是另一条命令，不读 PNG：`pixelforge direction validate --project hero.json`。它要求已经 `direction set` 的布局。缺方向、缺帧，或 idle/walk 帧段对不上，是 error，没有 loose，退出码 1。八向要把 `count` 设成 8。这条检查不生成步态，通过也不等于动作自然或画面过关。自动命名是 `direction apply`：它只写已有的 idle/walk 标签区间。
 
 ```bash
 pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png --loose

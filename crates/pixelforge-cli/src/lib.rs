@@ -28,10 +28,11 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, EllipseArgs,
-    EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FloodArgs, FrameCmd, ImportMode, LayerCmd,
-    LineArgs, MaskArgs, MaskCmd, PaintArgs, PaletteCmd, PartCmd, PolygonArgs, ProjectArgs,
-    ReplaceIndexArgs, ResizeArgs, RotateArgs, ScopeArgs, SelectionCmd, StrokeRectArgs, TagCmd,
+    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, DirectionCmd,
+    EllipseArgs, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FloodArgs, FrameCmd, ImportMode,
+    LayerCmd, LineArgs, MaskArgs, MaskCmd, PaintArgs, PaletteCmd, PartCmd, PolygonArgs,
+    ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, ScopeArgs, SelectionCmd, StrokeRectArgs,
+    TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -118,6 +119,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Palette { command } => cmd_palette(command),
         Command::Frame { command } => cmd_frame(command),
         Command::Tag { command } => cmd_tag(command),
+        Command::Direction { command } => cmd_direction(command),
         Command::Layer { command } => cmd_layer(command),
         Command::Part { command } => cmd_part(command),
         Command::Curve { command } => cmd_curve(command),
@@ -1517,6 +1519,77 @@ fn curve_ease(raw: &str) -> String {
     match raw {
         "ease-in-out" | "ease_in_out" => "easeInOut".to_string(),
         other => other.to_string(),
+    }
+}
+
+fn cmd_direction(command: DirectionCmd) -> i32 {
+    match command {
+        DirectionCmd::Set {
+            doc,
+            count,
+            columns,
+            apply: write_tags,
+        } => apply(
+            &doc,
+            vec![request(
+                "setDirectionLayout",
+                json!({
+                    "count": count,
+                    "columns": columns,
+                    "apply": write_tags,
+                }),
+            )],
+        ),
+        DirectionCmd::Clear { doc } => {
+            apply(&doc, vec![request("clearDirectionLayout", json!({}))])
+        }
+        DirectionCmd::Apply { doc } => apply(&doc, vec![request("applyDirectionTags", json!({}))]),
+        DirectionCmd::List { doc } => apply(&doc, vec![request("listDirections", json!({}))]),
+        DirectionCmd::Validate { doc } => {
+            let mut session = match open_project(&doc) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
+            let response = session.call(&request("validateDirections", json!({})));
+            if !print_line(&response) {
+                return 2;
+            }
+            if let Some((code, message)) = tool_refusal(&response) {
+                eprintln!("pixelforge: validateDirections failed: {code}: {message}");
+                return 1;
+            }
+            let value: Value = match serde_json::from_str(&response) {
+                Ok(value) => value,
+                Err(_) => return emit(CliFailure::new("Cli", "tool response is not JSON")),
+            };
+            let error_count = value["result"]["errorCount"].as_u64().unwrap_or(0);
+            if error_count == 0 {
+                eprintln!("pixelforge: direction validate: ok");
+                0
+            } else {
+                if let Some(errors) = value["result"]["errors"].as_array() {
+                    for error in errors {
+                        let code = error["code"].as_str().unwrap_or("direction");
+                        let message = error["message"].as_str().unwrap_or("");
+                        eprintln!("pixelforge: error {code}: {message}");
+                    }
+                }
+                eprintln!("pixelforge: direction validate: {error_count} errors");
+                1
+            }
+        }
+        DirectionCmd::Export {
+            doc,
+            facing,
+            output,
+            scale,
+        } => {
+            let mut session = match open_project(&doc) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
+            export_files::export_direction(&mut session, &facing, &output, scale)
+        }
     }
 }
 

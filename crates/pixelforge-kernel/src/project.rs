@@ -25,7 +25,9 @@
 //! omits `curves` and loads with none. An empty curve list is still saved that
 //! way. A file written before constraints existed omits `constraints` and loads
 //! with none. An empty constraint list is still saved that way. `ik` and
-//! `plant` are kinds on that same list. A tileset size is omitted until
+//! `plant` are kinds on that same list. A direction layout is omitted until
+//! `count` and `columns` are set. Count 4 is the cardinal sheet. Count 8
+//! appends diagonals. A tileset size is omitted until
 //! `tileWidth` and `tileHeight` are set; both edges are 16 or 32. A polish layer may name `part` and
 //! an optional `anchor`; both are omitted when the overlay is not bound.
 //! An erase mask is omitted when every cell is unmodified. A missing
@@ -38,6 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::constraint::{solve_order, Constraint, ConstraintKind, Contact};
 use crate::curve::{Curve, CurveChannel, CurveKey, Ease};
+use crate::direction::DirectionLayout;
 use crate::document::Document;
 use crate::error::{KernelError, ProjectFileError};
 use crate::frame::Frame;
@@ -98,6 +101,9 @@ struct ProjectFile {
     /// Named inclusive frame ranges. Missing when the file has no tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tags: Vec<TagFile>,
+    /// Facing rows. Missing when the project has no direction layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    direction_layout: Option<DirectionLayoutFile>,
     /// Named parts. Missing when the file has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     parts: Vec<PartFile>,
@@ -110,6 +116,13 @@ struct ProjectFile {
     /// Tile size. Missing when the project is not a tileset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tileset: Option<TilesetSizeFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DirectionLayoutFile {
+    count: u64,
+    columns: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -356,6 +369,10 @@ impl Document {
                 .map(|index| self.stored_frame(index))
                 .collect(),
             tags: self.stored_tags(),
+            direction_layout: self.direction_layout().map(|layout| DirectionLayoutFile {
+                count: u64::from(layout.count),
+                columns: u64::from(layout.columns),
+            }),
             parts: self.stored_parts(),
             curves: self.stored_curves(),
             constraints: self.stored_constraints(),
@@ -469,6 +486,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let index_policy = index_policy_from_file(file.index_policy)?;
     let selection = selection_from_file(file.selection, width, height)?;
     let tags = tags_from_file(file.tags, frames.len())?;
+    let direction_layout = direction_layout_from_file(file.direction_layout)?;
     let parts = parts_from_file(file.parts, width, height, names.len())?;
     let binds = binds_from_file(bind_raw, &roles, &parts)?;
     let curves = curves_from_file(file.curves, &parts, frames.len())?;
@@ -490,11 +508,29 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         active_layer,
         selection,
         tags,
+        direction_layout,
         parts,
         curves,
         constraints,
         tileset,
     ))
+}
+
+fn direction_layout_from_file(
+    file: Option<DirectionLayoutFile>,
+) -> Result<Option<DirectionLayout>, KernelError> {
+    let Some(file) = file else {
+        return Ok(None);
+    };
+    let Some(count) = u8::try_from(file.count).ok() else {
+        return Err(invalid(ProjectFileError::DirectionLayout));
+    };
+    let Some(columns) = u32::try_from(file.columns).ok() else {
+        return Err(invalid(ProjectFileError::DirectionLayout));
+    };
+    DirectionLayout::new(count, columns)
+        .map(Some)
+        .map_err(|_| invalid(ProjectFileError::DirectionLayout))
 }
 
 fn tileset_from_file(file: Option<TilesetSizeFile>) -> Result<Option<TilesetDecl>, KernelError> {

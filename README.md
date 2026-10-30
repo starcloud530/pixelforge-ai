@@ -137,9 +137,9 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 
 ## 已知限制 Known limitations
 
-装好并跑通上面的 `new` / `preview` 之后，先看这五条。它们是当前 CLI 和内核的能力边界。测试通过、示例能跑、`validate-atlas` 或游戏包校验退出码是 0，仍然落在这些边界里。
+装好并跑通上面的 `new` / `preview` 之后，先看这六条。它们是当前 CLI 和内核的能力边界。测试通过、示例能跑、`validate-atlas`、`direction validate` 或游戏包校验退出码是 0，仍然落在这些边界里。
 
-*After `new` and `preview` above, read these five bounds. They are the CLI and kernel as they ship. A green test, a working example, or exit code 0 from `validate-atlas` or the game-pack check stays inside them.*
+*After `new` and `preview` above, read these six bounds. They are the CLI and kernel as they ship. A green test, a working example, or exit code 0 from `validate-atlas`, `direction validate`, or the game-pack check stays inside them.*
 
 - **未绑定的精修仍钉在画布坐标。** 绑定到部件的 `polish` 层按部件局部坐标理解：本地 `(0, 0)` 是部件原点，或 `layer bind --anchor` 点名的锚点。`bake` 以及 `part translate` / `rotate` / `flip` 会把这一层的修正连同显式擦除一起搬走。没绑定的覆盖层仍是 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) 的行为：`bake` 不写它，格子留在画下的那一格。显式擦除是覆盖层上的透明格，和「这一格没改过」不是一回事；`erase-rect --unmodified`（Tool API `mode: pass`）才清回未修改。曲线或约束管着的生成层仍从源帧整层重建，修正不要画在那一层上。旋转补洞仍然有损，绑在部件上的精修跟着转时一样。一层只绑一个部件。见 [#99](https://github.com/starcloud530/pixelforge-ai/issues/99)。烘焙命令见 [docs/agent-skill.md](docs/agent-skill.md)。
 
@@ -148,6 +148,8 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 - **IK 解的是关节位置。** 短链是 2 或 3 节，加上 `pin` 和 `plant` 把脚钉在接触点上。它不自动编写自然步态，也不从一条静止姿势生成走路循环。没有整棵 IK 树，没有步态生成器，也没有物理。见 [#68](https://github.com/starcloud530/pixelforge-ai/issues/68)。`examples/soldier-walk.py` 钉的是接触帧。走路帧仍要自己关键帧，或同姿复制后改差，再 `bake`。
 
 - **层透明度不写回索引。** `opacity` 是 `0..=255`。隐藏层和 0 不进入合成。255 用调色板颜色整格覆盖，不把调色板 alpha 混进下层。1 到 254 只在 RGBA 导出、preview 彩色 PNG 和 `frame_rgba` 里做直通 alpha 混合，不量化成最近的调色板色。ASCII、`diff` 和 `layer flatten` 仍是盖住的索引，所以压平之后半透明会变成不透明的那一格。没有 multiply / screen。见 [#98](https://github.com/starcloud530/pixelforge-ai/issues/98)。
+
+- **方向自动命名不是自然步态，也不是审美通过。** `direction set` / `apply` 只按行写下已有的 idle/walk 标签区间。`direction validate` 退出码 0 只说明四向（或可选的八向）帧段齐、没有缺方向或缺关键帧。它不生成走路，不检查脚滑，也不判断动作好不好看。像素仍要自己画，或同姿复制后改差。见 [#108](https://github.com/starcloud530/pixelforge-ai/issues/108)。
 
 - **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。`export apng` 是可循环播放的预览，不是引擎用的 sprite sheet，`validate-atlas` 不读它。像素和 PNG 导出是同一份直通 RGBA，不把调色板收成 GIF 的索引色，也不抖动；调色板 alpha 和 1 到 254 的层透明度都留着。时长按毫秒写入（分母 1000），不收成百分之一秒。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
 
@@ -158,6 +160,8 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixel
 *Layer opacity is `0..=255` and is not written back as an index. A hidden layer or 0 is skipped. 255 covers with the palette color and does not blend palette alpha. 1..=254 blends only in RGBA export, the preview PNG, and `frame_rgba`. It is not snapped to a nearest palette color. ASCII, `diff`, and `layer flatten` keep the covering index, so a flatten turns a partial layer opaque. There is no multiply or screen. See [#98](https://github.com/starcloud530/pixelforge-ai/issues/98).*
 
 *Short-chain IK is two or three parts. `pin` and `plant` hold a foot on a contact. The solve places joints. It does not author a natural gait, and it does not turn one rest pose into a walk cycle. There is no full IK tree, no gait generator, and no physics. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). `examples/soldier-walk.py` plants contact frames. Walk frames are still keyed, or duplicated and edited, then baked.*
+
+*Direction auto-naming is not a natural gait and not an aesthetic pass. `direction set` / `apply` only writes the idle/walk tag spans for the stored rows. Exit 0 from `direction validate` means the four cardinal facings, or the optional eight with diagonals, have their frame spans and that none are missing. It does not generate a walk, it does not check foot slide, and it does not judge the motion. Paint the pixels, or duplicate a pose and edit the diff. See [#108](https://github.com/starcloud530/pixelforge-ai/issues/108).*
 
 *`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. `export apng` is a looping preview, not the engine sprite sheet, and `validate-atlas` does not read it. The pixels are the same straight RGBA as PNG export: no GIF palette quantization and no dither, so palette alpha and opacity 1..=254 stay. Delays are stored in milliseconds (denominator 1000), not centiseconds. See [docs/export.md](docs/export.md) and [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md).*
 

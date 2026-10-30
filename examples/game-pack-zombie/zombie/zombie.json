@@ -65764,5 +65764,9 @@
       "to": 15,
       "loop": "forward"
     }
-  ]
+  ],
+  "directionLayout": {
+    "count": 4,
+    "columns": 4
+  }
 }

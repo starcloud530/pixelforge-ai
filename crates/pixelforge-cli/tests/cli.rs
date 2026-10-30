@@ -4374,6 +4374,51 @@ fn game_pack_zombie_sheets_pass_strict_validate_atlas() {
     }
 }
 
+/// The committed zombie walker must pass the hard direction gate.
+#[test]
+fn game_pack_zombie_directions_pass_and_a_missing_walk_fails() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-pack-zombie");
+    let project = root.join("zombie/zombie.json");
+    let passed = pixelforge(&[
+        "direction".to_string(),
+        "validate".to_string(),
+        "--project".to_string(),
+        project.to_string_lossy().into_owned(),
+    ]);
+    assert_eq!(status(&passed), 0, "{}", stderr(&passed));
+    let body = &json_lines(&passed)[0];
+    assert_eq!(body["ok"], json!(true));
+    assert_eq!(body["result"]["errorCount"], json!(0));
+    assert_eq!(body["result"]["count"], json!(4));
+    assert_eq!(body["result"]["columns"], json!(4));
+    assert_eq!(body["result"]["facings"].as_array().unwrap().len(), 4);
+    assert!(stderr(&passed).contains("direction validate: ok"));
+
+    let scratch = Scratch::new();
+    let copy = scratch.child("zombie.json");
+    std::fs::copy(&project, &copy).unwrap();
+    let removed = pixelforge(&[
+        "tag".to_string(),
+        "remove".to_string(),
+        "--project".to_string(),
+        copy.to_string_lossy().into_owned(),
+        "--name".to_string(),
+        "walk_up".to_string(),
+    ]);
+    assert_eq!(status(&removed), 0, "{}", stderr(&removed));
+    let failed = pixelforge(&[
+        "direction".to_string(),
+        "validate".to_string(),
+        "--project".to_string(),
+        copy.to_string_lossy().into_owned(),
+    ]);
+    assert_eq!(status(&failed), 1, "{}", stderr(&failed));
+    let body = &json_lines(&failed)[0];
+    assert_eq!(body["ok"], json!(true));
+    assert!(body["result"]["errorCount"].as_u64().unwrap() >= 1);
+    assert!(stderr(&failed).contains("missingDirection"));
+}
+
 fn ok(args: &[&str]) -> Output {
     let output = pixelforge(&arg(args));
     assert_eq!(status(&output), 0, "{}", stderr(&output));

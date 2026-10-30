@@ -229,6 +229,16 @@ pub enum KernelError {
     AutotileRule { detail: String },
     /// Bytes are not a supported `pixelforge-project` file.
     ProjectFile(ProjectFileError),
+    /// Direction count is not 4 or 8, or the grid is empty or past 4096 frames.
+    DirectionLayout,
+    /// A direction command needs a stored layout and none is set.
+    DirectionMissing,
+    /// The facing name is not a cardinal, or it is a diagonal on a 4-direction layout.
+    DirectionFacing,
+    /// The document does not have `count * columns` frames, so tags cannot be named.
+    DirectionFrames { need: usize, len: usize },
+    /// Two tags name the same action on the same facing.
+    DirectionSegment,
 }
 
 /// Why [`KernelError::ProjectFile`] rejected a project file.
@@ -351,6 +361,8 @@ pub enum ProjectFileError {
     ConstraintConflict { index: usize },
     /// `tileset.tileWidth` or `tileHeight` is not 16 or 32.
     Tileset,
+    /// `directionLayout` count is not 4 or 8, or the grid is empty or past 4096 frames.
+    DirectionLayout,
 }
 
 impl KernelError {
@@ -434,6 +446,11 @@ impl KernelError {
             Self::AutotileNeighbors { .. } => "AutotileNeighbors",
             Self::AutotileRule { .. } => "AutotileRule",
             Self::ProjectFile(_) => "ProjectFile",
+            Self::DirectionLayout => "DirectionLayout",
+            Self::DirectionMissing => "DirectionMissing",
+            Self::DirectionFacing => "DirectionFacing",
+            Self::DirectionFrames { .. } => "DirectionFrames",
+            Self::DirectionSegment => "DirectionSegment",
         }
     }
 }
@@ -663,6 +680,23 @@ impl fmt::Display for KernelError {
             }
             Self::AutotileRule { detail } => write!(f, "{detail}"),
             Self::ProjectFile(error) => write!(f, "{error}"),
+            Self::DirectionLayout => write!(
+                f,
+                "direction layout count must be 4 or 8 and the grid must be 1 to {} frames",
+                crate::MAX_BAKE_FRAMES
+            ),
+            Self::DirectionMissing => write!(f, "direction layout is not set"),
+            Self::DirectionFacing => write!(
+                f,
+                "direction is not in this layout; cardinals are N, E, S, W and diagonals need count 8"
+            ),
+            Self::DirectionFrames { need, len } => write!(
+                f,
+                "direction layout needs {need} frames and the document has {len}"
+            ),
+            Self::DirectionSegment => {
+                write!(f, "direction segment is named more than once")
+            }
         }
     }
 }
@@ -841,6 +875,11 @@ impl fmt::Display for ProjectFileError {
                 write!(f, "constraint {index} drives a part that already has one")
             }
             Self::Tileset => write!(f, "tileset tileWidth and tileHeight must be 16 or 32"),
+            Self::DirectionLayout => write!(
+                f,
+                "directionLayout count must be 4 or 8 and the grid must be 1 to {} frames",
+                crate::MAX_BAKE_FRAMES
+            ),
         }
     }
 }

@@ -18,6 +18,7 @@ use png::{ColorType, Decoder, Transformations};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+use crate::direction::{self, DirectionAction};
 use crate::{MAX_FRAME_DELAY_MS, MAX_TAG_NAME_CHARS, MIN_FRAME_DELAY_MS};
 
 /// Canvas edges treated as the formal game-sprite tiers.
@@ -33,7 +34,6 @@ const MAX_SHEET_PIXELS: usize = 16_777_216;
 const MAX_ATLAS_FRAMES: usize = 65_536;
 const MAX_ATLAS_TAGS: usize = 4_096;
 const MAX_OVERLAP_REPORTS: usize = 32;
-const FACINGS: [&str; 4] = ["down", "left", "right", "up"];
 const LOOP_MODES: [&str; 4] = ["forward", "reverse", "pingpong", "once"];
 
 /// How convention misses are reported.
@@ -889,6 +889,7 @@ fn check_tags(atlas: &ParsedAtlas, rules: &AtlasRules, drafts: &mut Vec<Draft>) 
 }
 
 fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
+    let count = sheet_facing_count(atlas);
     for tag in &atlas.tags {
         if parse_four_dir_name(&tag.name).is_none() {
             push(
@@ -904,7 +905,19 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
             );
         }
     }
-    if atlas.rows > 4 {
+    if count == 8 && atlas.rows != 8 {
+        push(
+            drafts,
+            Level::Convention,
+            "naming",
+            format!(
+                "eight-direction sheet has {} rows; rows are down, left, right, up, then downleft, downright, upleft, upright",
+                atlas.rows
+            ),
+            None,
+            None,
+        );
+    } else if count == 4 && atlas.rows > 4 {
         push(
             drafts,
             Level::Convention,
@@ -918,10 +931,14 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
         );
     }
     let frame_count = atlas.frames.len() as u32;
-    for (facing_index, facing) in FACINGS.iter().enumerate() {
+    for facing in direction::facings_for(count) {
+        let facing_index = usize::from(facing.index);
+        let facing = facing.screen;
         let row = facing_index as u32;
         let idles = tags_for(atlas, FourAction::Idle, facing_index);
         let walks = tags_for(atlas, FourAction::Walk, facing_index);
+        report_idle_walk_duplicates(atlas, FourAction::Idle, facing_index, facing, drafts);
+        report_idle_walk_duplicates(atlas, FourAction::Walk, facing_index, facing, drafts);
         let present = !idles.is_empty() || !walks.is_empty();
         if row >= atlas.rows {
             if present {
@@ -1052,6 +1069,20 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
     }
 }
 
+fn sheet_facing_count(atlas: &ParsedAtlas) -> u8 {
+    let diagonal = atlas.tags.iter().any(|tag| {
+        matches!(
+            direction::parse_direction_tag(&tag.name),
+            Some((DirectionAction::Idle | DirectionAction::Walk, facing)) if facing.diagonal
+        )
+    });
+    if diagonal || atlas.rows == 8 {
+        8
+    } else {
+        4
+    }
+}
+
 fn tags_for(atlas: &ParsedAtlas, action: FourAction, facing: usize) -> Vec<&ParsedTag> {
     atlas
         .tags
@@ -1061,17 +1092,36 @@ fn tags_for(atlas: &ParsedAtlas, action: FourAction, facing: usize) -> Vec<&Pars
 }
 
 fn parse_four_dir_name(name: &str) -> Option<(FourAction, usize)> {
-    let (action, facing) = name.split_once('_')?;
-    if facing.contains('_') {
-        return None;
+    match direction::parse_direction_tag(name)? {
+        (DirectionAction::Idle, facing) => Some((FourAction::Idle, usize::from(facing.index))),
+        (DirectionAction::Walk, facing) => Some((FourAction::Walk, usize::from(facing.index))),
+        (DirectionAction::Other(_), _) => None,
     }
-    let action = match action {
-        "idle" => FourAction::Idle,
-        "walk" => FourAction::Walk,
-        _ => return None,
+}
+
+fn report_idle_walk_duplicates(
+    atlas: &ParsedAtlas,
+    action: FourAction,
+    facing_index: usize,
+    facing: &str,
+    drafts: &mut Vec<Draft>,
+) {
+    let tags = tags_for(atlas, action, facing_index);
+    if tags.len() <= 1 {
+        return;
+    }
+    let which = match action {
+        FourAction::Idle => "idle",
+        FourAction::Walk => "walk",
     };
-    let facing = FACINGS.iter().position(|name| *name == facing)?;
-    Some((action, facing))
+    push(
+        drafts,
+        Level::Convention,
+        "naming",
+        format!("facing {facing} {which} is named more than once"),
+        None,
+        Some(tags[0].name.clone()),
+    );
 }
 
 fn four_direction_active(atlas: &ParsedAtlas, rules: &AtlasRules) -> bool {
@@ -1735,7 +1785,7 @@ mod tests {
         );
 
         let mut renamed = atlas;
-        renamed["tags"][1]["name"] = json!("walk_south");
+        renamed["tags"][1]["name"] = json!("walk_side");
         let strict = validate_atlas(
             &renamed,
             &sheet,
