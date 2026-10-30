@@ -25,7 +25,8 @@
 //! omits `curves` and loads with none. An empty curve list is still saved that
 //! way. A file written before constraints existed omits `constraints` and loads
 //! with none. An empty constraint list is still saved that way. `ik` and
-//! `plant` are kinds on that same list. A polish layer may name `part` and
+//! `plant` are kinds on that same list. A tileset size is omitted until
+//! `tileWidth` and `tileHeight` are set; both edges are 16 or 32. A polish layer may name `part` and
 //! an optional `anchor`; both are omitted when the overlay is not bound.
 //! An erase mask is omitted when every cell is unmodified. A missing
 //! `selection` loads as no mask. One rectangle is written as
@@ -44,6 +45,7 @@ use crate::palette::{IndexPolicy, Palette};
 use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
 use crate::selection::{Mask, Selection};
 use crate::tag::{normalize_tag_name, LoopMode, Tag};
+use crate::tiles::TilesetDecl;
 use crate::LayerRole;
 use crate::PolishBind;
 use crate::Rgba;
@@ -105,6 +107,16 @@ struct ProjectFile {
     /// Follow, attach, and pin constraints. Missing when the file has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     constraints: Vec<ConstraintFile>,
+    /// Tile size. Missing when the project is not a tileset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tileset: Option<TilesetSizeFile>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TilesetSizeFile {
+    tile_width: u64,
+    tile_height: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -347,6 +359,10 @@ impl Document {
             parts: self.stored_parts(),
             curves: self.stored_curves(),
             constraints: self.stored_constraints(),
+            tileset: self.tileset().map(|decl| TilesetSizeFile {
+                tile_width: u64::from(decl.tile_width),
+                tile_height: u64::from(decl.tile_height),
+            }),
         };
         let mut json = serde_json::to_string_pretty(&file)
             .expect("project fields are JSON numbers, strings, and arrays");
@@ -457,6 +473,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let binds = binds_from_file(bind_raw, &roles, &parts)?;
     let curves = curves_from_file(file.curves, &parts, frames.len())?;
     let constraints = constraints_from_file(file.constraints, &parts, width, height, frames.len())?;
+    let tileset = tileset_from_file(file.tileset)?;
     Ok(Document::from_stored(
         width,
         height,
@@ -476,7 +493,25 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         parts,
         curves,
         constraints,
+        tileset,
     ))
+}
+
+fn tileset_from_file(file: Option<TilesetSizeFile>) -> Result<Option<TilesetDecl>, KernelError> {
+    let Some(file) = file else {
+        return Ok(None);
+    };
+    let tile_width =
+        u16::try_from(file.tile_width).map_err(|_| invalid(ProjectFileError::Tileset))?;
+    let tile_height =
+        u16::try_from(file.tile_height).map_err(|_| invalid(ProjectFileError::Tileset))?;
+    if !matches!(tile_width, 16 | 32) || !matches!(tile_height, 16 | 32) {
+        return Err(invalid(ProjectFileError::Tileset));
+    }
+    Ok(Some(TilesetDecl {
+        tile_width,
+        tile_height,
+    }))
 }
 
 fn constraints_from_file(

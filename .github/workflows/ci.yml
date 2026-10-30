@@ -49,3 +49,6 @@ jobs:
         run: |
           cargo build -p pixelforge-cli
           python3 examples/game-pack-zombie/validate.py
+
+      - name: Tile gate (base-tiles)
+        run: python3 examples/base-tiles/validate.py

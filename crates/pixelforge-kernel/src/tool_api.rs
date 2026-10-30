@@ -119,6 +119,10 @@ pub const TOOL_NAMES: &[&str] = &[
     "setActiveLayer",
     "reorderLayer",
     "flattenLayers",
+    "setTileset",
+    "clearTileset",
+    "validateTileset",
+    "exportTileset",
 ];
 
 const U8_MAX: u64 = 255;
@@ -1288,6 +1292,48 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "name": document.layer_name(0).expect("flatten leaves one layer"),
             }))
         }
+        "setTileset" => {
+            let (tile_width, tile_height) = parse_set_tileset(params)?;
+            document
+                .set_tileset(tile_width, tile_height)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(tileset_json(document))
+        }
+        "clearTileset" => {
+            parse_empty(tool, params)?;
+            document.clear_tileset();
+            Ok(tileset_json(document))
+        }
+        "validateTileset" => {
+            parse_empty(tool, params)?;
+            let report = document.validate_tileset().map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "tileWidth": report.tile_width,
+                "tileHeight": report.tile_height,
+                "tileCount": report.tile_count,
+            }))
+        }
+        "exportTileset" => {
+            let (scale, columns, image) = parse_export_tileset(params)?;
+            let export = document
+                .export_tileset(scale, columns, &image)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "png": encode_base64(&export.png),
+                "meta": export.meta,
+                "columns": export.columns,
+                "rows": export.rows,
+                "scale": export.scale,
+                "imageWidth": export.image_width,
+                "imageHeight": export.image_height,
+                "tileWidth": export.tile_width,
+                "tileHeight": export.tile_height,
+                "sourceTileWidth": export.source_tile_width,
+                "sourceTileHeight": export.source_tile_height,
+                "tileCount": export.tile_count,
+                "image": export.image,
+            }))
+        }
         _ => Err(ToolFailure::UnknownTool {
             name: tool.to_string(),
         }),
@@ -1320,6 +1366,7 @@ fn inspect_value(document: &Document) -> Value {
         "curves": curves_json(document, None),
         "constraints": constraints_json(document),
         "layers": layer_entries(document),
+        "tileset": tileset_json(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
         "gestureOpen": document.gesture_open(),
@@ -1362,7 +1409,18 @@ fn scene_value(document: &Document) -> Value {
         "parts": parts_json(document),
         "curves": curves_json(document, None),
         "constraints": constraints_json(document),
+        "tileset": tileset_json(document),
     })
+}
+
+fn tileset_json(document: &Document) -> Value {
+    match document.tileset() {
+        None => Value::Null,
+        Some(decl) => serde_json::json!({
+            "tileWidth": decl.tile_width,
+            "tileHeight": decl.tile_height,
+        }),
+    }
 }
 
 fn palette_entries(document: &Document) -> Vec<Value> {
@@ -2145,6 +2203,32 @@ fn changes_json(changes: &[CellChange]) -> Vec<Value> {
 
 fn as_u32(index: usize) -> u32 {
     u32::try_from(index).expect("frame index fits in u32")
+}
+
+fn parse_set_tileset(params: Value) -> Result<(u16, u16), ToolFailure> {
+    let map = expect_object("setTileset", params)?;
+    reject_params("setTileset", &map, &["tileWidth", "tileHeight"])?;
+    let tile_width = require_u16("setTileset", &map, "tileWidth")?;
+    let tile_height = require_u16("setTileset", &map, "tileHeight")?;
+    Ok((tile_width, tile_height))
+}
+
+fn parse_export_tileset(params: Value) -> Result<(u32, Option<u32>, String), ToolFailure> {
+    let map = expect_object("exportTileset", params)?;
+    reject_params("exportTileset", &map, &["scale", "columns", "image"])?;
+    let scale = match map.get("scale") {
+        None => 1,
+        Some(_) => require_u32_at_least("exportTileset", &map, "scale", 1)?,
+    };
+    let columns = match map.get("columns") {
+        None => None,
+        Some(_) => Some(require_u32_at_least("exportTileset", &map, "columns", 1)?),
+    };
+    let image = match map.get("image") {
+        None => "tiles.png".to_string(),
+        Some(_) => require_string("exportTileset", &map, "image")?,
+    };
+    Ok((scale, columns, image))
 }
 
 fn parse_empty(tool: &str, params: Value) -> Result<(), ToolFailure> {

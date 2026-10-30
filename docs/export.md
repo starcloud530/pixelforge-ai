@@ -182,3 +182,11 @@ python3 examples/game-pack-zombie/validate.py
 *2. PNG sequence: build the animation in filename order. When every frame shares one delay, the sample rate is `1000 / delayMs` (10 by default). When delays differ, place keys at the cumulative `delayMs` in seconds.*
 
 *3. Sprite sheet: in the Sprite Editor, slice by cell size equal to the frame width and height. Unity names slices `name_0`, `name_1`, from the top left, left to right, then the next row. Delete slices past the real frame count, then animate the remaining slices in that order. Center is a common pivot; Bottom fits a character standing on a tile.*
+
+## Tiled 地图
+
+`pixelforge export tileset` 写出图块 PNG 和 `pixelforge-tileset` JSON。`pixelforge export tilemap` 写出整张预览 PNG 和 Tiled 能打开的正交 `.tmj`。两条命令的 `--cols` 和 `--scale` 要相同，`.tmj` 里的 `image` 是 PNG 文件名。把 `base.tmj` 和 `tiles.png` 放在同一目录，用 Tiled 打开 `.tmj`。空格的 GID 是 0。tile id 0 的 GID 是 1。水平翻转是 GID 的 `0x80000000`，垂直翻转是 `0x40000000`。
+
+这一版只有一张图块集、四邻接 16 掩码。没有 8 邻接，也没有对角翻转。例子是 [examples/base-tiles](../examples/base-tiles/README.md)。
+
+* `pixelforge export tileset` writes the tileset PNG and `pixelforge-tileset` JSON. `pixelforge export tilemap` writes a preview PNG and an orthogonal `.tmj` Tiled can open. Use the same `--cols` and `--scale` on both commands. The `.tmj` `image` is the PNG file name. Keep `base.tmj` and `tiles.png` in one directory and open the `.tmj` in Tiled. An empty cell is GID 0. Tile id 0 is GID 1. Horizontal flip is `0x80000000` on the GID. Vertical flip is `0x40000000`. This version is one tileset and the 16 four-neighbor masks. There is no 8-neighbor autotile and no diagonal flip. The example is [examples/base-tiles](../examples/base-tiles/README.md).*
