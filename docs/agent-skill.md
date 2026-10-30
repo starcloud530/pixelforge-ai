@@ -16,7 +16,7 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、validate-atlas、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。其它创作 skill 先遵守这里。 |
+| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、validate-atlas、图块集、四邻接 autotile、tilemap、Tiled `.tmj`、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。图块集是画布等于 16 或 32 的工程，一帧一块；地图、autotile 和 `.tmj` 见该 skill 的「图块与地图」。其它创作 skill 先遵守这里。 |
 | `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
 | `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签 | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。导出后先 `validate-atlas`，再进游戏。#18 的 64×64 包在 `examples/game-pack-zombie/`，`validate.py` 重跑 strict。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 之后修高光。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢、隐藏、透明度 | body / gear / limbs。合成预览、`--layer`、`layer hide` / `opacity`、`layer flatten`。 |
@@ -385,6 +385,23 @@ pixelforge call --project hero.json --request-file edits.json
 工具名、参数和 `error.code` 见 [tool-api.md](tool-api.md)。
 
 *`edits.json` may be one JSON object, a JSON array, or one JSON value per line. Stdin works the same way: `pixelforge call --project hero.json`. Each `--request` is one request object and is passed to `Document::call_tool`. Names, params, and `error.code` values are in [tool-api.md](tool-api.md).*
+
+### 图块与地图 Tileset, autotile, tilemap
+
+图块集是画布等于图块的工程。边长是 16 或 32。一帧一块，帧下标是 tile id。`tileset set` 之后用原来的画笔和 `preview`。地图是 `pixelforge-tilemap`：格子存 tile id，可水平或垂直翻转。四邻接掩码是北 1、东 2、南 4、西 8，规则 JSON 要齐 16 个 mask。`validate-tiles` 不过就不要导出。`export tileset` 和 `export tilemap` 的 `--cols`、`--scale` 必须相同。`.tmj` 和 `tiles.png` 放在一起给 Tiled 打开。例子是 `examples/base-tiles/`。8 邻接和地图 GUI 不在这一版。
+
+*A tileset is a project whose canvas is the tile. Edges are 16 or 32. One frame is one tile, and the frame index is the tile id. After `tileset set`, paint and `preview` are the usual commands. A map is `pixelforge-tilemap`: a cell stores a tile id and an optional horizontal or vertical flip. The 4-neighbor mask is north 1, east 2, south 4, west 8, and the rules JSON needs all 16 masks. Do not export when `validate-tiles` fails. `export tileset` and `export tilemap` use the same `--cols` and `--scale`. Put the `.tmj` next to `tiles.png` for Tiled. The example is `examples/base-tiles/`. Eight-neighbor autotile and a map GUI are not this version.*
+
+```bash
+pixelforge tileset set --project tiles.json --tile-width 16 --tile-height 16
+pixelforge tilemap fill --map map.json --name ground --x 0 --y 0 --width 8 --height 6 --tile 0
+pixelforge autotile apply --map map.json --rules wall.json --name wall
+pixelforge validate-tiles --project tiles.json --map map.json --rules wall.json
+pixelforge export tileset --project tiles.json --output tiles.png --meta tileset.meta.json --image tiles.png
+pixelforge export tilemap --map map.json --tileset tiles.json --output map.png --tmj base.tmj --image tiles.png
+```
+
+参数和 `error.code` 见 [tool-api.md](tool-api.md) 的「图块与地图」。
 
 ## 创作流程放在哪 Workflow skills
 

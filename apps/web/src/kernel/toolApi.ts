@@ -90,6 +90,10 @@ export const TOOL_NAMES = [
   "setActiveLayer",
   "reorderLayer",
   "flattenLayers",
+  "setTileset",
+  "clearTileset",
+  "validateTileset",
+  "exportTileset",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];

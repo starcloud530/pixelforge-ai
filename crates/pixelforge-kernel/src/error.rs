@@ -1,6 +1,7 @@
 use std::fmt;
 
 use crate::MAX_CANVAS_EDGE;
+use crate::MAX_TILEMAP_EDGE;
 
 /// Recoverable kernel failure. Callers leave the document unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +188,45 @@ pub enum KernelError {
     ///
     /// The canvas size stays. The call writes nothing.
     RotateSquare { width: u16, height: u16 },
+    /// Tile edges are not 16 or 32, or the canvas is not exactly that tile.
+    ///
+    /// The call writes nothing. A tileset frame is one tile, so the canvas and
+    /// the declared size have to be the same cell.
+    TileAlign {
+        tile_width: u16,
+        tile_height: u16,
+        width: u16,
+        height: u16,
+    },
+    /// This project has no tileset size. Paint still works; export does not.
+    TilesetMissing,
+    /// A tile id is outside `0..tile_count`. The call writes nothing.
+    TileId { tile: u32, tile_count: u32 },
+    /// Map `tileCount` does not match the tileset, or it is not a usable count.
+    TileCount { map: u32, tileset: u32 },
+    /// A tilemap cell or rectangle is outside the map. The call writes nothing.
+    TileBounds {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
+    /// Map width or height is outside `1..=MAX_TILEMAP_EDGE`.
+    MapSize { width: u32, height: u32 },
+    /// A tile layer name is invalid or duplicated, or the layer is missing.
+    TileLayer { detail: String },
+    /// The tileset image name is not a relative file name.
+    TileImage,
+    /// Bytes are not a supported `pixelforge-tilemap` file.
+    TileMapFile { detail: String },
+    /// Autotile JSON is not version 1 of `pixelforge-autotile`.
+    AutotileFile { detail: String },
+    /// Neighbor count is not 4. Eight-neighbor blob autotile is not this tool.
+    AutotileNeighbors { neighbors: u32 },
+    /// A 4-neighbor rule set is missing a mask, repeats one, or is not usable.
+    ///
+    /// The call writes nothing.
+    AutotileRule { detail: String },
     /// Bytes are not a supported `pixelforge-project` file.
     ProjectFile(ProjectFileError),
 }
@@ -309,6 +349,8 @@ pub enum ProjectFileError {
     ConstraintCycle { index: usize },
     /// Two constraints drive the same part. `index` is the later one.
     ConstraintConflict { index: usize },
+    /// `tileset.tileWidth` or `tileHeight` is not 16 or 32.
+    Tileset,
 }
 
 impl KernelError {
@@ -379,6 +421,18 @@ impl KernelError {
             Self::AsepritePixel { .. } => "AsepritePixel",
             Self::AsepriteLayers => "AsepriteLayers",
             Self::RotateSquare { .. } => "RotateSquare",
+            Self::TileAlign { .. } => "TileAlign",
+            Self::TilesetMissing => "TilesetMissing",
+            Self::TileId { .. } => "TileId",
+            Self::TileCount { .. } => "TileCount",
+            Self::TileBounds { .. } => "TileBounds",
+            Self::MapSize { .. } => "MapSize",
+            Self::TileLayer { .. } => "TileLayer",
+            Self::TileImage => "TileImage",
+            Self::TileMapFile { .. } => "TileMapFile",
+            Self::AutotileFile { .. } => "AutotileFile",
+            Self::AutotileNeighbors { .. } => "AutotileNeighbors",
+            Self::AutotileRule { .. } => "AutotileRule",
             Self::ProjectFile(_) => "ProjectFile",
         }
     }
@@ -567,6 +621,47 @@ impl fmt::Display for KernelError {
                 f,
                 "90 and 270 degree rotation needs a square rectangle, got {width}x{height}"
             ),
+            Self::TileAlign {
+                tile_width,
+                tile_height,
+                width,
+                height,
+            } => write!(
+                f,
+                "tile {tile_width}x{tile_height} is not aligned to {width}x{height}; edges must be 16 or 32 and a tileset canvas must equal the tile"
+            ),
+            Self::TilesetMissing => write!(f, "project has no tileset size"),
+            Self::TileId { tile, tile_count } => {
+                write!(f, "tile id {tile} is outside 0..{tile_count}")
+            }
+            Self::TileCount { map, tileset } => {
+                if *tileset == 0 {
+                    write!(f, "tile count {map} must be from 1 to 65536")
+                } else {
+                    write!(
+                        f,
+                        "tilemap tileCount {map} does not match tileset frame count {tileset}"
+                    )
+                }
+            },
+            Self::TileBounds {
+                x,
+                y,
+                width,
+                height,
+            } => write!(f, "tile cell {x},{y} is outside {width}x{height}"),
+            Self::MapSize { width, height } => write!(
+                f,
+                "tilemap size {width}x{height} is outside 1..={MAX_TILEMAP_EDGE}"
+            ),
+            Self::TileLayer { detail } => write!(f, "{detail}"),
+            Self::TileImage => write!(f, "tileset image name must be a relative file name"),
+            Self::TileMapFile { detail } => write!(f, "{detail}"),
+            Self::AutotileFile { detail } => write!(f, "{detail}"),
+            Self::AutotileNeighbors { neighbors } => {
+                write!(f, "autotile neighbors {neighbors} is not supported; use 4")
+            }
+            Self::AutotileRule { detail } => write!(f, "{detail}"),
             Self::ProjectFile(error) => write!(f, "{error}"),
         }
     }
@@ -745,6 +840,7 @@ impl fmt::Display for ProjectFileError {
             Self::ConstraintConflict { index } => {
                 write!(f, "constraint {index} drives a part that already has one")
             }
+            Self::Tileset => write!(f, "tileset tileWidth and tileHeight must be 16 or 32"),
         }
     }
 }

@@ -1,0 +1,77 @@
+{
+  "format": "pixelforge-autotile",
+  "version": 1,
+  "neighbors": 4,
+  "bits": [
+    "n",
+    "e",
+    "s",
+    "w"
+  ],
+  "rules": [
+    {
+      "mask": 0,
+      "tile": 1
+    },
+    {
+      "mask": 1,
+      "tile": 2
+    },
+    {
+      "mask": 2,
+      "tile": 3
+    },
+    {
+      "mask": 3,
+      "tile": 4
+    },
+    {
+      "mask": 4,
+      "tile": 5
+    },
+    {
+      "mask": 5,
+      "tile": 6
+    },
+    {
+      "mask": 6,
+      "tile": 7
+    },
+    {
+      "mask": 7,
+      "tile": 8
+    },
+    {
+      "mask": 8,
+      "tile": 9
+    },
+    {
+      "mask": 9,
+      "tile": 10
+    },
+    {
+      "mask": 10,
+      "tile": 11
+    },
+    {
+      "mask": 11,
+      "tile": 12
+    },
+    {
+      "mask": 12,
+      "tile": 13
+    },
+    {
+      "mask": 13,
+      "tile": 14
+    },
+    {
+      "mask": 14,
+      "tile": 15
+    },
+    {
+      "mask": 15,
+      "tile": 16
+    }
+  ]
+}

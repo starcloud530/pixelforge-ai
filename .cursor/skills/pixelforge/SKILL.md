@@ -19,7 +19,8 @@ description: >-
   duplicating frames, undoing,
   running inspect, scene, tools, or call, exporting a PNG sequence or sprite sheet,
   exporting a looping APNG preview of a tag or frame range,
-  or validating that sheet with validate-atlas before game import.
+  validating that sheet with validate-atlas before game import,
+  or building a tileset, a 4-neighbor autotile, a tilemap, and a Tiled `.tmj`.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
   drawing request inside one batched call.
@@ -678,6 +679,53 @@ pixelforge call --project hero.json --request-file edits.json
 ```
 
 `edits.json` 可以是一个 JSON 对象、一个 JSON 数组，或每行一个 JSON 值。`--request` 原样交给 `Document::call_tool`。不带 `--request` 时也可以从 stdin 送入。
+
+## 图块与地图 Tileset, autotile, tilemap
+
+图块集是一份普通工程。画布的宽和高各自是 16 或 32，而且必须正好等于这一块图块。每一帧是一个图块，帧下标就是 tile id。先 `tileset set`，再用已有的 `fill-rect`、`paint`、`preview`、`diff` 画。不要手改工程 JSON。
+
+地图是另一个文件。格子存 tile id，可选水平或垂直翻转。层 0 在最下面。空格不是 tile 0。`tilemap fill` 的矩形必须整块在地图里，出界一格都不写。
+
+四邻接掩码：北 = 1，东 = 2，南 = 4，西 = 8。规则 JSON 必须有 0 到 15 每一个 mask，各一次。占格是「不是空格」。地图外面算空。同一份规则和同一张占格，输出不变。缺 mask 是 `AutotileRule`，tile id 越界是 `TileId`，画布和图块对不齐是 `TileAlign`。8 邻接、47 块 blob、地图 GUI 都不在这里。
+
+`export tileset` 和 `export tilemap` 的 `--cols`、`--scale` 要一致。`.tmj` 的 `image` 是图块 PNG 的文件名，和 `base.tmj` 放在一起，Tiled 才能打开。导出前跑 `validate-tiles`。
+
+据点地面加围墙的例子是 `examples/base-tiles/`。地面是 tile 0，围墙是 tile `mask + 1`。
+
+*A tileset is an ordinary project. Each edge is 16 or 32, and the canvas is exactly one tile. Each frame is one tile. The frame index is the tile id. `tileset set`, then paint with `fill-rect`, `paint`, `preview`, and `diff`. Do not hand-edit the project JSON.*
+
+*A map is a separate file. A cell stores a tile id and an optional horizontal or vertical flip. Layer 0 is the bottom. An empty cell is not tile 0. `tilemap fill` writes nothing when any cell would leave the map.*
+
+*The 4-neighbor mask is north 1, east 2, south 4, west 8. The rules JSON needs every mask from 0 through 15 once. Occupied means not empty. Outside the map is empty. The same rules and the same occupancy write the same cells. A missing mask is `AutotileRule`. An out-of-range tile id is `TileId`. A canvas that is not the tile is `TileAlign`. Eight-neighbor blob autotile and a map GUI are not this command.*
+
+*`export tileset` and `export tilemap` share `--cols` and `--scale`. The `.tmj` `image` is the tileset PNG file name beside `base.tmj`, which is what Tiled opens. Run `validate-tiles` before that export.*
+
+*The base ground and wall example is `examples/base-tiles/`. Ground is tile 0. A wall tile is `mask + 1`.*
+
+```bash
+pixelforge new --width 16 --height 16 --output tiles.json
+pixelforge tileset set --project tiles.json --tile-width 16 --tile-height 16
+pixelforge fill-rect --project tiles.json --x 0 --y 0 --width 16 --height 16 --color-index 6
+pixelforge tilemap new --width 8 --height 6 --tile-width 16 --tile-height 16 \
+  --tileset tiles.json --output map.json --layer ground --layer wall
+pixelforge tilemap fill --map map.json --name ground --x 0 --y 0 --width 8 --height 6 --tile 0
+pixelforge autotile apply --map map.json --rules wall.json --name wall
+pixelforge validate-tiles --project tiles.json --map map.json --rules wall.json
+pixelforge export tileset --project tiles.json --output tiles.png --meta tileset.meta.json --image tiles.png
+pixelforge export tilemap --map map.json --tileset tiles.json \
+  --output map.png --tmj base.tmj --image tiles.png
+```
+
+```json
+{ "tool": "setTileset", "params": { "tileWidth": 16, "tileHeight": 16 } }
+{ "tool": "exportTileset", "params": { "image": "tiles.png" } }
+{ "tool": "fillTiles", "params": { "name": "ground", "x": 0, "y": 0, "width": 8, "height": 6, "tile": 0 } }
+{ "tool": "setTile", "params": { "name": "ground", "x": 0, "y": 0, "tile": 0, "flipH": true } }
+```
+
+地图上的 `fillTiles`、`autotile`、`setTile` 走 `pixelforge call --project map.json`。`--request` 里的工具名是 `tilemapTools` 那一份，不是像素文档的 `paint`。一次 `call` 里的多个请求共享这一进程的地图撤销栈。进程退出后，地图没有检查点可撤销。
+
+*On a map, `fillTiles`, `autotile`, and `setTile` go through `pixelforge call --project map.json`. Those names are the `tilemapTools` list, not the pixel document's `paint`. Several requests in one `call` share that process's map undo stack. After the process exits, a tilemap has no checkpoint to undo.*
 
 ## Catalog
 

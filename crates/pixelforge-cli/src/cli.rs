@@ -487,6 +487,29 @@ pub enum Command {
         #[command(subcommand)]
         command: ExportCmd,
     },
+    /// Declare, clear, or check the tileset size on a pixel project.
+    ///
+    /// A tileset frame is one 16 or 32 tile. Paint and preview stay the pixel tools.
+    Tileset {
+        #[command(subcommand)]
+        command: TilesetCmd,
+    },
+    /// Read and write a pixelforge-tilemap. Cells store tile ids, not pixels.
+    Tilemap {
+        #[command(subcommand)]
+        command: TilemapCmd,
+    },
+    /// Apply or check 4-neighbor autotile rules.
+    Autotile {
+        #[command(subcommand)]
+        command: AutotileCmd,
+    },
+    /// Check tileset alignment, tile ids, and autotile masks. Does not edit files.
+    ///
+    /// Exit 0 when every check that was asked for passes. Exit 1 when the kernel
+    /// reports an error. Exit 2 when a file cannot be read. Pass at least one of
+    /// `--project`, `--map`, and `--rules`.
+    ValidateTiles(ValidateTilesArgs),
     /// Check a sheet PNG against pixelforge-atlas JSON. Does not edit pixels.
     ///
     /// Exit 0 when the checklist has no errors. Exit 1 when it has an error.
@@ -1462,6 +1485,56 @@ pub enum ExportCmd {
         #[arg(long = "loop", value_enum)]
         loop_mode: Option<LoopArg>,
     },
+    /// Write a tileset PNG and pixelforge-tileset JSON. Does not change the project.
+    ///
+    /// Columns default to one row. `--image` is the name stored in the metadata.
+    Tileset {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Destination PNG.
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+        /// Metadata JSON. Tile rectangles are pixels in the PNG.
+        #[arg(long, value_name = "FILE")]
+        meta: PathBuf,
+        /// Nearest-neighbor scale, an integer >= 1.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
+        /// Columns in the tile grid. Omit for one row.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        cols: Option<u32>,
+        /// File name stored in the metadata and later in a Tiled map.
+        ///
+        /// Omit to use the PNG file name. Use the same name when exporting the map.
+        #[arg(long, value_name = "NAME")]
+        image: Option<String>,
+    },
+    /// Write a tilemap preview PNG and a Tiled `.tmj`. Does not change the map.
+    ///
+    /// `--cols` and `--scale` must match `export tileset` for this project.
+    Tilemap {
+        /// pixelforge-tilemap file.
+        #[arg(long, value_name = "FILE")]
+        map: PathBuf,
+        /// Tileset pixelforge-project. Frame 0 is tile id 0.
+        #[arg(long, value_name = "FILE")]
+        tileset: PathBuf,
+        /// Rendered map PNG.
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+        /// Tiled JSON map.
+        #[arg(long, value_name = "FILE")]
+        tmj: PathBuf,
+        /// Nearest-neighbor scale, an integer >= 1.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        scale: u32,
+        /// Columns in the tileset sheet. Omit for one row.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        cols: Option<u32>,
+        /// Tileset PNG file name stored in the `.tmj`. Default `tiles.png`.
+        #[arg(long, value_name = "NAME")]
+        image: Option<String>,
+    },
 }
 
 #[derive(Args)]
@@ -1921,4 +1994,190 @@ pub enum ConstraintCmd {
         #[arg(long)]
         pixel_frame: Option<u32>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum TilesetCmd {
+    /// Store the tile size. The canvas must already be that tile.
+    Set {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Tile width, 16 or 32.
+        #[arg(long)]
+        tile_width: u16,
+        /// Tile height, 16 or 32.
+        #[arg(long)]
+        tile_height: u16,
+    },
+    /// Remove the tileset size. Pixels stay.
+    Clear {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Check that the canvas is exactly the declared tile. Does not write.
+    Validate {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TilemapCmd {
+    /// Create an empty tilemap. Refuses when the output file already exists.
+    ///
+    /// The tileset project must already declare a matching tile size. Tile ids
+    /// are frame indexes. Repeat `--layer` for more layers; the first is the bottom.
+    New {
+        /// Map width in cells, from 1 to 256.
+        #[arg(long)]
+        width: u16,
+        /// Map height in cells, from 1 to 256.
+        #[arg(long)]
+        height: u16,
+        /// Tile width. Must match the tileset project.
+        #[arg(long)]
+        tile_width: u16,
+        /// Tile height. Must match the tileset project.
+        #[arg(long)]
+        tile_height: u16,
+        /// Tileset pixelforge-project.
+        #[arg(long, value_name = "FILE")]
+        tileset: PathBuf,
+        /// Where to write the tilemap. Not replaced when it already exists.
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+        /// Layer name, bottom to top. Omit for one layer named ground.
+        #[arg(long = "layer")]
+        layers: Vec<String>,
+    },
+    /// Print the map summary. Does not write the file.
+    Inspect {
+        #[command(flatten)]
+        map: MapArgs,
+    },
+    /// Read one cell.
+    Get(TileRefArgs),
+    /// Write one cell. `--tile` omitted clears it. One undo step inside this process.
+    Set(TileWriteArgs),
+    /// Fill a rectangle that lies entirely inside the map.
+    Fill(TileFillArgs),
+    /// Clear a rectangle to empty cells.
+    Clear(TileRectArgs),
+    /// Append a layer on top.
+    Layer {
+        #[command(subcommand)]
+        command: TileLayerCmd,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TileLayerCmd {
+    /// Add an empty layer. The name must be new.
+    Add {
+        #[command(flatten)]
+        map: MapArgs,
+        #[arg(long)]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AutotileCmd {
+    /// Replace occupied cells using a 4-neighbor rule file.
+    ///
+    /// Empty cells stay empty. A missing mask or an out-of-range tile writes nothing.
+    Apply {
+        #[command(flatten)]
+        map: MapArgs,
+        /// pixelforge-autotile JSON with masks 0 through 15.
+        #[arg(long, value_name = "FILE")]
+        rules: PathBuf,
+        /// Layer index. Omit with `--name` for layer 0.
+        #[arg(long, conflicts_with = "name")]
+        layer: Option<u32>,
+        /// Layer name.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Check that the rule file has all 16 masks. Does not write.
+    Validate {
+        /// pixelforge-autotile JSON.
+        #[arg(long, value_name = "FILE")]
+        rules: PathBuf,
+        /// When set, every rule tile must be inside this count.
+        #[arg(long)]
+        tile_count: Option<u32>,
+    },
+}
+
+#[derive(Args)]
+pub struct MapArgs {
+    /// pixelforge-tilemap file.
+    #[arg(long, value_name = "FILE")]
+    pub map: PathBuf,
+}
+
+#[derive(Args)]
+pub struct TileRefArgs {
+    #[command(flatten)]
+    pub map: MapArgs,
+    #[arg(long)]
+    pub x: u16,
+    #[arg(long)]
+    pub y: u16,
+    #[arg(long, conflicts_with = "name")]
+    pub layer: Option<u32>,
+    #[arg(long)]
+    pub name: Option<String>,
+}
+
+#[derive(Args)]
+pub struct TileWriteArgs {
+    #[command(flatten)]
+    pub cell: TileRefArgs,
+    /// Tile id. Omit to clear the cell.
+    #[arg(long)]
+    pub tile: Option<u32>,
+    /// Mirror the tile left to right when it is drawn and exported.
+    #[arg(long)]
+    pub flip_h: bool,
+    /// Mirror the tile top to bottom when it is drawn and exported.
+    #[arg(long)]
+    pub flip_v: bool,
+}
+
+#[derive(Args)]
+pub struct TileRectArgs {
+    #[command(flatten)]
+    pub cell: TileRefArgs,
+    #[arg(long)]
+    pub width: u16,
+    #[arg(long)]
+    pub height: u16,
+}
+
+#[derive(Args)]
+pub struct TileFillArgs {
+    #[command(flatten)]
+    pub rect: TileRectArgs,
+    /// Tile id to store in every cell of the rectangle.
+    #[arg(long)]
+    pub tile: u32,
+    #[arg(long)]
+    pub flip_h: bool,
+    #[arg(long)]
+    pub flip_v: bool,
+}
+
+#[derive(Args)]
+pub struct ValidateTilesArgs {
+    /// Tileset pixelforge-project.
+    #[arg(long, value_name = "FILE")]
+    pub project: Option<PathBuf>,
+    /// pixelforge-tilemap file.
+    #[arg(long, value_name = "FILE")]
+    pub map: Option<PathBuf>,
+    /// pixelforge-autotile JSON.
+    #[arg(long, value_name = "FILE")]
+    pub rules: Option<PathBuf>,
 }

@@ -13,6 +13,7 @@ mod output;
 mod preview;
 mod requests;
 mod session;
+mod tiles_cmd;
 mod validate_atlas;
 
 use std::fs;
@@ -20,7 +21,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use pixelforge_kernel::{Mask, Selection, TOOL_API_VERSION, TOOL_NAMES};
+use pixelforge_kernel::{Mask, Selection, TILEMAP_TOOL_NAMES, TOOL_API_VERSION, TOOL_NAMES};
 use serde_json::{json, Value};
 
 use base64::engine::general_purpose::STANDARD;
@@ -125,6 +126,10 @@ fn execute(cli: Cli) -> i32 {
         Command::Undo { doc } => apply(&doc, vec![request("undo", json!({}))]),
         Command::Redo { doc } => apply(&doc, vec![request("redo", json!({}))]),
         Command::Export { command } => cmd_export(command),
+        Command::Tileset { command } => tiles_cmd::tileset(command),
+        Command::Tilemap { command } => tiles_cmd::tilemap(command),
+        Command::Autotile { command } => tiles_cmd::autotile(command),
+        Command::ValidateTiles(args) => tiles_cmd::validate(args),
         Command::ValidateAtlas(args) => validate_atlas::run(args),
         Command::Tools => cmd_tools(),
     }
@@ -1613,6 +1618,23 @@ fn cmd_export(command: ExportCmd) -> i32 {
                 loop_mode.map(|mode| mode.as_str()),
             )
         }
+        ExportCmd::Tileset {
+            doc,
+            output,
+            meta,
+            scale,
+            cols,
+            image,
+        } => tiles_cmd::export_tileset(&doc.project, &output, &meta, scale, cols, image),
+        ExportCmd::Tilemap {
+            map,
+            tileset,
+            output,
+            tmj,
+            scale,
+            cols,
+            image,
+        } => tiles_cmd::export_tilemap(&map, &tileset, &output, &tmj, scale, cols, image),
     }
 }
 
@@ -1666,7 +1688,7 @@ fn cmd_tools() -> i32 {
     let body = json!({
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
-        "result": { "tools": TOOL_NAMES },
+        "result": { "tools": TOOL_NAMES, "tilemapTools": TILEMAP_TOOL_NAMES },
     });
     let line = serde_json::to_string(&body).expect("tool list is JSON");
     if print_line(&line) {
@@ -1685,6 +1707,19 @@ fn open_project(doc: &ProjectArgs) -> Result<Session, CliFailure> {
 }
 
 fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
+    match tiles_cmd::is_tilemap_file(&doc.project) {
+        Ok(true) => {
+            if doc.checkpoint.is_some() {
+                return emit(CliFailure::new(
+                    "Cli",
+                    "a tilemap does not use --checkpoint",
+                ));
+            }
+            return tiles_cmd::apply_call(&doc.project, requests, preview);
+        }
+        Ok(false) => {}
+        Err(failure) => return emit(failure),
+    }
     let mut session = match open_project(doc) {
         Ok(session) => session,
         Err(failure) => return emit(failure),

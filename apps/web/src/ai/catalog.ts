@@ -927,6 +927,32 @@ const BY_NAME = {
     "flattenLayers",
     "Composite every frame into one layer named Layer 1. Hidden layers and opacity 0 are omitted. Partial opacity still covers with its index; the RGBA blend is not baked. The result is visible and fully opaque. One undo step. A document that is already that one default layer is not recorded.",
   ),
+  setTileset: tool(
+    "setTileset",
+    "Declare this project a tileset. tileWidth and tileHeight are each 16 or 32, and the canvas must already equal that tile. Each frame is one tile. The same size is not recorded.",
+    {
+      tileWidth: int("Tile width, 16 or 32.", 1, 65535),
+      tileHeight: int("Tile height, 16 or 32.", 1, 65535),
+    },
+    ["tileWidth", "tileHeight"],
+  ),
+  clearTileset: tool(
+    "clearTileset",
+    "Remove the tileset size. Pixels stay. A project that is not a tileset is not recorded.",
+  ),
+  validateTileset: tool(
+    "validateTileset",
+    "Check that the canvas is exactly the declared 16 or 32 tile. Does not write. tileCount is the frame count.",
+  ),
+  exportTileset: tool(
+    "exportTileset",
+    "Export a tileset PNG and pixelforge-tileset metadata. columns defaults to one row. image is a relative .png file name. Does not write a file and does not change the document.",
+    {
+      scale: int("Nearest-neighbor scale, at least 1. Omit for 1.", 1, 4294967295),
+      columns: int("Tile-sheet columns. Omit for one row.", 1, 4294967295),
+      image: { type: "string", description: "Relative .png file name stored in the metadata. Omit for tiles.png." },
+    },
+  ),
 } satisfies Record<ToolName, ChatTool>;
 
 /** Catalog in `TOOL_NAMES` order. One entry per kernel tool. */
@@ -940,6 +966,8 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "exportPngSequence",
   "exportSpriteSheet",
   "exportApng",
+  "validateTileset",
+  "exportTileset",
   "previewFrame",
   "diffFrames",
   "listLayers",

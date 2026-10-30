@@ -674,6 +674,7 @@ fn assemble(mut parsed: Parsed) -> Result<(Document, AsepriteReport), KernelErro
         Vec::new(),
         Vec::new(),
         Vec::new(),
+        None,
     );
     Ok((document, report))
 }
