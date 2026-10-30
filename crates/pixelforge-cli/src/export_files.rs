@@ -192,6 +192,57 @@ pub fn export_sprite_sheet(
     finish_summary(&summary)
 }
 
+pub fn export_direction(session: &mut Session, facing: &str, output: &Path, scale: u32) -> i32 {
+    let request = serde_json::json!({
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "exportDirection",
+        "params": { "facing": facing, "scale": scale },
+    })
+    .to_string();
+    let response = session.call(&request);
+    if let Some(code) = refuse_or_print(&response) {
+        return code;
+    }
+    let value: Value = match serde_json::from_str(&response) {
+        Ok(value) => value,
+        Err(_) => {
+            return crate::output::emit(CliFailure::new("Cli", "tool response is not JSON"));
+        }
+    };
+    let result = &value["result"];
+    let bytes = match write_png_b64(output, result["png"].as_str()) {
+        Ok(bytes) => bytes,
+        Err(failure) => return crate::output::emit(failure),
+    };
+    eprintln!("pixelforge: wrote {}", output.display());
+    let Some(path_text) = output.to_str() else {
+        return crate::output::emit(CliFailure::new(
+            "Cli",
+            format!("path is not UTF-8: {}", output.display()),
+        ));
+    };
+    let summary = json!({
+        "ok": true,
+        "apiVersion": TOOL_API_VERSION,
+        "tool": "exportDirection",
+        "result": {
+            "path": path_text,
+            "bytes": bytes,
+            "facing": result["facing"].clone(),
+            "compass": result["compass"].clone(),
+            "row": result["row"].clone(),
+            "from": result["from"].clone(),
+            "to": result["to"].clone(),
+            "columns": result["columns"].clone(),
+            "rows": result["rows"].clone(),
+            "sheetWidth": result["sheetWidth"].clone(),
+            "sheetHeight": result["sheetHeight"].clone(),
+            "scale": result["scale"].clone(),
+        },
+    });
+    finish_summary(&summary)
+}
+
 pub fn export_apng(
     session: &mut Session,
     output: &Path,

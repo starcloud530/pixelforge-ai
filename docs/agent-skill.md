@@ -276,7 +276,16 @@ pixelforge export apng --project hero.json --output walk.apng --tag walk_down
 
 `tag add` / `addTag` 给一段闭区间起名，并写上 `loop`（`forward`、`reverse`、`pingpong`、`once`，缺省 `forward`）。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。`inspect` 和 `scene` 始终带 `tags`，空的时候是 `[]`。标签不是 cel 链接：复制帧仍然复制像素。整条时间轴的循环预览不改成按标签播放。插帧、删帧会在同一步撤销里挪已经存在的标签；复制某个标签的最后一帧时，新帧不自动进这个标签。四向名字在帧排好之后再打，见 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。
 
-*`tag add` names an inclusive range. `loop` is `forward`, `reverse`, `pingpong`, or `once`, and defaults to `forward`. `tag set` changes the range, the loop, or the name. `tag remove` drops the tag and leaves the frames. A project with no tags omits `tags`. `inspect` and `scene` always include `tags`, and an empty list is `[]`. Tags are not cel links. Playback of the whole timeline is unchanged. Adding or deleting a frame moves existing tags in that same undo step. Duplicating the last frame of a tag does not pull the copy into the tag. Name a four-direction sheet after the frames exist.*
+*`tag add` names an inclusive range. `loop` is `forward`, `reverse`, `pingpong`, or `once`, and defaults to `forward`. `tag set` changes the range, the loop, or the name. `tag remove` drops the tag and leaves the frames. A project with no tags omits `tags`. `inspect` and `scene` always include `tags`, and an empty list is `[]`. Tags are not cel links. Playback of the whole timeline is unchanged. Adding or deleting a frame moves existing tags in that same undo step. Duplicating the last frame of a tag does not pull the copy into the tag. Name a four-direction sheet after the frames exist. `direction set` stores that row grid (4, or 8 with diagonals). `direction validate` is a hard error when a facing or an idle/walk span is missing. It does not judge the gait.*
+
+```bash
+pixelforge direction set --project hero.json --count 4 --columns 4 --apply
+pixelforge direction validate --project hero.json
+pixelforge direction list --project hero.json
+pixelforge direction export --project hero.json --facing south --output south.png
+```
+
+`direction set --count 4` 是 N/E/S/W，行序仍是 down、left、right、up（S、W、E、N）。`--count 8` 在这四行后面加 downleft、downright、upleft、upright，不挪前四行。`--apply` 按现有标签规则写 idle/walk，不画像素。`direction validate` 缺方向或缺关键帧段时退出码 1。通过不是自然步态，也不是审美通过。细节在 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。
 
 ### 部件与锚点 Parts and anchors
 

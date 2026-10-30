@@ -72,6 +72,12 @@ pub const TOOL_NAMES: &[&str] = &[
     "addTag",
     "setTag",
     "removeTag",
+    "setDirectionLayout",
+    "clearDirectionLayout",
+    "applyDirectionTags",
+    "validateDirections",
+    "listDirections",
+    "exportDirection",
     "listParts",
     "addPart",
     "setPart",
@@ -745,6 +751,65 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "name": name.trim(),
             }))
         }
+        "setDirectionLayout" => {
+            let (count, columns, apply) = parse_set_direction(params)?;
+            let layout = crate::direction::DirectionLayout::new(count, columns)
+                .map_err(ToolFailure::Kernel)?;
+            let wrote = document
+                .set_direction_layout(layout, apply)
+                .map_err(ToolFailure::Kernel)?;
+            let mut result = direction_layout_json(document);
+            result["wrote"] = serde_json::json!(wrote);
+            result["apply"] = serde_json::json!(apply);
+            if apply {
+                result["report"] = serde_json::to_value(document.direction_report())
+                    .expect("direction report is JSON");
+            }
+            Ok(result)
+        }
+        "clearDirectionLayout" => {
+            parse_empty(tool, params)?;
+            document.clear_direction_layout();
+            Ok(serde_json::json!({
+                "directionLayout": direction_layout_json(document),
+            }))
+        }
+        "applyDirectionTags" => {
+            parse_empty(tool, params)?;
+            let wrote = document
+                .apply_direction_tags()
+                .map_err(ToolFailure::Kernel)?;
+            let mut result = serde_json::to_value(document.direction_report())
+                .expect("direction report is JSON");
+            result["wrote"] = serde_json::json!(wrote);
+            Ok(result)
+        }
+        "validateDirections" | "listDirections" => {
+            parse_empty(tool, params)?;
+            Ok(
+                serde_json::to_value(document.direction_report())
+                    .expect("direction report is JSON"),
+            )
+        }
+        "exportDirection" => {
+            let (facing, scale) = parse_export_direction(params)?;
+            let sheet = document
+                .export_direction_sheet(&facing, scale)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "png": encode_base64(&sheet.png),
+                "facing": sheet.screen,
+                "compass": sheet.compass,
+                "row": sheet.row,
+                "from": sheet.from,
+                "to": sheet.to,
+                "columns": sheet.columns,
+                "rows": 1,
+                "sheetWidth": sheet.sheet_width,
+                "sheetHeight": sheet.sheet_height,
+                "scale": sheet.scale,
+            }))
+        }
         "listParts" => {
             parse_empty(tool, params)?;
             Ok(parts_value(document))
@@ -1362,6 +1427,7 @@ fn inspect_value(document: &Document) -> Value {
         "activeLayer": document.active_layer(),
         "selection": selection_json(document),
         "tags": tags_json(document),
+        "directionLayout": direction_layout_json(document),
         "parts": parts_json(document),
         "curves": curves_json(document, None),
         "constraints": constraints_json(document),
@@ -1406,6 +1472,7 @@ fn scene_value(document: &Document) -> Value {
         "delayMs": delay_ms,
         "frames": frames,
         "tags": tags_json(document),
+        "directionLayout": direction_layout_json(document),
         "parts": parts_json(document),
         "curves": curves_json(document, None),
         "constraints": constraints_json(document),
@@ -1470,6 +1537,16 @@ fn layer_entries(document: &Document) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn direction_layout_json(document: &Document) -> Value {
+    match document.direction_layout() {
+        None => Value::Null,
+        Some(layout) => serde_json::json!({
+            "count": layout.count,
+            "columns": layout.columns,
+        }),
+    }
 }
 
 fn tags_json(document: &Document) -> Vec<Value> {
@@ -3127,6 +3204,28 @@ fn parse_remove_anchor(params: Value) -> Result<(String, String), ToolFailure> {
     let part = require_string("removeAnchor", &map, "part")?;
     let name = require_string("removeAnchor", &map, "name")?;
     Ok((part, name))
+}
+
+fn parse_set_direction(params: Value) -> Result<(u8, u32, bool), ToolFailure> {
+    let map = expect_object("setDirectionLayout", params)?;
+    reject_params("setDirectionLayout", &map, &["count", "columns", "apply"])?;
+    let count = require_u32("setDirectionLayout", &map, "count")?;
+    let count = u8::try_from(count)
+        .map_err(|_| invalid_params("setDirectionLayout", "count must be 4 or 8"))?;
+    let columns = require_u32_at_least("setDirectionLayout", &map, "columns", 1)?;
+    let apply = optional_bool("setDirectionLayout", &map, "apply")?;
+    Ok((count, columns, apply))
+}
+
+fn parse_export_direction(params: Value) -> Result<(String, u32), ToolFailure> {
+    let map = expect_object("exportDirection", params)?;
+    reject_params("exportDirection", &map, &["facing", "scale"])?;
+    let facing = require_string("exportDirection", &map, "facing")?;
+    let scale = match map.get("scale") {
+        None => 1,
+        Some(_) => require_u32_at_least("exportDirection", &map, "scale", 1)?,
+    };
+    Ok((facing, scale))
 }
 
 fn parse_add_tag(params: Value) -> Result<(String, usize, usize, LoopMode), ToolFailure> {
