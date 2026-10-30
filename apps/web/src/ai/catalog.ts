@@ -918,7 +918,7 @@ const BY_NAME = {
   ),
   setLayerOpacity: tool(
     "setLayerOpacity",
-    "Set composite opacity from 0 to 255. 255 covers with the palette color and does not blend palette alpha into the layer underneath. 0 skips the layer. 1 to 254 still covers in the index composite and blends in RGBA export with straight-alpha source-over. The blend is not snapped to a palette index and is not written back. The same value is not recorded. Omit index for the active layer.",
+    "Set composite opacity from 0 to 255. 255 covers with the palette color and does not blend palette alpha into the layer underneath. 0 skips the layer. 1 to 254 still covers in the index composite and blends in RGBA export with straight-alpha source-over. This call does not snap the blend. flattenLayers snaps that RGBA onto the nearest palette index. The same value is not recorded. Omit index for the active layer.",
     {
       index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
       opacity: int("0 to 255. 255 is fully opaque. 128 is the nearest step to 50%.", 0, 255),
@@ -960,7 +960,7 @@ const BY_NAME = {
   ),
   flattenLayers: tool(
     "flattenLayers",
-    "Composite every frame into one layer named Layer 1. Hidden layers and opacity 0 are omitted. Partial opacity still covers with its index; the RGBA blend is not baked. The result is visible and fully opaque. One undo step. A document that is already that one default layer is not recorded.",
+    "Composite every frame into one layer named Layer 1. Hidden layers and opacity 0 are omitted. Each cell of the straight-alpha blend snaps onto the palette: alpha below 128 is index 0, otherwise the nearest opaque entry by squared RGB, and a tie keeps the lower index. A cell whose RGBA already equals the covering index keeps that index. The result is visible and fully opaque, so layer-opacity translucency is not stored as alpha. The color preview stays unquantized until this call. One undo step. A document that is already that one default layer is not recorded.",
   ),
   setTileset: tool(
     "setTileset",

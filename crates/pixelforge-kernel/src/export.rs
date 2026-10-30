@@ -4,8 +4,9 @@
 //! into RGBA and encodes that buffer. A hidden layer, or a layer at opacity 0,
 //! is skipped. Index 0 is the transparent slot (`a = 0`). Opacity 255 replaces
 //! the cell with the palette color, so palette alpha is not blended into the
-//! layer underneath. Opacity 1..=254 blends with straight-alpha source-over
-//! and is not snapped back to a palette index.
+//! layer underneath. Opacity 1..=254 blends with straight-alpha source-over.
+//! Export leaves that blend unquantized. [`Document::flatten`] snaps the same
+//! buffer onto the nearest palette index.
 //!
 //! A sequence is one PNG per frame, in timeline order. A sprite sheet packs
 //! those same frames into one PNG. See [`sprite_sheet_layout`] for the grid.
@@ -210,8 +211,9 @@ impl Document {
     /// blend into the layer underneath. Opacity 1..=254 blends with
     /// straight-alpha source-over: source alpha is
     /// `round(palette.a * opacity / 255)`, ties away from zero. The blend is
-    /// not written back and is not snapped to a palette index. Onion skin
-    /// reads this buffer. The bytes are not stored on the document.
+    /// not written back. [`Self::flatten`] snaps this buffer onto the palette;
+    /// export does not. Onion skin reads this buffer. The bytes are not stored
+    /// on the document.
     pub fn frame_rgba(&self, index: usize) -> Result<Vec<u8>, KernelError> {
         let layers = self.frame_layer_buffers(index)?;
         let erase = self.frame_erase_buffers(index)?;
