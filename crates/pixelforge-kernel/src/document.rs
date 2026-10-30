@@ -550,9 +550,10 @@ impl Document {
     /// A hidden layer, or a layer at opacity 0, is skipped. Index 0 leaves the
     /// lower layer visible, unless this layer is polish and the cell is an
     /// explicit erase, which clears the composite. Any other index replaces
-    /// it, including when that layer's opacity is only partial. Partial opacity
-    /// is not quantized to a palette index. [`Self::frame_rgba`] blends it for
-    /// PNG export.
+    /// it, including when that layer's opacity is only partial. This buffer is
+    /// the ASCII preview and `diff`. It is not the color preview.
+    /// [`Self::frame_rgba`] blends partial opacity for PNG export, and
+    /// [`Self::flatten`] snaps that blend onto the palette.
     pub fn composite_pixels(&self, frame: usize) -> Result<Vec<u8>, KernelError> {
         let frame = self.frame_or_err(frame)?;
         Ok(self.frames[frame].composite(
@@ -845,6 +846,7 @@ impl Document {
     /// `0` skips the layer the same way a hidden layer is skipped. The visible
     /// flag stays whatever it was. `1..=254` still covers in
     /// [`Self::composite_pixels`] and blends in [`Self::frame_rgba`].
+    /// [`Self::flatten`] snaps that blend onto the palette.
     pub fn layer_opacity(&self, index: usize) -> Result<u8, KernelError> {
         let index = self.layer_or_err(index)?;
         Ok(self.layer_opacity[index])
@@ -2858,11 +2860,18 @@ impl Document {
 
     /// Composites every frame into one layer named [`DEFAULT_LAYER_NAME`].
     ///
-    /// The result is the index composite: hidden layers and opacity 0 are
-    /// omitted, and a partial opacity still covers with its index. The RGBA
-    /// blend is not baked. The new layer is visible and fully opaque. A
-    /// document that is already that one default layer is not recorded.
-    /// One undo restores the previous stack, including visibility and opacity.
+    /// Hidden layers and opacity 0 are omitted. Each cell is the straight-alpha
+    /// blend from [`Self::frame_rgba`] snapped onto the palette: alpha below
+    /// 128 is index 0, otherwise the nearest entry by squared RGB, and a tie
+    /// keeps the lower index. A cell whose blend already equals the covering
+    /// index's palette color keeps that index, so an opaque stack does not
+    /// move. The new layer is visible and fully opaque, so layer-opacity
+    /// translucency is not stored as alpha. The color preview stays the
+    /// unquantized blend until this call. A document that is already that one
+    /// default layer is not recorded. One undo restores the previous stack,
+    /// including visibility and opacity. A blend that needs a palette entry
+    /// and the palette has none is [`KernelError::NoPaintColor`] and writes
+    /// nothing.
     pub fn flatten(&mut self) -> Result<(), KernelError> {
         let marks_clear = self.frames.iter().all(|frame| {
             frame
@@ -2899,11 +2908,15 @@ impl Document {
         let before_active = self.active_layer;
         let before_parts = self.parts.clone();
         let polish = self.polish_flags();
-        let after_pixels: Vec<Vec<u8>> = self
-            .frames
-            .iter()
-            .map(|frame| frame.composite(&self.layer_visible, &self.layer_opacity, &polish))
-            .collect();
+        let palette = self.palette_colors().to_vec();
+        let visible = self.layer_visible.clone();
+        let opacity = self.layer_opacity.clone();
+        let mut after_pixels = Vec::with_capacity(self.frames.len());
+        for index in 0..self.frames.len() {
+            let cover = self.frames[index].composite(&visible, &opacity, &polish);
+            let rgba = self.frame_rgba(index)?;
+            after_pixels.push(palette_map::bake_composite(&palette, &rgba, &cover)?);
+        }
         for (frame, pixels) in self.frames.iter_mut().zip(after_pixels.iter().cloned()) {
             frame.set_stack(vec![pixels.clone()], vec![vec![0; pixels.len()]]);
         }

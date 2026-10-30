@@ -227,13 +227,13 @@
 | `curves` | 与 `inspect` 相同。没有曲线时是 `[]` |
 | `constraints` | 与 `inspect` 相同。没有约束时是 `[]` |
 
-`visible` 是布尔，缺省 `true`。`opacity` 是整数 `0..=255`，缺省 `255`，不再是 `null`。`false` 或 `0` 让这一层退出合成。`1..=254` 在索引合成里仍整格覆盖，只在 RGBA 导出里混合。同一层的这两个值所有帧共用。旧工程没有这两个字段时读成可见且不透明。
+`visible` 是布尔，缺省 `true`。`opacity` 是整数 `0..=255`，缺省 `255`，不再是 `null`。`false` 或 `0` 让这一层退出合成。`1..=254` 在索引合成里仍整格覆盖，在 RGBA 导出里混合。`flattenLayers` 才把这份混合收成最近索引。同一层的这两个值所有帧共用。旧工程没有这两个字段时读成可见且不透明。
 
 `paletteHash` 是 FNV-1a 64 位。初值 `14695981039346656037`，乘数 `1099511628211`。按索引顺序把每一项的 `r`、`g`、`b`、`a` 各作为一个字节送进去。结果是 16 位小写十六进制。颜色和顺序不变，哈希就不变。它用来认出调色板，不是口令。
 
 CLI：`pixelforge scene --project hero.json`。
 
-*`visible` is a boolean and defaults to true. `opacity` is an integer `0..=255` and defaults to 255. It is not `null`. `false` or `0` skips that layer in the composite. `1..=254` still covers in the index composite and blends only in RGBA export. One layer has one flag and one opacity for every frame. An older file without the fields loads visible and fully opaque. `paletteHash` is FNV-1a 64-bit: offset basis `14695981039346656037`, prime `1099511628211`, each entry's `r`, `g`, `b`, `a` in index order, written as 16 lowercase hex digits. The same colors in the same order hash the same. It identifies the palette. It is not a secret.*
+*`visible` is a boolean and defaults to true. `opacity` is an integer `0..=255` and defaults to 255. It is not `null`. `false` or `0` skips that layer in the composite. `1..=254` still covers in the index composite and blends in RGBA export. `flattenLayers` snaps that blend onto the nearest palette index. One layer has one flag and one opacity for every frame. An older file without the fields loads visible and fully opaque. `paletteHash` is FNV-1a 64-bit: offset basis `14695981039346656037`, prime `1099511628211`, each entry's `r`, `g`, `b`, `a` in index order, written as 16 lowercase hex digits. The same colors in the same order hash the same. It identifies the palette. It is not a secret.*
 
 ### 脏区 Dirty region
 
@@ -1455,18 +1455,19 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 合成分两条，都从底往上。`visible: false` 或 `opacity: 0` 的层跳过。索引 0 不覆盖。`polish` 层上的显式擦除是例外：索引仍是 0，但擦除标记把合成格打成透明，下层露不出来。没有标记的 0 仍是「这一格没改」。
 
-- **索引合成**（`composite`、`inspect.composite`、ASCII `preview` / `diff`、`flattenLayers`）：其余层上任何非 0 索引整格盖住下层。`opacity` 为 1..=254 也不量化成最近的调色板色，所以压平烤进去的是盖住的索引，不是混合色。
+- **索引合成**（`composite`、`inspect.composite`、ASCII `preview` / `diff`）：其余层上任何非 0 索引整格盖住下层。`opacity` 为 1..=254 也不改这里的索引。这是压平之前的 ASCII，不是彩色 preview。
+- **压平**（`flattenLayers`）：把下面的 RGBA 合成收成调色板索引，规则和 `applyPng` 相同。alpha 小于 128 写成索引 0。否则按平方 RGB 距离取最近的非 0 项，平局取较小索引，alpha 不计入距离。这一格的 RGBA 已经等于盖住索引的调色板色时，留下那个索引，不因为平局改号。结果层可见且不透明，所以只由层透明度带来的半透明不会留在格子里。彩色 preview 在压平前仍是未量化的 RGB。对照：`preview --output before.png`，再 `layer flatten`，再 `preview --output after.png`。
 - **RGBA 合成**（`frame_rgba`、preview 彩色 PNG、`export png`、`export sheet`，以及这份表描述的图）：`opacity` 为 255 时，非 0 索引用调色板 RGBA **替换**下层。调色板 alpha 不与下层混合，和以前的单层导出一样。`opacity` 为 1..=254 时做直通 alpha 的 source-over。源 alpha 是 `round(palette.a * opacity / 255)`，四舍五入，正好一半时远离 0（先加 127 再除以 255）。通道混合同样先加分母的一半再除。混合不写回格子。最近邻放大发生在混合之后，把已经混合的格子重复成块。
 
 `preview`、`diff`、`export png`、`export sheet` 默认看合成。`diff` 比的是索引，所以半透明不会让两边的索引变成 `!`。`previewFrame` / `diffFrames` 以及 CLI 的 `--layer N` 只看那一层存着的索引，不看 `visible`，也不乘 `opacity`，这样隐藏层还能检查。绘制工具的 `layer` 只决定改哪一层，隐藏层仍然能画。
 
 可见性和透明度是层的属性，每一帧共用，不是逐 cel。文件里 `visible` 缺省 true，只在 false 时写出；`opacity` 缺省 255，只在不是 255 时写出。单层、名字仍是 `Layer 1`、当前层是 0、角色是 `default`、可见、不透明时，仍然不写 `layers`。旧文件没有这两个字段，读成可见且不透明。版本仍是 1。没有 multiply / screen 等混合模式。
 
-*Composite from the bottom. A hidden layer, or opacity 0, is skipped. Index 0 does not cover. On a `polish` layer an explicit erase is still index 0, and the erase mark clears the composite cell so the layers underneath do not show. A 0 without that mark is unmodified. The index composite (ASCII preview, diff, inspect `composite`, flatten) lets any other index cover the cell. Partial opacity is not snapped to a nearest palette color, so flatten bakes that covering index. The RGBA composite (`frame_rgba`, the preview PNG, `export png`, `export sheet`) replaces the cell with the palette color when opacity is 255, and palette alpha is not blended into the layer underneath. An explicit erase at opacity 255 clears the cell; a lower opacity scales the destination alpha by the remaining visibility. Opacity 1..=254 uses straight-alpha source-over for painted cells. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back. Nearest-neighbor scale repeats the blended cell. `--layer` shows stored indices and ignores visibility and opacity, so an erase mark looks like index 0 on that layer alone. The flag and the opacity are shared by every frame. Defaults are omitted from the file. Older files load visible and fully opaque. There is no blend mode.*
+*Composite from the bottom. A hidden layer, or opacity 0, is skipped. Index 0 does not cover. On a `polish` layer an explicit erase is still index 0, and the erase mark clears the composite cell so the layers underneath do not show. A 0 without that mark is unmodified. The index composite (ASCII preview, diff, inspect `composite`) lets any other index cover the cell. `flattenLayers` snaps each cell of the RGBA composite with the `applyPng` rule: alpha below 128 is index 0, otherwise the nearest opaque entry by squared RGB, and a tie keeps the lower index. A cell whose RGBA already equals the covering index keeps that index. The color preview stays the unquantized blend until flatten. Compare with `preview --output before.png`, then `layer flatten`, then `preview --output after.png`. The RGBA composite (`frame_rgba`, the preview PNG, `export png`, `export sheet`) replaces the cell with the palette color when opacity is 255, and palette alpha is not blended into the layer underneath. An explicit erase at opacity 255 clears the cell; a lower opacity scales the destination alpha by the remaining visibility. Opacity 1..=254 uses straight-alpha source-over for painted cells. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back. Nearest-neighbor scale repeats the blended cell. `--layer` shows stored indices and ignores visibility and opacity, so an erase mark looks like index 0 on that layer alone. The flag and the opacity are shared by every frame. Defaults are omitted from the file. Older files load visible and fully opaque. There is no blend mode.*
 
 每一层有 `role`。缺省 `default`：普通像素，`bake` 可以在曲线或约束管到这一层时从源帧整层重建。`polish` 是精修覆盖层。文件里还可以有 `part` 和可选的 `anchor`，只在绑定到部件时写出。本地 `(0, 0)` 是该锚点在静止姿势的画布格，省略 `anchor` 时是部件原点。格子仍存在帧缓冲的画布坐标上；绑定只决定变换时跟谁走。改锚点偏移不搬已经画下的格子。删掉部件则绑定去掉，格子留在画布上。文件里只有 `polish` 才写 `role`。显式擦除写在该层像素旁的 `erase` 数组里，全 0 时省略；`1` 只能落在索引 0 上。`layer flatten` 把索引合成写进 `Layer 1`，角色回到 `default`，擦除打出的洞变成普通的索引 0，结果层可见且不透明。
 
-*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay. The file may also store `part` and an optional `anchor`, and only when the overlay is bound. Local `(0, 0)` is that anchor's rest canvas cell, or the part origin when `anchor` is omitted. Cells stay in the frame buffer at canvas coordinates; the binding decides which transform they follow. Changing an anchor offset does not move cells already painted. Removing the part clears the binding and leaves the cells on the canvas. The file writes `role` only for `polish`. An explicit erase is an `erase` array beside that layer's pixels, omitted when every cell is 0. A `1` is valid only on index 0. `layer flatten` writes the index composite into `Layer 1`, clears the role, and turns a punched hole into an ordinary index 0. The result stays visible and fully opaque.*
+*Each layer has a `role`. The default is `default`: ordinary pixels, which `bake` may rebuild from the source when a curve or constraint manages that layer. `polish` is an overlay. The file may also store `part` and an optional `anchor`, and only when the overlay is bound. Local `(0, 0)` is that anchor's rest canvas cell, or the part origin when `anchor` is omitted. Cells stay in the frame buffer at canvas coordinates; the binding decides which transform they follow. Changing an anchor offset does not move cells already painted. Removing the part clears the binding and leaves the cells on the canvas. The file writes `role` only for `polish`. An explicit erase is an `erase` array beside that layer's pixels, omitted when every cell is 0. A `1` is valid only on index 0. `layer flatten` snaps the RGBA composite into `Layer 1`, clears the role, and turns a punched hole into an ordinary index 0 when that blend's alpha is below 128. The result stays visible and fully opaque.*
 
 ### `listLayers`
 
@@ -1516,7 +1517,7 @@ CLI：`pixelforge layer show`、`pixelforge layer hide`。可加 `--index`。
 
 `params`：`opacity`（整数 `0..=255`），可选 `index`（省略时是当前层）。同一个值不进撤销栈。像素不动。
 
-`255` 完全不透明，合成时用调色板颜色替换下层。`0` 跳过这一层，`visible` 可以仍是 `true`。`1..=254` 在索引合成里整格覆盖，在 RGBA 导出里按上面的 source-over 混合，不量化回调色板。`128` 是最接近 50% 的一档。
+`255` 完全不透明，合成时用调色板颜色替换下层。`0` 跳过这一层，`visible` 可以仍是 `true`。`1..=254` 在索引合成里整格覆盖，在 RGBA 导出里按上面的 source-over 混合。这一步不写回索引；要收成最近色用 `flattenLayers`。`128` 是最接近 50% 的一档。
 
 `result`：`{ "index", "opacity" }`。
 
@@ -1558,7 +1559,7 @@ CLI：`pixelforge layer opacity --opacity 128`。
 
 ### `flattenLayers`
 
-参数：无。每一帧按**索引合成**压成一层，名字改回 `Layer 1`，`activeLayer` 回到 0，可见，透明度 255。隐藏层和 opacity 0 不进入。半透明层留下盖住的索引，混合色不烤进去。保存出来就是旧的单层工程。已经是这一层默认状态时不进栈。一步撤销能回到原来的栈，包括可见性和透明度。
+参数：无。每一帧按上面的 **RGBA 合成**收成一层，名字改回 `Layer 1`，`activeLayer` 回到 0，可见，透明度 255。隐藏层和 opacity 0 不进入。alpha 小于 128 写成索引 0，否则平方 RGB 最近的非 0 项，平局取较小索引。盖住索引的 RGBA 已经等于混合结果时留下那个索引。调色板里没有可画的颜色、又有一格需要最近色时，是 `NoPaintColor`，整次不写。保存出来就是旧的单层工程。已经是这一层默认状态时不进栈。一步撤销能回到原来的栈，包括可见性和透明度。
 
 `result`：`{ "layerCount": 1, "activeLayer": 0, "name": "Layer 1" }`。
 
@@ -1566,11 +1567,11 @@ CLI：`layer list`、`layer add --name gear`、`layer add --name polish --role p
 
 *Layers are a document-level stack. Every frame has one index buffer per layer, the same size as the canvas. Index 0 is the bottom. A new project and an old single-layer file are one layer named `Layer 1`. That file is still saved without `layers` or `activeLayer`. A stack, a renamed layer, or a non-zero active layer writes those fields. Frames with more than one layer store `frames[].layers[].pixels` and omit the legacy `pixels` array.*
 
-*Index composite and RGBA composite are separate. See the rules above. Flatten writes the index composite into `Layer 1`.*
+*Index composite and RGBA composite are separate. See the rules above. Flatten snaps the RGBA composite into `Layer 1`.*
 
 *`preview`, `diff`, and `export png` / `export sheet` / `export apng` show the composite. `previewFrame`, `diffFrames`, and CLI `--layer N` show one layer. A `layer` param on a drawing tool chooses where the indices go and does not change `activeLayer`.*
 
-*`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `setLayerVisible` and `setLayerOpacity` change the composite and do not move pixels. The same value is not recorded. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` writes the index composite into one layer named `Layer 1`, visible and fully opaque, and clears a polish role.*
+*`addLayer` inserts a transparent layer above the active one on every frame and selects it. Optional `role` is `default` or `polish`. `setLayerRole` changes that role and does not move pixels. `setLayerVisible` and `setLayerOpacity` change the composite and do not move pixels. The same value is not recorded. `deleteLayer` refuses the last layer. `reorderLayer`'s `to` is the index after the move. `flattenLayers` snaps the RGBA composite onto the palette and writes one layer named `Layer 1`, visible and fully opaque, and clears a polish role. Alpha below 128 is index 0. Otherwise the nearest opaque entry by squared RGB wins, and a tie keeps the lower index. An exact cover stays.*
 
 ## 图块与地图 Tileset, autotile, tilemap
 

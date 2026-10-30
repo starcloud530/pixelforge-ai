@@ -5401,6 +5401,93 @@ fn export_apng_writes_a_tag_preview_and_leaves_the_project() {
     );
 }
 
+#[test]
+fn flatten_snaps_preview_blend_to_the_nearest_palette_index() {
+    let scratch = Scratch::new();
+    let project = scratch.child("stack.json");
+    let project_arg = project.to_str().unwrap();
+    let before = scratch.child("before.png");
+    let after = scratch.child("after.png");
+    assert_eq!(
+        status(&pixelforge(&arg(&[
+            "new",
+            "--width",
+            "2",
+            "--height",
+            "1",
+            "--output",
+            project_arg,
+        ]))),
+        0
+    );
+    for command in [
+        vec![
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--color-index",
+            "3",
+        ],
+        vec!["layer", "add", "--project", project_arg, "--name", "gear"],
+        vec![
+            "paint",
+            "--project",
+            project_arg,
+            "--x",
+            "0",
+            "--y",
+            "0",
+            "--color-index",
+            "7",
+        ],
+        vec![
+            "layer",
+            "opacity",
+            "--project",
+            project_arg,
+            "--index",
+            "1",
+            "--opacity",
+            "128",
+        ],
+    ] {
+        let ran = pixelforge(&arg(command.as_slice()));
+        assert_eq!(status(&ran), 0, "{}", stderr(&ran));
+    }
+
+    let preview = pixelforge(&arg(&[
+        "preview",
+        "--project",
+        project_arg,
+        "--output",
+        before.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&preview), 0, "{}", stderr(&preview));
+    let blended = pixelforge_kernel::decode_sheet_png(&fs::read(&before).unwrap()).unwrap();
+    assert_eq!(&blended.rgba[..4], &[153, 117, 136, 255]);
+    assert_eq!(json_lines(&preview)[0]["result"]["pixels"][0], 7);
+
+    let flat = pixelforge(&arg(&["layer", "flatten", "--project", project_arg]));
+    assert_eq!(status(&flat), 0, "{}", stderr(&flat));
+    assert_eq!(load(&project).composite_pixels(0).unwrap()[0], 8);
+
+    let baked = pixelforge(&arg(&[
+        "preview",
+        "--project",
+        project_arg,
+        "--output",
+        after.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&baked), 0, "{}", stderr(&baked));
+    let snapped = pixelforge_kernel::decode_sheet_png(&fs::read(&after).unwrap()).unwrap();
+    assert_eq!(&snapped.rgba[..4], &[140, 110, 184, 255]);
+    assert_eq!(json_lines(&baked)[0]["result"]["pixels"][0], 8);
+}
+
 fn apng_playback(bytes: &[u8]) -> (u32, Vec<u16>) {
     assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
     let mut offset = 8;

@@ -77,7 +77,8 @@ Examples:
 names, visibility, opacity, palette hash, frame delays) and does not dump
 pixels. `visible` is a boolean. `opacity` is 0..=255; 255 is fully opaque.
 `layer hide` and opacity 0 skip that layer in the composite. Partial opacity
-blends only in the RGBA PNG. `--dirty` on paint, erase, fill-rect, stroke-rect,
+blends in the RGBA PNG. `layer flatten` snaps that blend onto the nearest
+palette index. Alpha below 128 becomes index 0. `--dirty` on paint, erase, fill-rect, stroke-rect,
 line, ellipse, polygon, fill, erase-rect, copy-rect, move-rect, flip,
 hflip, vflip, rotate, resize, and part translate / rotate / flip adds
 `changed`, `dirty`, and `regions`. Omit it and those fields stay absent.
@@ -87,8 +88,10 @@ hflip, vflip, rotate, resize, and part translate / rotate / flip adds
 
 `preview` prints an ASCII view on stderr (one glyph per cell: `.` is
 transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index 62 or
-above) and writes a nearest-neighbor color PNG. The picture is the composite:
-index 0 shows the layer under it, and any other index covers that layer.
+above) and writes a nearest-neighbor color PNG. The ASCII picture is the index composite: index 0 shows the layer under it,
+and any other index covers that layer, including when opacity is only partial.
+The color PNG is the straight-alpha blend and is not quantized. `layer flatten`
+snaps that blend onto the palette.
 `--layer N` draws that layer alone. `--frame N` draws frame N and does not
 change activeFrame or the project file. `--scale K` matches export (integer
 >= 1, default 1). Stdout JSON keeps `result.rows` and adds `result.path`.
@@ -135,7 +138,7 @@ reads an indexed `.aseprite` into a new project. `--project` replaces an
 existing one. Indexed 8-bit only. It does not write `.aseprite`.
 `copy-rect` and `move-rect` take optional
 `--from-frame` and `--to-frame` and stay on one layer. `export` writes the
-composite. `layer flatten` collapses that composite into one layer.
+unquantized RGBA composite. `layer flatten` snaps that blend into one layer.
 `export sheet --cols N` keeps one row when N is the frame count. `--atlas FILE`
 writes pixelforge-atlas JSON (frame rects, delayMs, columns, tags) and adds
 `atlas` to the result. Omit it and the result stays the PNG fields.
@@ -1363,7 +1366,8 @@ pub enum LayerCmd {
     ///
     /// 0 skips the layer. 255 covers with the palette color and does not blend.
     /// 1..=254 still covers in the index preview and blends in the RGBA PNG.
-    /// The blend is not snapped back to a palette index. The same value is not recorded.
+    /// This command does not snap the blend. `layer flatten` does. The same
+    /// value is not recorded.
     Opacity {
         #[command(flatten)]
         doc: ProjectArgs,
@@ -1415,10 +1419,14 @@ pub enum LayerCmd {
     },
     /// Composite every frame into one layer named `Layer 1`.
     ///
-    /// Hidden layers and opacity 0 are left out. Partial opacity still covers
-    /// with its index; the RGBA blend is not baked. The result is visible and
-    /// fully opaque. The saved file is the single-layer project older tools
-    /// already open.
+    /// Hidden layers and opacity 0 are left out. Each cell of the RGBA blend
+    /// snaps onto the palette: alpha below 128 is index 0, otherwise the
+    /// nearest opaque entry by squared RGB, and a tie keeps the lower index.
+    /// An exact cover stays. The result is visible and fully opaque. The color
+    /// preview stays unquantized until this command. Compare with
+    /// `preview --output before.png`, then this command, then
+    /// `preview --output after.png`. The saved file is the single-layer
+    /// project older tools already open.
     Flatten {
         #[command(flatten)]
         doc: ProjectArgs,

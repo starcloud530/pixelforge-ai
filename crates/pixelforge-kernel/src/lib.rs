@@ -9,8 +9,8 @@
 //! `fill`, and `stroke_rect` are the same kind of indexed write. Preview, diff, and PNG export
 //! composite the stack. A hidden layer, or a layer at opacity 0, is skipped.
 //! Index 0 is transparent and any other index covers the layer under it.
-//! Partial layer opacity blends only in the RGBA composite and is not snapped
-//! back to a palette index.
+//! Partial layer opacity blends in the RGBA composite. `flatten` snaps that
+//! blend onto the nearest palette index; export leaves the blend unquantized.
 //! Palette edits, palette lock, palette import, frame edits, and delay edits
 //! write this document and push the same edits onto its undo stack.
 //! A selection mask, when stored, limits those paint writes to that mask.

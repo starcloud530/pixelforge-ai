@@ -1,8 +1,9 @@
 //! Layer visibility and opacity in the index composite and the RGBA export.
 //!
-//! Opacity 255 covers with the palette color. Opacity 1..=254 blends in RGBA
-//! only. The expected pixels below are literals, not a second call into the
-//! blender.
+//! Opacity 255 covers with the palette color. Opacity 1..=254 blends in RGBA.
+//! ASCII still shows the covering index. `flatten` snaps that RGBA blend onto
+//! the palette. The expected pixels below are literals, not a second call into
+//! the blender.
 
 use pixelforge_kernel::{
     decode_sheet_png, Document, KernelError, ProjectFileError, LAYER_OPACITY_OPAQUE,
@@ -195,11 +196,13 @@ fn visibility_and_opacity_are_undoable_and_flatten_uses_the_index_composite() {
     assert_eq!(document.layer_count(), 1);
     assert!(document.layer_visible(0).unwrap());
     assert_eq!(document.layer_opacity(0).unwrap(), 255);
-    assert_eq!(document.composite_pixels(0).unwrap(), vec![7, 0]);
+    // Preview blend (153, 117, 136) is nearest studio index 8 (140, 110, 184),
+    // squared distance 2522, not the covering index 7.
+    assert_eq!(document.composite_pixels(0).unwrap(), vec![8, 0]);
     assert_eq!(
         &document.frame_rgba(0).unwrap()[..4],
-        &[74, 140, 196, 255],
-        "flatten bakes the covering index, not the blend"
+        &[140, 110, 184, 255],
+        "flatten snaps the blend to the nearest palette color"
     );
     document.undo().unwrap();
     assert_eq!(document.layer_count(), 2);
@@ -212,6 +215,117 @@ fn visibility_and_opacity_are_undoable_and_flatten_uses_the_index_composite() {
     document.undo().unwrap();
     assert!(!document.layer_visible(1).unwrap());
     assert_eq!(document.layer_pixels(0, 1).unwrap()[0], 7);
+}
+
+#[test]
+fn flatten_snaps_a_translucent_stack_to_the_preview_blend() {
+    let mut document = stacked();
+    document.set_layer_opacity(1, 128).unwrap();
+    let preview = document.frame_rgba(0).unwrap();
+    assert_eq!(&preview[..4], &[153, 117, 136, 255]);
+    assert_eq!(&preview[4..], &[0, 0, 0, 0]);
+    assert_eq!(
+        document.composite_pixels(0).unwrap(),
+        vec![7, 0],
+        "ASCII still shows the covering index before flatten"
+    );
+
+    document.add_frame();
+    document.set_active_frame(1).unwrap();
+    document.paint_on(0, 0, 0, 3).unwrap();
+    let uncovered = document.frame_rgba(1).unwrap();
+    assert_eq!(&uncovered[..4], &[232, 93, 76, 255]);
+
+    document.flatten().unwrap();
+    assert_eq!(document.layer_count(), 1);
+    assert_eq!(document.layer_opacity(0).unwrap(), 255);
+    assert_eq!(document.composite_pixels(0).unwrap(), vec![8, 0]);
+    assert_eq!(document.composite_pixels(1).unwrap(), vec![3, 0]);
+    let baked = document.frame_rgba(0).unwrap();
+    assert_eq!(&baked[..4], &[140, 110, 184, 255]);
+    assert_eq!(&baked[4..], &[0, 0, 0, 0]);
+
+    let blend = [153u8, 117, 136];
+    let snapped = [140u8, 110, 184];
+    let covering = [74u8, 140, 196];
+    let under = [232u8, 93, 76];
+    assert!(
+        dist(blend, snapped) < dist(blend, covering),
+        "snapped color must beat the covering index"
+    );
+    assert!(dist(blend, snapped) < dist(blend, under));
+    assert_eq!(dist(blend, snapped), 13 * 13 + 7 * 7 + 48 * 48);
+
+    document.undo().unwrap();
+    assert_eq!(document.layer_opacity(1).unwrap(), 128);
+    assert_eq!(&document.frame_rgba(0).unwrap()[..4], &[153, 117, 136, 255]);
+}
+
+#[test]
+fn flatten_drops_a_faint_layer_and_keeps_a_half_opaque_color() {
+    let mut faint = Document::new(1, 1).unwrap();
+    faint.paint(0, 0, 7).unwrap();
+    faint.set_layer_opacity(0, 10).unwrap();
+    assert_eq!(faint.frame_rgba(0).unwrap(), vec![74, 140, 196, 10]);
+    faint.flatten().unwrap();
+    assert_eq!(faint.composite_pixels(0).unwrap(), vec![0]);
+    assert_eq!(faint.frame_rgba(0).unwrap(), vec![0, 0, 0, 0]);
+
+    let mut half = Document::new(1, 1).unwrap();
+    half.paint(0, 0, 7).unwrap();
+    half.set_layer_opacity(0, 128).unwrap();
+    assert_eq!(half.frame_rgba(0).unwrap(), vec![74, 140, 196, 128]);
+    half.flatten().unwrap();
+    assert_eq!(half.composite_pixels(0).unwrap(), vec![7]);
+    assert_eq!(
+        half.frame_rgba(0).unwrap(),
+        vec![74, 140, 196, 255],
+        "RGB matches; the opaque result layer does not keep blend alpha"
+    );
+}
+
+#[test]
+fn flatten_keeps_a_translucent_palette_entry_that_already_matches() {
+    let mut document = Document::load_project(
+        r#"{
+  "format": "pixelforge-project",
+  "version": 1,
+  "width": 1,
+  "height": 1,
+  "activeFrame": 0,
+  "palette": [
+    { "r": 0, "g": 0, "b": 0, "a": 0 },
+    { "r": 232, "g": 93, "b": 76, "a": 255 },
+    { "r": 0, "g": 0, "b": 10, "a": 100 }
+  ],
+  "layers": [ { "name": "body" }, { "name": "gear" } ],
+  "frames": [ { "layers": [ { "pixels": [1] }, { "pixels": [2] } ] } ]
+}"#,
+    )
+    .unwrap();
+    assert_eq!(document.frame_rgba(0).unwrap(), vec![0, 0, 10, 100]);
+    assert_eq!(document.composite_pixels(0).unwrap(), vec![2]);
+    document.flatten().unwrap();
+    assert_eq!(document.composite_pixels(0).unwrap(), vec![2]);
+    assert_eq!(document.frame_rgba(0).unwrap(), vec![0, 0, 10, 100]);
+}
+
+#[test]
+fn flatten_of_an_opaque_stack_keeps_the_covering_index() {
+    let mut document = stacked();
+    document.flatten().unwrap();
+    assert_eq!(document.composite_pixels(0).unwrap(), vec![7, 0]);
+    assert_eq!(&document.frame_rgba(0).unwrap()[..4], &[74, 140, 196, 255]);
+}
+
+fn dist(left: [u8; 3], right: [u8; 3]) -> u32 {
+    left.into_iter()
+        .zip(right)
+        .map(|(a, b)| {
+            let delta = i32::from(a) - i32::from(b);
+            u32::try_from(delta * delta).unwrap()
+        })
+        .sum()
 }
 
 #[test]

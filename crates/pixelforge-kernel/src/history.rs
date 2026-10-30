@@ -271,8 +271,9 @@ pub(crate) enum Change {
     },
     /// Every frame was composited into the single default layer.
     ///
-    /// The result is visible and fully opaque. Undo restores the previous
-    /// visibility and opacity with the stack.
+    /// The pixels are the RGBA blend snapped onto the palette. The result is
+    /// visible and fully opaque. Undo restores the previous visibility and
+    /// opacity with the stack.
     Flatten {
         before_names: Vec<String>,
         before_roles: Vec<LayerRole>,
