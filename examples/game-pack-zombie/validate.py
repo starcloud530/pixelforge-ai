@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Re-run validate-atlas --strict on the committed #18 pack.
+"""Re-run validate-atlas --strict and direction validate on the committed #18 pack.
 
-Exit 0 only when the zombie sheet and the prop sheet both have no errors.
-A broken PNG, atlas, or rules file fails this script. PixelForge does not
-need a Rust change for that gate; `cargo test -p pixelforge-cli
-game_pack_zombie` calls the same check.
+Exit 0 only when the zombie sheet and the prop sheet both have no atlas
+errors, and the zombie project passes direction validate (4-direction
+idle/walk). A broken PNG, atlas, rules file, or direction layout fails
+this script. `cargo test -p pixelforge-cli game_pack_zombie` calls the
+atlas check; `game_pack_zombie_directions` calls the direction gate.
 """
 
 from __future__ import annotations
@@ -67,6 +68,29 @@ def validate(binary: str, atlas: Path, rules: Path, pivot: str, four_direction: 
         raise SystemExit(proc.stdout)
 
 
+def validate_directions(binary: str, project: Path) -> None:
+    proc = subprocess.run(
+        [binary, "direction", "validate", "--project", str(project)],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(proc.stderr.strip())
+    if proc.returncode != 0:
+        raise SystemExit(proc.stdout or proc.stderr)
+    body = json.loads(proc.stdout)
+    result = body["result"]
+    if (
+        not body.get("ok")
+        or result["errorCount"] != 0
+        or result["count"] != 4
+        or result["columns"] != 4
+        or len(result["facings"]) != 4
+    ):
+        raise SystemExit(proc.stdout)
+
+
 def main() -> None:
     binary = find_binary()
     validate(
@@ -83,6 +107,7 @@ def main() -> None:
         "checked",
         False,
     )
+    validate_directions(binary, ROOT / "zombie" / "zombie.json")
 
 
 if __name__ == "__main__":

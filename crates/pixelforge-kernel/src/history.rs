@@ -14,6 +14,7 @@
 
 use crate::constraint::Constraint;
 use crate::curve::Curve;
+use crate::direction::DirectionLayout;
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::palette::IndexPolicy;
@@ -165,6 +166,14 @@ pub(crate) enum Change {
     Tileset {
         before: Option<TilesetDecl>,
         after: Option<TilesetDecl>,
+    },
+    /// The direction grid was set or cleared. `None` means no layout is stored.
+    ///
+    /// Tags named from that grid are a separate [`Change::Tags`] entry in the
+    /// same operation when `apply` writes them. This entry does not paint.
+    DirectionLayout {
+        before: Option<DirectionLayout>,
+        after: Option<DirectionLayout>,
     },
     /// The canvas size changed. Each frame keeps its delay; only indices move.
     ///
@@ -435,6 +444,7 @@ fn coalesce(changes: &mut Vec<Change>, change: Change) {
         } => coalesce_delay(changes, index, before, after),
         Change::ActiveFrame { before, after } => coalesce_active(changes, before, after),
         Change::Tags { before, after } => coalesce_tags(changes, before, after),
+        Change::DirectionLayout { before, after } => coalesce_direction(changes, before, after),
         Change::Parts { before, after } => coalesce_parts(changes, before, after),
         Change::Curves { before, after } => coalesce_curves(changes, before, after),
         Change::Constraints { before, after } => coalesce_constraints(changes, before, after),
@@ -688,6 +698,26 @@ fn coalesce_constraints(
     }
 
     changes.push(Change::Constraints { before, after });
+}
+
+fn coalesce_direction(
+    changes: &mut Vec<Change>,
+    before: Option<DirectionLayout>,
+    after: Option<DirectionLayout>,
+) {
+    if let Some(Change::DirectionLayout {
+        before: original,
+        after: slot,
+    }) = changes.last_mut()
+    {
+        debug_assert_eq!(*slot, before, "direction history skipped a write");
+        *slot = after;
+        if *original == *slot {
+            changes.pop();
+        }
+        return;
+    }
+    changes.push(Change::DirectionLayout { before, after });
 }
 
 fn coalesce_tags(changes: &mut Vec<Change>, before: Vec<Tag>, after: Vec<Tag>) {

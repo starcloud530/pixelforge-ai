@@ -402,6 +402,96 @@ impl Document {
         Ok(encode_rgba_png(sheet_width, sheet_height, &rgba))
     }
 
+    /// One row of the given frames, left to right, at nearest-neighbor `scale`.
+    ///
+    /// Used by direction export. The document is not changed. `frames` must be
+    /// non-empty and every index must exist.
+    pub fn export_frame_row(
+        &self,
+        frames: &[usize],
+        scale: u32,
+    ) -> Result<(Vec<u8>, u32, u32), KernelError> {
+        let scale = require_scale(scale)?;
+        let columns = u32::try_from(frames.len()).unwrap_or(0);
+        if columns == 0 {
+            return Err(KernelError::SheetColumns { columns: 0 });
+        }
+        let cell_width = mul_scale(u32::from(self.width()), scale)?;
+        let cell_height = mul_scale(u32::from(self.height()), scale)?;
+        let sheet_width = cell_width
+            .checked_mul(columns)
+            .ok_or(KernelError::ExportScale { scale })?;
+        let sheet_height = cell_height;
+        let len = rgba_byte_len(sheet_width, sheet_height, scale)?;
+        let mut rgba = vec![0; len];
+        let cell_width_px =
+            usize::try_from(cell_width).map_err(|_| KernelError::ExportScale { scale })?;
+        let cell_height_px =
+            usize::try_from(cell_height).map_err(|_| KernelError::ExportScale { scale })?;
+        let sheet_stride =
+            usize::try_from(sheet_width).map_err(|_| KernelError::ExportScale { scale })?;
+        for (column, index) in frames.iter().copied().enumerate() {
+            let pixels = self.frame_rgba(index)?;
+            let scaled = nearest_rgba(&pixels, self.width(), self.height(), scale)?;
+            let origin_x = cell_width_px
+                .checked_mul(column)
+                .ok_or(KernelError::ExportScale { scale })?;
+            blit_rgba(
+                &mut rgba,
+                sheet_stride,
+                origin_x,
+                0,
+                cell_width_px,
+                cell_height_px,
+                &scaled,
+            );
+        }
+        Ok((
+            encode_rgba_png(sheet_width, sheet_height, &rgba),
+            sheet_width,
+            sheet_height,
+        ))
+    }
+
+    /// One-row sheet of a single facing. Does not write the document.
+    pub fn export_direction_sheet(
+        &self,
+        facing_text: &str,
+        scale: u32,
+    ) -> Result<crate::direction::DirectionSheet, KernelError> {
+        let layout = self
+            .direction_layout()
+            .ok_or(KernelError::DirectionMissing)?;
+        let facing =
+            crate::direction::parse_facing(facing_text).ok_or(KernelError::DirectionFacing)?;
+        if facing.index >= layout.count {
+            return Err(KernelError::DirectionFacing);
+        }
+        let columns = layout.columns;
+        let start = usize::from(facing.index) * columns as usize;
+        let end = start + columns as usize;
+        if end > self.frame_count() {
+            return Err(KernelError::DirectionFrames {
+                need: layout.frame_len(),
+                len: self.frame_count(),
+            });
+        }
+        let frames: Vec<usize> = (start..end).collect();
+        let (png, sheet_width, sheet_height) = self.export_frame_row(&frames, scale)?;
+        Ok(crate::direction::DirectionSheet {
+            png,
+            columns,
+            sheet_width,
+            sheet_height,
+            scale,
+            from: u32::try_from(start).expect("frame index fits in u32"),
+            to: u32::try_from(end - 1).expect("frame index fits in u32"),
+            screen: facing.screen,
+            compass: facing.compass,
+            row: u32::from(facing.index),
+        })
+    }
+
     /// Looping APNG of one tag, or of an inclusive frame range.
     ///
     /// Each frame is the same RGBA composite as [`Self::export_frame_png_scaled`]:

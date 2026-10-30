@@ -69,6 +69,9 @@ Examples:
   pixelforge export sheet --project hero.json --output hero-sheet.png --scale 2 --cols 4 --atlas hero-sheet.json
   pixelforge export apng --project hero.json --output walk.apng --tag walk_down
   pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
+  pixelforge direction set --project hero.json --count 4 --columns 4 --apply
+  pixelforge direction validate --project hero.json
+  pixelforge direction export --project hero.json --facing south --output south.png
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, visibility, opacity, palette hash, frame delays) and does not dump
@@ -417,6 +420,17 @@ pub enum Command {
     Tag {
         #[command(subcommand)]
         command: TagCmd,
+    },
+    /// Four-direction or eight-direction tag layout. Not a gait.
+    ///
+    /// Count 4 is N/E/S/W in sheet order: south/down, west/left, east/right,
+    /// north/up. Count 8 appends the diagonals and does not move those rows.
+    /// `set` stores the grid. `apply` writes idle/walk tags. `validate` is a
+    /// hard error when a facing or a key span is missing. Naming tags does
+    /// not paint a natural walk.
+    Direction {
+        #[command(subcommand)]
+        command: DirectionCmd,
     },
     /// Layer stack shared by every frame. Index 0 is the bottom.
     Layer {
@@ -1612,6 +1626,61 @@ impl LoopArg {
             Self::Once => "once",
         }
     }
+}
+
+#[derive(Subcommand)]
+pub enum DirectionCmd {
+    /// Store the facing grid. Does not paint. `--apply` also writes idle/walk tags.
+    Set {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// 4 for N/E/S/W, or 8 to append diagonals.
+        #[arg(long)]
+        count: u8,
+        /// Frames in each facing row, including idle.
+        #[arg(long)]
+        columns: u32,
+        /// Write idle on column 0 and walk on the rest, using the existing tags.
+        #[arg(long)]
+        apply: bool,
+    },
+    /// Remove the layout. Tags stay.
+    Clear {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Write idle/walk tags for the stored layout. Does not paint.
+    Apply {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Hard-fail when a facing or an idle/walk span is missing.
+    ///
+    /// Exit 1 when the checklist has an error. This does not edit the file.
+    /// A pass is not a natural gait.
+    Validate {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// List each facing's frames and the tags on that row.
+    List {
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+    /// Export one facing as a one-row PNG. Cardinals or, on count 8, a diagonal.
+    Export {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// N/E/S/W, a diagonal, or the screen name (down, left, right, up).
+        #[arg(long)]
+        facing: String,
+        /// PNG path.
+        #[arg(long)]
+        output: PathBuf,
+        /// Nearest-neighbor scale. Default 1.
+        #[arg(long, default_value_t = 1)]
+        scale: u32,
+    },
 }
 
 #[derive(Subcommand)]

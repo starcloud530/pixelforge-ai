@@ -11,6 +11,7 @@ use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
 };
+use crate::direction::{self, tags_after_apply, DirectionLayout, DirectionReport};
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::history::{Change, History};
@@ -396,6 +397,11 @@ pub struct Document {
     /// Named inclusive frame ranges. Empty when the file omits `tags`.
     /// Not a linked cel: each frame still owns its pixels.
     tags: Vec<Tag>,
+    /// Facing rows for idle/walk tags. `None` omits `directionLayout`.
+    ///
+    /// Count 4 is N/E/S/W in sheet order (south, west, east, north). Count 8
+    /// appends the diagonals. This does not paint a gait.
+    direction_layout: Option<DirectionLayout>,
     /// Named parts and local anchors. Empty when the file omits `parts`.
     /// Not a layer and not a pixel buffer.
     parts: Vec<Part>,
@@ -456,6 +462,7 @@ impl Document {
             active_layer: 0,
             selection: None,
             tags: Vec::new(),
+            direction_layout: None,
             parts: Vec::new(),
             curves: Vec::new(),
             constraints: Vec::new(),
@@ -3055,6 +3062,88 @@ impl Document {
         Ok(index)
     }
 
+    /// Facing grid, when one is stored. `None` omits `directionLayout`.
+    pub fn direction_layout(&self) -> Option<DirectionLayout> {
+        self.direction_layout
+    }
+
+    /// Stores the facing grid. `apply_tags` also writes the idle/walk split.
+    ///
+    /// The same layout, and tags that are already that split, are not recorded.
+    /// A failed apply writes nothing, including the layout. One undo step when
+    /// either the layout or the tags change. This does not paint.
+    pub fn set_direction_layout(
+        &mut self,
+        layout: DirectionLayout,
+        apply_tags: bool,
+    ) -> Result<bool, KernelError> {
+        let next_tags = if apply_tags {
+            if self.frame_count() != layout.frame_len() {
+                return Err(KernelError::DirectionFrames {
+                    need: layout.frame_len(),
+                    len: self.frame_count(),
+                });
+            }
+            Some(tags_after_apply(&self.tags, layout)?)
+        } else {
+            None
+        };
+        let layout_changes = self.direction_layout != Some(layout);
+        let tag_changes = next_tags.as_ref().is_some_and(|tags| tags != &self.tags);
+        if !layout_changes && !tag_changes {
+            return Ok(false);
+        }
+        let before_layout = self.direction_layout;
+        let before_tags = self.tags.clone();
+        self.direction_layout = Some(layout);
+        if let Some(tags) = next_tags {
+            self.tags = tags;
+        }
+        let mut changes = Vec::new();
+        if layout_changes {
+            changes.push(Change::DirectionLayout {
+                before: before_layout,
+                after: Some(layout),
+            });
+        }
+        if before_tags != self.tags {
+            changes.push(Change::Tags {
+                before: before_tags,
+                after: self.tags.clone(),
+            });
+        }
+        if !changes.is_empty() {
+            self.history.record_group(changes);
+        }
+        Ok(true)
+    }
+
+    /// Drops the facing grid. Tags stay. A missing layout is not recorded.
+    pub fn clear_direction_layout(&mut self) {
+        let Some(before) = self.direction_layout else {
+            return;
+        };
+        self.direction_layout = None;
+        self.history.record(Change::DirectionLayout {
+            before: Some(before),
+            after: None,
+        });
+    }
+
+    /// Writes idle/walk tags for the stored layout. Does not paint.
+    pub fn apply_direction_tags(&mut self) -> Result<bool, KernelError> {
+        let layout = self.direction_layout.ok_or(KernelError::DirectionMissing)?;
+        self.set_direction_layout(layout, true)
+    }
+
+    /// Hard checklist. Missing directions and missing idle/walk spans are errors.
+    ///
+    /// Does not write. There is no loose mode: the caller treats `error_count`
+    /// above zero as a failed gate. Naming tags is not a natural gait.
+    pub fn direction_report(&self) -> DirectionReport {
+        direction::report(self.frame_count(), &self.tags, self.direction_layout)
+    }
+
     /// Named parts, in insertion order. Empty when the file has none.
     pub fn parts(&self) -> &[Part] {
         &self.parts
@@ -4731,6 +4820,7 @@ impl Document {
         active_layer: usize,
         selection: Option<Mask>,
         tags: Vec<Tag>,
+        direction_layout: Option<DirectionLayout>,
         parts: Vec<Part>,
         curves: Vec<Curve>,
         constraints: Vec<Constraint>,
@@ -4827,6 +4917,7 @@ impl Document {
             active_layer,
             selection,
             tags,
+            direction_layout,
             parts,
             curves,
             constraints,
@@ -5302,6 +5393,9 @@ impl Document {
             }
             Change::Tileset { before, after } => {
                 self.tileset = if forward { *after } else { *before };
+            }
+            Change::DirectionLayout { before, after } => {
+                self.direction_layout = if forward { *after } else { *before };
             }
             Change::CanvasResize {
                 before_width,

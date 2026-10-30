@@ -45,6 +45,7 @@ mod atlas;
 mod color;
 mod constraint;
 mod curve;
+mod direction;
 mod document;
 mod error;
 mod export;
@@ -74,6 +75,10 @@ pub use constraint::{Constraint, ConstraintKind, Contact, SolveReport};
 pub use curve::{
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
     SampleHit,
+};
+pub use direction::{
+    parse_direction_tag, parse_facing, DirectionAction, DirectionFacingView, DirectionFinding,
+    DirectionLayout, DirectionReport, DirectionSegmentView, DirectionSheet, Facing, IdleWalkFault,
 };
 pub use document::{BakeFrame, BakeOptions, BakeReport, Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};

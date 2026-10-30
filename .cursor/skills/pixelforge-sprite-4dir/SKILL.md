@@ -104,6 +104,40 @@ pixelforge export apng --project hero.json --output walk_down.apng --tag walk_do
 
 *Tag after the frames exist. A tag is an inclusive range, so each facing gets its own `idle_*` and `walk_*` tag. The pattern is `{action}_{facing}` with facings `down`, `left`, `right`, `up` in row order. `loop` `forward` repeats. Document playback still walks the whole timeline. Tags are not cel links. Duplicating the last frame of a tag leaves the copy untagged, so tag the row once the cycle is built. `--atlas` writes frame rects, `delayMs`, `columns`, and tags. Omit it and the sheet export stays PNG-only. `export apng --tag walk_down` plays that tag with each frame's delay. It is a preview, not the sheet. After export, run `validate-atlas` before game import. An error is a non-zero exit; do not hand that sheet to the game. The worked 64×64 pack is `examples/game-pack-zombie/`; `validate.py` re-runs the strict gate, and `FAILURES.md` lists what Godot and Unity still reject.*
 
+## Direction layout
+
+帧和标签齐了之后，把这张表的行数写进工程。这仍是原来的 `{动作}_{朝向}` 标签，不是另一套动画语言。
+
+四向是正式约定，罗盘是 N/E/S/W，行序不按从北顺时针排，跟上面的表一样：
+
+| 行 | 罗盘 | 标签后缀 |
+| --- | --- | --- |
+| 0 | S | `down` |
+| 1 | W | `left` |
+| 2 | E | `right` |
+| 3 | N | `up` |
+
+八向是可选扩展。`--count 8` 在这四行后面加四行对角，不挪前四行：`downleft`（SW）、`downright`（SE）、`upleft`（NW）、`upright`（NE）。对角后缀是一个词，或 `sw` / `se` / `nw` / `ne`。不要写成 `down_left`。
+
+`columns` 是每一行的帧数。常见 1 个 idle 加 3 个 walk 时是 4。帧数必须正好是 `count * columns`。少了是缺帧，多了也对不上这块布局。
+
+```bash
+pixelforge direction set --project hero.json --count 4 --columns 4 --apply
+pixelforge direction validate --project hero.json
+pixelforge direction list --project hero.json
+pixelforge direction export --project hero.json --facing south --output south.png
+```
+
+`--apply`（或之后的 `direction apply`）按上面的切分写 idle/walk：idle 是该行第一格，walk 是剩下的格子。已经叫 `idle_south` 的标签留着这个名字，只把区间改准。它不画像素，不发明步态。`direction validate` 在缺朝向、缺这一行的帧、或 idle/walk 区间不对时退出码 1。没有 loose。其它已经出现的动作（例如 `attack_down`）必须四个朝向都有，而且相对列区间相同。
+
+`direction export --facing` 接受 `S`、`south`、`down`，八向布局再接受对角。导出的是这一行的一张表，不是另一份 atlas。整张表仍用 `export sheet --cols`，再 `validate-atlas`。
+
+丧尸包 `examples/game-pack-zombie/` 的工程带 `directionLayout` `{count: 4, columns: 4}`。`validate.py` 会跑 `direction validate`。道具没有方向布局。
+
+自动命名和 `direction validate` 通过，只说明帧段齐了。脚滑、高光、动作僵不僵，仍要自己看 `diff` 和 `preview`。这不是自然步态，也不是审美通过。
+
+*Store the row count after the tags exist. The names stay `{action}_{facing}`. Four directions are N/E/S/W in sheet order: S/`down`, W/`left`, E/`right`, N/`up`. Eight directions append SW/`downleft`, SE/`downright`, NW/`upleft`, NE/`upright` and do not move the first four rows. A diagonal suffix is one token. `--apply` writes the idle/walk split and does not paint. `direction validate` exits 1 when a facing, a row of frames, or an idle/walk span is missing. There is no loose mode. Another action such as `attack_down` must exist on every facing with the same relative columns. `direction export` writes that one row. The full sheet is still `export sheet` plus `validate-atlas`. The zombie pack stores `count: 4` and `columns: 4`. A pass means the spans are present. It is not a natural gait and not an aesthetic pass.*
+
 ## Build a facing
 
 1. 画好该朝向的 idle（新身体走剪影 → 色块 → 细节，每阶段 `preview --scale 4`）。

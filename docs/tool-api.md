@@ -662,6 +662,95 @@ CLI：`pixelforge tag remove --name walk_down`。
 
 错误：`TagName`、`TagMissing`。
 
+### 方向布局 Direction layout
+
+方向布局记的是朝向行怎么排，不是第二条动画语言，也不是步态。它写在工程文件的 `directionLayout` 里：`{ "count", "columns" }`。没有布局时省略。旧文件按没有布局读入。版本仍是 1。
+
+`count` 是 `4` 或 `8`。`4` 是正式的 N/E/S/W。行序跟精灵表一样，不是从北顺时针排：
+
+| 行 | 罗盘 | 标签后缀 |
+| --- | --- | --- |
+| 0 | S | `down` |
+| 1 | W | `left` |
+| 2 | E | `right` |
+| 3 | N | `up` |
+| 4 | SW | `downleft` |
+| 5 | SE | `downright` |
+| 6 | NW | `upleft` |
+| 7 | NE | `upright` |
+
+`8` 把四行对角接在这四行后面，不挪前四行。`columns` 是每一行的帧数，至少 1。`count * columns` 不能超过 4096。
+
+标签仍是原来的 `{动作}_{朝向}`。朝向可以写画面名，也可以写罗盘别名（`south`、`s`、`sw`、`southwest`）。自动起的名字用画面后缀，所以已有的 `idle_down` 不用改名。对角是一个词：`downleft` 或 `sw`，不是 `down_left`。
+
+idle / walk 的切分和精灵表一样：有 idle 时它只占该行第一格，walk 占剩下的格子；这一行没有 idle 时，整行可以只打 `walk_{朝向}`；只有一格时不该再有 walk。其它已经出现的 `{动作}_{朝向}`（例如 `attack_down`）必须在布局里的每一个朝向都有，而且相对该行的列区间相同。对不上是硬错误。
+
+`validateDirections` 的 `result.errors` 里，`code` 是 `layout`、`frames`、`missingDirection` 或 `segment`。`errorCount` 大于 0 就是没过。没有 loose。这条命令不改文件。通过只说明帧段齐，不说明走起来自然，也不说明好看。
+
+`applyDirectionTags` 按上面的标准切分写下 idle/walk。一格的行只写 idle。更长的行把 idle 放在第一格、walk 放在其余格。已经用别名的标签留着原名，只改区间。同一个动作在同一个朝向有两个名字时整次不写。不画像素。`setDirectionLayout` 的 `apply: true` 把存布局和写标签收成一步撤销。
+
+*A direction layout stores how facing rows are arranged. It is not a second animation language and not a gait. The project file stores `directionLayout` as `{ count, columns }` and omits it when unset. Old files load with no layout. The version stays 1.*
+
+*`count` is 4 or 8. 4 is the formal N/E/S/W set. Row order matches the sheet, not compass order clockwise from north: S/`down`, W/`left`, E/`right`, N/`up`. 8 appends SW/`downleft`, SE/`downright`, NW/`upleft`, NE/`upright` and does not move the first four rows. `columns` is the frame count of each row. `count * columns` must be from 1 to 4096.*
+
+*Tags stay `{action}_{facing}`. A facing accepts the screen suffix or a compass alias (`south`, `s`, `sw`, `southwest`). Auto-named tags use the screen suffix, so an existing `idle_down` keeps that name. A diagonal is one token, `downleft` or `sw`, not `down_left`.*
+
+*The idle/walk split matches the sheet: idle, when present, is only the first frame of the row, and walk is the rest. A row with no idle may be walk across the whole row. A one-frame row has no walk after idle. Any other `{action}_{facing}` that already exists, such as `attack_down`, must exist on every facing in the layout and cover the same columns relative to that row. A miss is a hard error.*
+
+*`validateDirections` reports `layout`, `frames`, `missingDirection`, or `segment` in `result.errors`. `errorCount` above zero fails the gate. There is no loose mode. The call does not write. A pass means the spans are present. It does not mean the gait is natural or that the picture passes an aesthetic check.*
+
+*`applyDirectionTags` writes that idle/walk split. A one-frame row gets idle only. A longer row puts idle on the first frame and walk on the rest. An alias tag keeps its name and its range is corrected. Two names for one action on one facing write nothing. It does not paint. `setDirectionLayout` with `apply: true` stores the layout and the tags in one undo step.*
+
+### `setDirectionLayout`
+
+`params`：`count`（`4` 或 `8`）、`columns`（至少 1）。可选 `apply`（缺省 false）。
+
+`result`：`{ "count", "columns", "wrote", "apply" }`。`apply` 为 true 时还有 `report`，形状与 `validateDirections` 相同。布局和标签都没变时 `wrote` 是 false，不进撤销栈。`apply` 时帧数对不上，或同一段有两个名字，整次不写，布局也不留下。
+
+CLI：`pixelforge direction set --count 4 --columns 4`。加上 `--apply` 同时写标签。
+
+错误：`DirectionLayout`、`DirectionFrames`、`DirectionSegment`。
+
+### `clearDirectionLayout`
+
+参数：无。标签还在。本来就没有布局时不进撤销栈。
+
+`result`：`{ "directionLayout": null }`。
+
+CLI：`pixelforge direction clear`。
+
+### `applyDirectionTags`
+
+参数：无。需要已经存下的布局。
+
+`result`：和 `validateDirections` 一样，再加 `wrote`。
+
+CLI：`pixelforge direction apply`。
+
+错误：`DirectionMissing`、`DirectionFrames`、`DirectionSegment`。
+
+### `validateDirections`
+
+参数：无。只读。不进撤销栈。
+
+`result`：`{ "count", "columns", "errorCount", "errors", "facings" }`。没有布局时 `count` 和 `columns` 是 null，`errors` 里有一条 `layout`。`facings` 的每一项是 `{ "row", "compass", "screen", "from", "to", "present", "segments" }`。`segments` 的每一项是 `{ "action", "name", "from", "to", "loop" }`。
+
+CLI：`pixelforge direction validate`。`errorCount` 大于 0 时退出码是 1。工具响应本身仍是 `ok: true`，因为检查跑完了。
+
+### `listDirections`
+
+参数和 `result` 与 `validateDirections` 相同。只读。CLI `pixelforge direction list` 只要检查跑完就退出码 0，错误留在 `errors` 里。
+
+### `exportDirection`
+
+`params`：`facing`。可选 `scale`（缺省 1）。`facing` 接受 `N`/`E`/`S`/`W`、`down`/`left`/`right`/`up`，布局是 8 时再接受对角。
+
+`result`：`png`（base64）、`facing`（画面后缀）、`compass`、`row`、`from`、`to`、`columns`、`rows`（恒为 1）、`sheetWidth`、`sheetHeight`、`scale`。不写文件，不改工程。这一行不是另一份 atlas。
+
+CLI：`pixelforge direction export --facing south --output south.png`。文件由 CLI 写到 `--output`。
+
+错误：`DirectionMissing`、`DirectionFacing`、`DirectionFrames`。`scale` 不是至少 1 的整数时是 `InvalidParams` 或 `ExportScale`。
+
 ### 部件与锚点 Parts and anchors
 
 部件是名字、画布上的静止原点，可选的层下标，和一组命名锚点。它写在工程文件的 `parts` 里；没有部件时省略这个字段。旧文件没有该字段时按空列表读入。撤销栈仍然不进文件。

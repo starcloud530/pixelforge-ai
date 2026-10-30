@@ -417,6 +417,41 @@ const BY_NAME = {
     },
     ["name"],
   ),
+  setDirectionLayout: tool(
+    "setDirectionLayout",
+    "Store a 4-direction (N/E/S/W) or 8-direction grid. Rows stay down, left, right, up, then the diagonals. apply true writes idle/walk tags with the existing tag tools. It does not paint a gait. The same layout is not recorded.",
+    {
+      count: int("4 for cardinals, or 8 to append diagonals.", 4, 8),
+      columns: int("Frames in each facing row.", 1, 4096),
+      apply: { type: "boolean", description: "When true, also write idle on column 0 and walk on the rest." },
+    },
+    ["count", "columns"],
+  ),
+  clearDirectionLayout: tool(
+    "clearDirectionLayout",
+    "Remove the direction layout. Tags stay. A missing layout is not recorded.",
+  ),
+  applyDirectionTags: tool(
+    "applyDirectionTags",
+    "Write idle/walk tags for the stored layout. One-frame rows get idle only. Longer rows get idle on the first frame and walk on the rest. Alias names such as idle_south are kept. Does not paint. Two names for one segment fails and writes nothing.",
+  ),
+  validateDirections: tool(
+    "validateDirections",
+    "Hard checklist for missing facings and missing idle/walk spans. errorCount above zero is a failed gate. Does not write. A pass is not a natural gait or an aesthetic pass.",
+  ),
+  listDirections: tool(
+    "listDirections",
+    "List each facing row, its compass id, and the tags on that row. Does not write.",
+  ),
+  exportDirection: tool(
+    "exportDirection",
+    "Export one facing as a one-row PNG. facing accepts N/E/S/W, down/left/right/up, or a diagonal when count is 8. Does not write the project. The PNG is returned as base64.",
+    {
+      facing: { type: "string", description: "N, E, S, W, a diagonal, or down, left, right, up." },
+      scale: int("Nearest-neighbor scale, at least 1. Omit for 1.", 1, 4294967295),
+    },
+    ["facing"],
+  ),
   listParts: tool(
     "listParts",
     "Read named parts and their anchors. A part is not a layer. Does not change the document.",
@@ -976,6 +1011,9 @@ export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "sampleCurve",
   "samplePart",
   "listConstraints",
+  "validateDirections",
+  "listDirections",
+  "exportDirection",
 ];
 
 function tool(
