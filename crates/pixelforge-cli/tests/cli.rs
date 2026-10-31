@@ -4419,6 +4419,122 @@ fn game_pack_zombie_directions_pass_and_a_missing_walk_fails() {
     assert!(stderr(&failed).contains("missingDirection"));
 }
 
+/// Paint one side, mirror and copy the other cardinals, then the hard gate passes.
+///
+/// The commands match `examples/direction-fill/README.md`.
+#[test]
+fn direction_fill_from_one_side_then_validate_passes() {
+    let scratch = Scratch::new();
+    let project = scratch.child("hero.json");
+    let path = project.to_str().unwrap();
+    ok(&["new", "--width", "8", "--height", "4", "--output", path]);
+    for _ in 0..15 {
+        ok(&["frame", "add", "--project", path]);
+    }
+    ok(&[
+        "direction",
+        "set",
+        "--project",
+        path,
+        "--count",
+        "4",
+        "--columns",
+        "4",
+        "--apply",
+    ]);
+    ok(&["frame", "select", "--project", path, "--index", "4"]);
+    ok(&[
+        "paint",
+        "--project",
+        path,
+        "--x",
+        "1",
+        "--y",
+        "0",
+        "--color-index",
+        "1",
+    ]);
+    let mirrored = ok(&[
+        "direction",
+        "fill",
+        "--project",
+        path,
+        "--from",
+        "left",
+        "--mode",
+        "mirror",
+    ]);
+    let mirrored_body = &json_lines(&mirrored)[0];
+    assert_eq!(mirrored_body["result"]["from"], json!("left"));
+    assert_eq!(mirrored_body["result"]["mode"], json!("mirror"));
+    assert_eq!(mirrored_body["result"]["framesWritten"], json!(1));
+    assert_eq!(mirrored_body["result"]["diagonals"], json!("none"));
+
+    let copied = ok(&[
+        "direction",
+        "fill",
+        "--project",
+        path,
+        "--from",
+        "left",
+        "--mode",
+        "copy",
+    ]);
+    let copied_body = &json_lines(&copied)[0];
+    assert_eq!(copied_body["result"]["framesWritten"], json!(2));
+    assert_eq!(copied_body["result"]["framesSkipped"], json!(1));
+
+    let passed = ok(&["direction", "validate", "--project", path]);
+    assert!(stderr(&passed).contains("direction validate: ok"));
+    assert_eq!(json_lines(&passed)[0]["result"]["errorCount"], json!(0));
+
+    let document = load(&project);
+    assert_eq!(document.frame_pixels(4).unwrap()[1], 1);
+    assert_eq!(document.frame_pixels(8).unwrap()[6], 1);
+    assert_eq!(document.frame_pixels(8).unwrap()[1], 0);
+    assert_eq!(document.frame_pixels(0).unwrap()[1], 1);
+    assert_eq!(document.frame_pixels(12).unwrap()[1], 1);
+
+    let refused = pixelforge(&arg(&[
+        "direction",
+        "fill",
+        "--project",
+        path,
+        "--from",
+        "down",
+        "--mode",
+        "mirror",
+    ]));
+    assert_eq!(status(&refused), 1, "{}", stderr(&refused));
+    assert_eq!(
+        json_lines(&refused)[0]["error"]["code"],
+        json!("DirectionFill")
+    );
+    let document = load(&project);
+    assert_eq!(document.frame_pixels(4).unwrap()[1], 1);
+
+    let bare = scratch.child("bare.json");
+    let bare_path = bare.to_str().unwrap();
+    ok(&[
+        "new", "--width", "4", "--height", "4", "--output", bare_path,
+    ]);
+    let missing = pixelforge(&arg(&[
+        "direction",
+        "fill",
+        "--project",
+        bare_path,
+        "--from",
+        "down",
+        "--mode",
+        "copy",
+    ]));
+    assert_eq!(status(&missing), 1, "{}", stderr(&missing));
+    assert_eq!(
+        json_lines(&missing)[0]["error"]["code"],
+        json!("DirectionMissing")
+    );
+}
+
 fn ok(args: &[&str]) -> Output {
     let output = pixelforge(&arg(args));
     assert_eq!(status(&output), 0, "{}", stderr(&output));

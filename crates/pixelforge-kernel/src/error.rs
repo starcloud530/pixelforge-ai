@@ -239,6 +239,12 @@ pub enum KernelError {
     DirectionFrames { need: usize, len: usize },
     /// Two tags name the same action on the same facing.
     DirectionSegment,
+    /// `direction fill` cannot copy this facing.
+    ///
+    /// Diagonals are left unchanged, `mirror` only pairs left with right, or
+    /// a source `{action}_{facing}` segment is missing or outside its row.
+    /// The call writes nothing.
+    DirectionFill { detail: String },
 }
 
 /// Why [`KernelError::ProjectFile`] rejected a project file.
@@ -451,6 +457,7 @@ impl KernelError {
             Self::DirectionFacing => "DirectionFacing",
             Self::DirectionFrames { .. } => "DirectionFrames",
             Self::DirectionSegment => "DirectionSegment",
+            Self::DirectionFill { .. } => "DirectionFill",
         }
     }
 }
@@ -697,6 +704,7 @@ impl fmt::Display for KernelError {
             Self::DirectionSegment => {
                 write!(f, "direction segment is named more than once")
             }
+            Self::DirectionFill { detail } => write!(f, "{detail}"),
         }
     }
 }

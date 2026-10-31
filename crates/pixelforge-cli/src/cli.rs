@@ -71,6 +71,8 @@ Examples:
   pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png
   pixelforge direction set --project hero.json --count 4 --columns 4 --apply
   pixelforge direction validate --project hero.json
+  pixelforge direction fill --project hero.json --from left --mode mirror
+  pixelforge direction fill --project hero.json --from down --mode copy
   pixelforge direction export --project hero.json --facing south --output south.png
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
@@ -442,8 +444,9 @@ pub enum Command {
     /// Count 4 is N/E/S/W in sheet order: south/down, west/left, east/right,
     /// north/up. Count 8 appends the diagonals and does not move those rows.
     /// `set` stores the grid. `apply` writes idle/walk tags. `validate` is a
-    /// hard error when a facing or a key span is missing. Naming tags does
-    /// not paint a natural walk.
+    /// hard error when a facing or a key span is missing. `fill` copies or
+    /// horizontally mirrors cardinal pixels into the other cardinal rows.
+    /// Naming tags does not paint a natural walk, and fill is not one either.
     Direction {
         #[command(subcommand)]
         command: DirectionCmd,
@@ -1649,6 +1652,23 @@ impl LoopArg {
     }
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+pub enum DirectionFillMode {
+    /// Horizontally flip left into right, or right into left.
+    Mirror,
+    /// Repeat the source indices on the other cardinals. Does not flip.
+    Copy,
+}
+
+impl DirectionFillMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mirror => "mirror",
+            Self::Copy => "copy",
+        }
+    }
+}
+
 #[derive(Subcommand)]
 pub enum DirectionCmd {
     /// Store the facing grid. Does not paint. `--apply` also writes idle/walk tags.
@@ -1687,6 +1707,25 @@ pub enum DirectionCmd {
     List {
         #[command(flatten)]
         doc: ProjectArgs,
+    },
+    /// Copy or horizontally mirror one cardinal into the other cardinals.
+    ///
+    /// `mirror` flips left into right, or right into left. `copy` repeats the
+    /// source on the other three cardinals and does not flip. Non-empty target
+    /// frames are skipped unless `--overwrite`. Diagonal rows are not filled.
+    /// This is not new art and not a natural gait.
+    Fill {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Source facing: N/E/S/W, or down/left/right/up.
+        #[arg(long)]
+        from: String,
+        /// `mirror` flips left and right. `copy` repeats the source.
+        #[arg(long, value_enum)]
+        mode: DirectionFillMode,
+        /// Replace target frames that already hold ink or an explicit erase.
+        #[arg(long)]
+        overwrite: bool,
     },
     /// Export one facing as a one-row PNG. Cardinals or, on count 8, a diagonal.
     Export {

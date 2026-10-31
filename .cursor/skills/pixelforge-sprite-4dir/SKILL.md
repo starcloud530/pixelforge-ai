@@ -7,8 +7,9 @@ description: >-
   export sheet --cols, tagging ranges as idle_down / walk_down, writing
   --atlas JSON, running validate-atlas after export and before game
   import, copying a rectangle across frames, checking foot slide
-  (脚滑) with diff, or mirroring a side view with hflip and then repairing
-  highlights, or exporting one tag as a playable APNG preview. For a later
+  (脚滑) with diff, mirroring a side view with hflip and then repairing
+  highlights, filling the other cardinal facings with `direction fill`
+  (mirror or copy), or exporting one tag as a playable APNG preview. For a later
   frame of the same pose, duplicate it and edit
   the diff, or copyRect into a slot that already exists; merge scanline
   fillRects into one taller rect. Follow the pixelforge
@@ -125,18 +126,31 @@ pixelforge export apng --project hero.json --output walk_down.apng --tag walk_do
 pixelforge direction set --project hero.json --count 4 --columns 4 --apply
 pixelforge direction validate --project hero.json
 pixelforge direction list --project hero.json
+pixelforge direction fill --project hero.json --from left --mode mirror
+pixelforge direction fill --project hero.json --from down --mode copy
 pixelforge direction export --project hero.json --facing south --output south.png
 ```
 
 `--apply`（或之后的 `direction apply`）按上面的切分写 idle/walk：idle 是该行第一格，walk 是剩下的格子。已经叫 `idle_south` 的标签留着这个名字，只把区间改准。它不画像素，不发明步态。`direction validate` 在缺朝向、缺这一行的帧、或 idle/walk 区间不对时退出码 1。没有 loose。其它已经出现的动作（例如 `attack_down`）必须四个朝向都有，而且相对列区间相同。
 
+`direction fill` 在标签和帧已经铺好之后，把一个基本朝向的像素填进其它基本朝向。先画好 left（或 right）的 idle/walk，再：
+
+```bash
+pixelforge direction fill --project hero.json --from left --mode mirror
+pixelforge direction fill --project hero.json --from left --mode copy
+```
+
+`mirror` 把 left 水平翻成 right，或把 right 翻成 left。`x` 收到 `width - 1 - x`，只搬索引，不改颜色，也不搬部件。北和南不能 `mirror`。`copy` 把源朝向原样拷到其余三个基本朝向（down、right、up，源是 left 时）。先镜像再 copy 时，已经有墨的 right 会被跳过，down 和 up 才是未翻转的占位。`--overwrite` 才盖掉已有帧。任一层有非 0 索引或显式擦除，整帧都算非空。源朝向缺 idle/walk，或布局里别的基本朝向已经有、源朝向却没有的 `{动作}_{朝向}`，整次不写。填充不写标签。八向的 `downleft` / `downright` / `upleft` / `upright` 这一版不填，`result.diagonals` 是 `skipped`。
+
+这不是新画。镜像之后仍要 `paint` 把高光画回光源一侧，再 `preview --frame N --scale 4` 和 `diff` 看脚。`copy` 出来的北和南不是背面或正面的新姿势。通过 `direction validate` 只说明帧段还在。不是自然步态，不是审美通过，也不是 PixelLab 自动画四向。8×4 的命令例子在 `examples/direction-fill/`。
+
 `direction export --facing` 接受 `S`、`south`、`down`，八向布局再接受对角。导出的是这一行的一张表，不是另一份 atlas。整张表仍用 `export sheet --cols`，再 `validate-atlas`。
 
-丧尸包 `examples/game-pack-zombie/` 的工程带 `directionLayout` `{count: 4, columns: 4}`。`validate.py` 会跑 `direction validate`。道具没有方向布局。
+丧尸包 `examples/game-pack-zombie/` 的工程带 `directionLayout` `{count: 4, columns: 4}`。`validate.py` 会跑 `direction validate`。道具没有方向布局。已提交的右朝向是 left 镜像之后又把高光画回去的，不要对那份工程 `direction fill --overwrite`。
 
-自动命名和 `direction validate` 通过，只说明帧段齐了。脚滑、高光、动作僵不僵，仍要自己看 `diff` 和 `preview`。这不是自然步态，也不是审美通过。
+自动命名、`direction fill` 和 `direction validate` 通过，只说明帧段齐了、像素按规则搬过。脚滑、高光、动作僵不僵，仍要自己看 `diff` 和 `preview`。这不是自然步态，也不是审美通过，也不是 PixelLab 自动画四向。
 
-*Store the row count after the tags exist. The names stay `{action}_{facing}`. Four directions are N/E/S/W in sheet order: S/`down`, W/`left`, E/`right`, N/`up`. Eight directions append SW/`downleft`, SE/`downright`, NW/`upleft`, NE/`upright` and do not move the first four rows. A diagonal suffix is one token. `--apply` writes the idle/walk split and does not paint. `direction validate` exits 1 when a facing, a row of frames, or an idle/walk span is missing. There is no loose mode. Another action such as `attack_down` must exist on every facing with the same relative columns. `direction export` writes that one row. The full sheet is still `export sheet` plus `validate-atlas`. The zombie pack stores `count: 4` and `columns: 4`. A pass means the spans are present. It is not a natural gait and not an aesthetic pass.*
+*Store the row count after the tags exist. The names stay `{action}_{facing}`. Four directions are N/E/S/W in sheet order: S/`down`, W/`left`, E/`right`, N/`up`. Eight directions append SW/`downleft`, SE/`downright`, NW/`upleft`, NE/`upright` and do not move the first four rows. A diagonal suffix is one token. `--apply` writes the idle/walk split and does not paint. `direction fill --mode mirror` flips left into right, or right into left, after those segments exist. `--mode copy` repeats one cardinal on the other three and does not flip. Ink already on a target frame is kept unless `--overwrite` is set. Diagonal rows are not filled. A missing source segment writes nothing. Fill does not write tags and does not repair highlights. `direction validate` exits 1 when a facing, a row of frames, or an idle/walk span is missing. There is no loose mode. Another action such as `attack_down` must exist on every facing with the same relative columns. `direction export` writes that one row. The full sheet is still `export sheet` plus `validate-atlas`. The zombie pack stores `count: 4` and `columns: 4`. Its committed right row is a mirror plus a highlight pass; do not `--overwrite` it with `direction fill`. A pass means the spans are present. It is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw.*
 
 ## Build a facing
 
@@ -194,7 +208,7 @@ pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 
 ## hflip and highlights
 
-右朝向可以从左朝向镜像，或反过来。`hflip` 不用再写 `--horizontal`。左右朝向用这一条。上下镜像是 `vflip`，顺时针转 90、180、270 是 `rotate --degrees`。那两条不代替左右朝向。
+右朝向可以从左朝向镜像，或反过来。整行槽位已经按 `directionLayout` 铺好时，用 `direction fill --from left --mode mirror`，一次写完 right 那一行里源朝向已有的帧段。只翻一帧时仍用 `hflip`，不用再写 `--horizontal`。上下镜像是 `vflip`，顺时针转 90、180、270 是 `rotate --degrees`。那两条不代替左右朝向。北和南用 `direction fill --mode copy` 只是占位，不是新的正面或背面。
 
 ```bash
 pixelforge hflip --project hero.json --frame 2
@@ -202,4 +216,4 @@ pixelforge hflip --project hero.json --frame 2
 
 镜像只搬索引，不改颜色。画面左上的光源不会跟着翻：高光格子跟着身体到了另一侧。镜像之后用 `paint` 把高光画回光源那一侧，再 `preview --frame N --scale 4`。伤疤、包、破布如果设计上就该跟着翻，可以留着；光的色阶不要留在翻错的一侧。
 
-*hflip does not recolor. Repaint highlights on the light side after the mirror. Check feet with diff before export.*
+*`hflip` and `direction fill --mode mirror` do not recolor. Repaint highlights on the light side after the mirror. `copy` is a placeholder, not a new facing. Check feet with diff before export.*

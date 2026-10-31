@@ -25,7 +25,8 @@ description: >-
   or building a tileset, a 4-neighbor autotile, a tilemap, and a Tiled `.tmj`.
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
-  drawing request inside one batched call.
+  drawing request inside one batched call. `direction fill` mirrors or copies
+  one cardinal facing into the other cardinals.
   Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
   pixelforge-layers, pixelforge-critique) must follow this skill's index-color
   invariants before their own workflow.
@@ -395,6 +396,21 @@ pixelforge export apng --project hero.json --output walk.apng --tag walk_down
 `tag add` 给闭区间起名。`loop` 是 `forward`（缺省）、`reverse`、`pingpong` 或 `once`。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。标签不是 cel 链接，复制帧仍然复制像素。整条时间轴的循环预览不按标签播放。要按标签看循环，用上面的 `export apng --tag`。那是预览文件，不是精灵表。四向表的行、列、标签名和脚滑检查见 `pixelforge-sprite-4dir`。
 
 *A tag names an inclusive range. `loop` is `forward` (the default), `reverse`, `pingpong`, or `once`. An empty tag list is omitted from the project file. Tags are not cel links. Playback of the whole timeline is unchanged. `export apng --tag` writes a looping APNG of that tag. It is a preview, not the sheet. Four-direction names live in `pixelforge-sprite-4dir`.*
+
+### 方向填充 Direction fill
+
+`direction set` 记下朝向行，`direction apply` 只写 `{动作}_{朝向}` 标签，不画像素。帧和源朝向的 idle/walk 已经在时，`direction fill` 把那一行的索引导进其它基本朝向。这仍是原来的标签，不是另一套动画语言。
+
+```bash
+pixelforge direction set --project hero.json --count 4 --columns 4 --apply
+pixelforge direction fill --project hero.json --from left --mode mirror
+pixelforge direction fill --project hero.json --from left --mode copy
+pixelforge direction validate --project hero.json
+```
+
+`mirror` 把 left 水平翻到 right，或反过来。`copy` 原样拷到其余三个基本朝向，给北和南占位。已有墨水的目标帧默认跳过，`--overwrite` 才盖掉。八向的对角行不填。缺源帧段整次不写。只搬索引，不改颜色，不搬部件，不修高光。镜像之后要自己把高光画回光源一侧。`copy` 不是新的走路。`direction validate` 通过只说明帧段齐。这不是自然步态，不是审美通过，也不是 PixelLab 自动画四向。排表和脚滑见 `pixelforge-sprite-4dir`。8×4 例子是 `examples/direction-fill/`。
+
+*`direction set` stores the facing rows. `direction apply` writes `{action}_{facing}` tags and does not paint. `direction fill` then copies that cardinal row's indices. `mirror` flips left into right, or right into left. `copy` repeats the source on the other three cardinals as a placeholder for north and south. A target frame that already has ink is skipped unless `--overwrite` is set. Diagonal rows are not filled. A missing source segment writes nothing. Indices move; colors, parts, and highlights do not. Repaint highlights after a mirror. A copy is not a new walk. `direction validate` only checks that the spans are present. It is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw. The sheet layout is `pixelforge-sprite-4dir`. The 8×4 example is `examples/direction-fill/`.*
 
 ### 士兵的枪和握持点 Gun and grip
 
