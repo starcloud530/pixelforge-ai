@@ -211,9 +211,9 @@ Paint, erase, palette edits, the frame list (add a blank frame, duplicate the cu
 
 ## 检查 Checks
 
-本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`，以及 `python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`）。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。预编译包是另一条只在版本标签上跑的 Release 工作流，不替代这些测试。
+本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`、`python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`）、`python3 examples/base-tiles/validate.py`，以及 `python3 examples/lighthouse-outpost/validate.py`。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。预编译包是另一条只在版本标签上跑的 Release 工作流，不替代这些测试。
 
-*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, and `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets). A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service. Prebuilt packages are a separate Release workflow on version tags. They do not replace these tests.*
+*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets), `python3 examples/base-tiles/validate.py`, and `python3 examples/lighthouse-outpost/validate.py`. A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service. Prebuilt packages are a separate Release workflow on version tags. They do not replace these tests.*
 
 ## 许可证 License
 
