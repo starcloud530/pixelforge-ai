@@ -71,8 +71,17 @@ fn execute(cli: Cli) -> i32 {
             scale,
             output,
             layer,
+            compare,
             scope,
-        } => cmd_preview(&doc, frame, scale, output.as_deref(), layer, &scope),
+        } => cmd_preview(
+            &doc,
+            frame,
+            scale,
+            output.as_deref(),
+            layer,
+            compare,
+            &scope,
+        ),
         Command::Diff {
             doc,
             frame,
@@ -246,6 +255,15 @@ fn rect_list(rects: &[crate::cli::CellRect]) -> Value {
             "height": rect.height,
         }))
         .collect::<Vec<_>>())
+}
+
+fn scope_requested(scope: &ScopeArgs) -> bool {
+    scope.selection
+        || scope.x.is_some()
+        || scope.y.is_some()
+        || scope.width.is_some()
+        || scope.height.is_some()
+        || !scope.mask.is_empty()
 }
 
 fn scope_params(params: &mut Value, scope: &ScopeArgs) {
@@ -729,8 +747,15 @@ fn cmd_preview(
     scale: u32,
     output: Option<&Path>,
     layer: Option<u32>,
+    compare: bool,
     scope: &ScopeArgs,
 ) -> i32 {
+    if compare && scope_requested(scope) {
+        return emit(CliFailure::new(
+            "Cli",
+            "preview --compare draws the full composite; omit --layer and any mask",
+        ));
+    }
     let mut session = match open_project(doc) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
@@ -741,6 +766,9 @@ fn cmd_preview(
     }
     if let Some(layer) = layer {
         params["layer"] = json!(layer);
+    }
+    if compare {
+        params["compare"] = json!(true);
     }
     scope_params(&mut params, scope);
     let response = session.call(&request("previewFrame", params));
@@ -762,7 +790,7 @@ fn cmd_preview(
     };
     let path = output
         .map(Path::to_path_buf)
-        .unwrap_or_else(|| sibling_png(&doc.project, "preview"));
+        .unwrap_or_else(|| sibling_png(&doc.project, if compare { "compare" } else { "preview" }));
     let bytes = match export_files::write_png_b64(&path, value["result"]["png"].as_str()) {
         Ok(bytes) => bytes,
         Err(failure) => return emit(failure),
@@ -791,6 +819,12 @@ fn cmd_preview(
             "scope",
             "mask",
             "protected",
+            "compare",
+            "panels",
+            "flattenPixels",
+            "flattenRows",
+            "indexChanges",
+            "colorChanges",
         ] {
             if let Some(field) = value["result"].get(key) {
                 object.insert(key.to_string(), field.clone());
@@ -808,6 +842,22 @@ fn cmd_preview(
         return 2;
     }
     preview::eprint_frame(&ascii);
+    if compare {
+        eprintln!(
+            "pixelforge: compare PNG left = unquantized RGBA, right = palette color of the indices layer flatten would write; project unchanged"
+        );
+        eprintln!(
+            "pixelforge: flatten indices indexChanges {} colorChanges {}",
+            value["result"]["indexChanges"], value["result"]["colorChanges"]
+        );
+        if let Some(rows) = value["result"]["flattenRows"].as_array() {
+            for row in rows {
+                if let Some(text) = row.as_str() {
+                    eprintln!("{text}");
+                }
+            }
+        }
+    }
     eprintln!("pixelforge: wrote {}", path.display());
     0
 }
