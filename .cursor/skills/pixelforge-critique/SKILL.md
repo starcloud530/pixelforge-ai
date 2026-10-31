@@ -3,7 +3,9 @@ name: pixelforge-critique
 description: >-
   Read-only critique of a PixelForge figure or sprite. Use when the user asks
   to review, critique, or check an existing frame (检查, 评审, 看起来怎么样,
-  剪影, 头身比, 色阶), including whether a preview looks finished. When an
+  剪影, 头身比, 色阶), including whether a preview looks finished. When a
+  layer is translucent, use `preview --compare`: ASCII covering indices are
+  not the blend. When an
   edit log or several frames are in scope, also flag mergeable fillRects and
   poses redrawn instead of duplicated. Report defects with evidence from
   preview, diff, and that log. Do not paint, fill, erase, or change the file.
@@ -40,7 +42,7 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 
 ## 如何读状态
 
-先 `pixelforge scene --project hero.json`。它不改文件。用 `result.width` / `height`、`activeFrame`、`activeLayer`、`layers`、`paletteHash`、`frameCount`、`frames[].delayMs` 确认你在看哪一帧、哪一层、哪套颜色。`visible` 是布尔，`opacity` 是 `0..=255`。隐藏层和 opacity 0 不在合成里。半透明的 ASCII 仍是盖住的索引，颜色以彩色 PNG 为准。`scene` 不带像素；格子在 `preview` 和 `diff` 里。
+先 `pixelforge scene --project hero.json`。它不改文件。用 `result.width` / `height`、`activeFrame`、`activeLayer`、`layers`、`paletteHash`、`frameCount`、`frames[].delayMs` 确认你在看哪一帧、哪一层、哪套颜色。`visible` 是布尔，`opacity` 是 `0..=255`。隐藏层和 opacity 0 不在合成里。半透明的 ASCII 仍是盖住的索引，颜色以彩色 PNG 为准。层 `opacity` 在 1 到 254 时再跑 `preview --compare --scale 4`：左是未量化 RGBA，右是压平会写下的索引色，工程文件不动。不要用 ASCII 判断光束或叠色。`scene` 不带像素；格子在 `preview` 和 `diff` 里。
 
 `preview` 的 `result.bounds` 是有墨格子的外接矩形，`result.ink` 是非 0 格数，`result.indices` 是每个索引用了几次，`result.pixels` 是这一张视图的索引。头身和脚的行号可以从 `bounds` 和 `pixels` 数，不必只靠 ASCII。字形 `*` 把 62 及以上折成同一个字符。
 

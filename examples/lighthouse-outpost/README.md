@@ -27,6 +27,14 @@ python3 examples/lighthouse-outpost/build.py
 python3 examples/lighthouse-outpost/validate.py
 ```
 
+并排看压平差，不改 `lighthouse.json`。左是未量化 RGBA（`lighthouse-before.png`），右是压平会写下的索引色（`lighthouse.png`）：
+
+```bash
+pixelforge preview --project examples/lighthouse-outpost/lighthouse.json --compare --scale 4
+```
+
+*`preview --compare` does not edit `lighthouse.json`. Left matches `lighthouse-before.png`. Right matches `lighthouse.png`.*
+
 ## 打开场景
 
 `fetch` 读不到 `file://`。在 `examples/` 起服务：

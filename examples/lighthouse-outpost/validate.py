@@ -63,6 +63,22 @@ def binary() -> str:
     raise SystemExit("cargo build -p pixelforge-cli, or set PIXELFORGE")
 
 
+def split_panels(rgba: bytes, width: int, height: int) -> tuple[bytes, bytes]:
+    """Left and right halves of a side-by-side RGBA buffer."""
+    if width % 2 != 0:
+        raise SystemExit("compare PNG width is not two panels")
+    half = width // 2
+    left = bytearray()
+    right = bytearray()
+    row = width * 4
+    cell = half * 4
+    for y in range(height):
+        start = y * row
+        left.extend(rgba[start : start + cell])
+        right.extend(rgba[start + cell : start + row])
+    return bytes(left), bytes(right)
+
+
 def partial_alpha(rgba: bytes) -> int:
     count = 0
     for index in range(0, len(rgba), 4):
@@ -162,6 +178,50 @@ def main() -> None:
             raise SystemExit(f"wall {(x, y)} GID is {gid}, expected {tile + 1}")
     if cell(wall, 10, 4, 3) != 0:
         raise SystemExit("room interior should stay empty so the keeper can stand there")
+
+    project_bytes = (ROOT / "lighthouse.json").read_bytes()
+    with tempfile.TemporaryDirectory() as compare_dir:
+        compare_png = Path(compare_dir) / "lighthouse.compare.png"
+        compared = subprocess.run(
+            [
+                pix,
+                "preview",
+                "--project",
+                str(ROOT / "lighthouse.json"),
+                "--compare",
+                "--scale",
+                "1",
+                "--output",
+                str(compare_png),
+            ],
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if compared.returncode != 0:
+            raise SystemExit(compared.stderr or compared.stdout)
+        if "project unchanged" not in compared.stderr:
+            raise SystemExit("preview --compare did not say the project is unchanged")
+        if (ROOT / "lighthouse.json").read_bytes() != project_bytes:
+            raise SystemExit("preview --compare rewrote lighthouse.json")
+        report = json.loads(compared.stdout)["result"]
+        if report.get("compare") is not True or report.get("panels") != ["rgba", "indexed"]:
+            raise SystemExit("preview --compare result is not a rgba|indexed pair")
+        if report["pngWidth"] != 64 or report["pngHeight"] != 64:
+            raise SystemExit("compare PNG is not 64x64")
+        if report["indexChanges"] != flatten["indexChanges"]:
+            raise SystemExit("compare indexChanges does not match metrics.json")
+        if report["pixels"][14 * 32 + 20] != 5 or report["flattenPixels"][14 * 32 + 20] != 9:
+            raise SystemExit("beam over stone at (20, 14) is not cover 5 / flatten 9")
+        if report["pixels"][26 * 32 + 18] != 5 or report["flattenPixels"][26 * 32 + 18] != 4:
+            raise SystemExit("beam over the red band at (18, 26) is not cover 5 / flatten 4")
+        compare_w, compare_h, compare_rgba = decode(compare_png)
+        if (compare_w, compare_h) != (64, 64):
+            raise SystemExit("decoded compare PNG is not 64x64")
+        left, right = split_panels(compare_rgba, compare_w, compare_h)
+        if left != before or right != flat:
+            raise SystemExit("compare panels are not lighthouse-before.png | lighthouse.png")
 
     with tempfile.TemporaryDirectory() as tmp:
         rebuilt = Path(tmp)

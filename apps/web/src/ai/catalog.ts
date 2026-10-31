@@ -791,11 +791,16 @@ const BY_NAME = {
   ),
   previewFrame: tool(
     "previewFrame",
-    "Read-only view of one frame. Returns ink, bounds, index counts, the row-major index buffer, and a scaled color PNG as standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Pass selection true to count only the stored mask, or x, y, width, and height for one rectangle. Omit both for the whole canvas. Pass only one scope. Cells outside are protected in the view and are not ink. Does not change the document or the undo stack.",
+    "Read-only view of one frame. Returns ink, bounds, index counts, the row-major index buffer, and a scaled color PNG as standard base64. Optional frame (default the active frame) does not select it. Optional scale (integer >= 1, default 1) nearest-neighbor repeats each index. Pass selection true to count only the stored mask, or x, y, width, and height for one rectangle. Omit both for the whole canvas. Pass only one scope. Cells outside are protected in the view and are not ink. compare true writes two panels and no gutter: left is the unquantized RGBA composite, right is the palette color of the indices flattenLayers would write. pixels stays the covering index; flattenPixels is the right panel. Omit layer and any mask when compare is true. Does not change the document or the undo stack.",
     {
       frame: int("Frame index to draw. Omit for the active frame.", 0, 4294967295),
       scale: int("Nearest-neighbor scale, integer >= 1. Default 1.", 1, 4294967295),
-      layer: int("Draw this layer only. Omit for the composite.", 0, 4294967295),
+      layer: int("Draw this layer only. Omit for the composite. Do not pass with compare.", 0, 4294967295),
+      compare: {
+        type: "boolean",
+        description:
+          "When true, PNG is unquantized RGBA beside the indices flatten would write. Does not flatten. Omit layer and any mask.",
+      },
       selection: {
         type: "boolean",
         description: "When true, count only the stored selection. Missing selection is MaskMissing.",

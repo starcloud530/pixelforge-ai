@@ -4,6 +4,16 @@
 
 *The kernel composites layers to RGBA and encodes the PNG. The page only downloads those bytes. A hidden layer, or opacity 0, is left out. Index 0 is transparent (`r = g = b = a = 0`). Opacity 255 replaces the cell with the palette RGBA and does not blend palette alpha into the layer underneath. Paint colors are opaque. Opacity 1..=254 blends in the export with straight-alpha source-over. Source alpha is `round(palette.a * opacity / 255)`, ties away from zero. The blend is not written back. Export does not snap it to a palette index. The index preview still shows the covering index until `layer flatten`, which snaps this RGBA with the `apply-png` rule. See `flattenLayers` in [tool-api.md](tool-api.md). `--scale` repeats the blended cell. Export does not change the document and does not push an undo entry. Onion skin uses that same RGBA as a view overlay. A PNG still contains only that frame's own pixels, not its neighbors. The sprite sheet and its atlas use that composite. The atlas stays frame rectangles and tags. A hidden layer does not remove a frame from the grid.*
 
+## 并排对照 Side-by-side
+
+`pixelforge preview --compare` 把当前帧写成一张图，左右相接，中间没有间隔。左是上面的未量化 RGBA。右是 `layer flatten` 会为这一帧写下的索引，再按调色板着色，和压平之后的彩色 preview 相同。工程文件不动，也不需要先压平。半透明层（灯塔 `beam`）在左边仍是混合色，右边是收成的索引色。ASCII 和 `result.pixels` 仍是盖住索引；右边的索引在 `result.flattenPixels`。默认文件是工程旁边的 `<stem>.compare.png`。`--scale` 两格一起最近邻放大。不要和 `--layer` 或蒙版一起用。
+
+```bash
+pixelforge preview --project lighthouse.json --compare --scale 4
+```
+
+*`pixelforge preview --compare` writes one image, left beside right, with no gutter. The left panel is the unquantized RGBA above. The right panel is the palette color of the indices `layer flatten` would store for this frame, the same picture as a color preview after flatten. The project file is not changed, and flatten does not have to run first. A translucent layer stays blended on the left and snapped on the right. ASCII and `result.pixels` stay the covering index. `result.flattenPixels` is the right panel. The default file is `<stem>.compare.png` beside the project. `--scale` nearest-neighbor repeats both panels. Do not pass `--layer` or a mask.*
+
 时长留在时间轴和工程文件的 `delayMs` 里。PNG 序列和 sprite sheet 里没有每帧时长。默认时长是 100 毫秒，也就是 10 FPS。要在一个文件里循环播放，用下面的 APNG 预览。
 
 *Delays stay on the timeline and in the project file's `delayMs`. A PNG sequence and a sprite sheet do not carry per-frame timing. The default delay is 100 milliseconds, which is 10 FPS. A single looping file is the APNG preview below.*

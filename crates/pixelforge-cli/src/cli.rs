@@ -91,7 +91,11 @@ transparent, `1`-`9` and `A`-`Z` / `a`-`z` are indices, `*` is index 62 or
 above) and writes a nearest-neighbor color PNG. The ASCII picture is the index composite: index 0 shows the layer under it,
 and any other index covers that layer, including when opacity is only partial.
 The color PNG is the straight-alpha blend and is not quantized. `layer flatten`
-snaps that blend onto the palette.
+snaps that blend onto the palette. `preview --compare` writes one PNG with
+that blend on the left and the palette color of the indices flatten would
+write on the right. It does not change the project. The default file is
+`<stem>.compare.png`. ASCII rows stay the covering index; `flattenRows` is
+the right panel.
 `--layer N` draws that layer alone. `--frame N` draws frame N and does not
 change activeFrame or the project file. `--scale K` matches export (integer
 >= 1, default 1). Stdout JSON keeps `result.rows` and adds `result.path`.
@@ -248,7 +252,10 @@ pub enum Command {
     /// `result.pixels`, `result.scale`, and `result.path`). The same rows are
     /// written to stderr. Does not change the project file or the active frame.
     /// `--frame` draws that index; omit it to draw the active frame. `--scale`
-    /// matches `export` (integer >= 1, default 1).
+    /// matches `export` (integer >= 1, default 1). `--compare` writes a
+    /// side-by-side PNG instead: left is the unquantized RGBA composite, right
+    /// is the palette color of the indices `layer flatten` would write. The
+    /// project stays as it is. Omit `--layer` and any mask with `--compare`.
     Preview {
         #[command(flatten)]
         doc: ProjectArgs,
@@ -258,12 +265,18 @@ pub enum Command {
         /// Nearest-neighbor scale, an integer >= 1. Default 1 keeps cell size.
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
         scale: u32,
-        /// Color PNG to write. Default is `<project-stem>.preview.png` beside the project.
+        /// Color PNG to write. Default is `<project-stem>.preview.png`, or
+        /// `<project-stem>.compare.png` with `--compare`.
         #[arg(short, long, value_name = "FILE")]
         output: Option<PathBuf>,
         /// Draw this layer only. Omit to draw the composite. Does not select it.
         #[arg(long)]
         layer: Option<u32>,
+        /// Side-by-side PNG. Left is the unquantized RGBA composite. Right is
+        /// the palette color of the indices `layer flatten` would write for
+        /// this frame. Does not change the project. Omit `--layer` and any mask.
+        #[arg(long, conflicts_with = "layer")]
+        compare: bool,
         #[command(flatten)]
         scope: ScopeArgs,
     },

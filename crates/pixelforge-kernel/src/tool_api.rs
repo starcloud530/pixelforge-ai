@@ -1097,10 +1097,7 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             Ok(apng_value(export))
         }
         "previewFrame" => {
-            let (frame, scale, layer, scope) = parse_preview(params, document)?;
-            let (png_width, png_height) = document
-                .scaled_frame_size(scale)
-                .map_err(ToolFailure::Kernel)?;
+            let (frame, scale, layer, scope, compare) = parse_preview(params, document)?;
             let pixels = document
                 .view_pixels(frame, layer)
                 .map_err(ToolFailure::Kernel)?;
@@ -1111,9 +1108,25 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 }),
                 None => scene::summarize_view(&pixels, document.width()),
             };
-            let png = document
-                .export_view_png_masked(frame, scale, layer, mask)
-                .map_err(ToolFailure::Kernel)?;
+            let (png, png_width, png_height, compared) = if compare {
+                let compared = document
+                    .export_flatten_compare(frame, scale)
+                    .map_err(ToolFailure::Kernel)?;
+                (
+                    compared.png.clone(),
+                    compared.png_width,
+                    compared.png_height,
+                    Some(compared),
+                )
+            } else {
+                let (png_width, png_height) = document
+                    .scaled_frame_size(scale)
+                    .map_err(ToolFailure::Kernel)?;
+                let png = document
+                    .export_view_png_masked(frame, scale, layer, mask)
+                    .map_err(ToolFailure::Kernel)?;
+                (png, png_width, png_height, None)
+            };
             let mut result = serde_json::json!({
                 "frame": frame,
                 "activeFrame": document.active_frame(),
@@ -1131,6 +1144,14 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "pngHeight": png_height,
                 "png": encode_base64(&png),
             });
+            if let Some(compared) = compared {
+                result["compare"] = serde_json::json!(true);
+                result["panels"] = serde_json::json!(["rgba", "indexed"]);
+                result["flattenPixels"] = serde_json::json!(compared.indices);
+                result["flattenRows"] = serde_json::json!(compared.flatten_rows);
+                result["indexChanges"] = serde_json::json!(compared.index_changes);
+                result["colorChanges"] = serde_json::json!(compared.color_changes);
+            }
             attach_scope(
                 &mut result,
                 scope.as_ref(),
@@ -3286,7 +3307,7 @@ fn parse_loop_mode(tool: &str, value: &Value) -> Result<LoopMode, ToolFailure> {
 fn parse_preview(
     params: Value,
     document: &Document,
-) -> Result<(usize, u32, Option<usize>, Option<ViewScope>), ToolFailure> {
+) -> Result<(usize, u32, Option<usize>, Option<ViewScope>, bool), ToolFailure> {
     let map = expect_object("previewFrame", params)?;
     reject_params(
         "previewFrame",
@@ -3295,6 +3316,7 @@ fn parse_preview(
             "frame",
             "scale",
             "layer",
+            "compare",
             "selection",
             "x",
             "y",
@@ -3313,7 +3335,18 @@ fn parse_preview(
     };
     let layer = optional_frame("previewFrame", &map, "layer")?;
     let scope = resolve_scope(document, "previewFrame", &map)?;
-    Ok((frame, scale, layer, scope))
+    let compare = match map.get("compare") {
+        None => false,
+        Some(Value::Bool(value)) => *value,
+        Some(_) => return Err(invalid_params("previewFrame", "compare must be a boolean")),
+    };
+    if compare && (layer.is_some() || scope.is_some()) {
+        return Err(invalid_params(
+            "previewFrame",
+            "compare draws the full composite; omit layer and any mask",
+        ));
+    }
+    Ok((frame, scale, layer, scope, compare))
 }
 
 fn parse_diff(
