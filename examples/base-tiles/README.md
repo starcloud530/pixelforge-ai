@@ -27,3 +27,5 @@ python3 examples/base-tiles/validate.py
 ```
 
 `validate.py` 会拒绝缺了 mask 9 的规则，退出码 1，`error.code` 是 `AutotileRule`。
+
+把这里的 `base.tmj` 和 `tiles.png` 放进一个可跑的页面，见 [examples/lighthouse-outpost](../lighthouse-outpost/README.md)。
