@@ -1313,7 +1313,7 @@ CLI：`pixelforge export apng --project hero.json --output walk.apng --tag walk_
 
 ### `previewFrame`
 
-`params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）、可选 `layer`。不写 `layer` 时画合成图；写了就只画那一层，并且不改变 `activeLayer`。
+`params`：可选 `frame`（缺省为当前帧）、可选 `scale`（规则与 `exportPngSequence` 相同，缺省为 1）、可选 `layer`。不写 `layer` 时画合成图；写了就只画那一层，并且不改变 `activeLayer`。可选 `compare: true` 改成并排图，见下面。`compare: false` 和省略一样。
 
 范围三选一，都省略就是整幅，结果里不出现 `scope`、`mask`、`protected`：
 
@@ -1350,7 +1350,11 @@ CLI：`pixelforge export apng --project hero.json --output walk.apng --tag walk_
 
 CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PNG 写到 `result.path`（默认是工程旁边的 `<stem>.preview.png`），stdout 里不带 base64。`ink`、`bounds`、`indices`、`pixels` 仍在这条 JSON 里。`--selection`、`--x --y --width --height`，或重复的 `--mask x,y,width,height`，对应上面三种范围。内核拒绝时退出码 `2`。
 
+`compare: true` 时 PNG 是左右两格，中间没有间隔，宽是两倍。左格是未量化的 RGBA 合成，和彩色 preview、`export png`、`frame_rgba` 相同。右格是 `flattenLayers` 会为这一帧写下的索引，再按调色板着色，和压平之后的彩色 preview 相同。命令不调用 flatten，不改文档，不进撤销栈。工程可以仍是多层：要看半透明和收成索引的差，就在压平之前调用。已经压平、结果层又不透明时，左右相同。`pixels`、`ink`、`indices` 仍是盖住索引。右格的索引在 `flattenPixels`，ASCII 在 `flattenRows`。`indexChanges` 是盖住索引和 `flattenPixels` 不同的格子数。`colorChanges` 是左格 RGBA 和右格颜色不同的格子数。`panels` 是 `["rgba", "indexed"]`。同时给 `layer` 或任一范围是 `InvalidParams`（`compare draws the full composite; omit layer and any mask`）。CLI 是 `pixelforge preview --compare`。不写 `--output` 时文件是 `<stem>.compare.png`。stderr 仍先打盖住索引，再打 `flattenRows`。
+
 *Read-only. Does not change `activeFrame` and does not push undo. Omit the scope and the result has no `scope`, `mask`, or `protected`. Inside a scope, `ink`, `bounds`, and `indices` count only masked cells. `pixels` stay the full index buffer. ASCII outside the mask is `#`. The PNG paints RGBA `[80, 64, 112, 255]` there. That color is a view. It is not a palette entry and it is not stored. The PNG is this frame after nearest-neighbor `scale`, then palette resolution. The glyph `*` collapses every index from 62 up, so read `pixels` or `indices` for the real index. The `pixelforge preview` command also puts ASCII rows in `result.rows` and writes the PNG to `result.path` (default `<stem>.preview.png` beside the project) instead of base64.*
+
+*`compare: true` writes two panels with no gutter. Width is doubled. The left panel is the unquantized RGBA composite (`frame_rgba`, the color preview, `export png`). The right panel is the palette color of the indices `flattenLayers` would store for this frame, which is the color preview after flatten. The call does not flatten, does not change the document, and does not push undo. Use it before flatten, while the stack is still layered. After flatten, when the result layer is opaque, the panels match. `pixels`, `ink`, and `indices` stay the covering index. `flattenPixels` and `flattenRows` are the right panel. `indexChanges` counts cells whose covering index differs from `flattenPixels`. `colorChanges` counts cells whose left RGBA differs from the right color. `panels` is `["rgba", "indexed"]`. `layer` or any scope together with `compare` is `InvalidParams`. CLI: `pixelforge preview --compare`. The default file is `<stem>.compare.png`. Stderr prints the covering rows, then `flattenRows`.*
 
 错误：`FrameIndex`、`LayerIndex`、`ExportScale`、`MaskMissing`、`OutOfBounds`。`scale` 为 0，或同时给了两种范围，是 `InvalidParams`。
 

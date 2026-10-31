@@ -318,6 +318,213 @@ fn flatten_of_an_opaque_stack_keeps_the_covering_index() {
     assert_eq!(&document.frame_rgba(0).unwrap()[..4], &[74, 140, 196, 255]);
 }
 
+/// Left half of a side-by-side RGBA buffer. `png_width` is the full image.
+fn left_panel(rgba: &[u8], png_width: u32) -> Vec<u8> {
+    let width = png_width as usize;
+    let half = width / 2;
+    let mut out = Vec::new();
+    let height = rgba.len() / (width * 4);
+    for y in 0..height {
+        let row = y * width * 4;
+        out.extend_from_slice(&rgba[row..row + half * 4]);
+    }
+    out
+}
+
+fn right_panel(rgba: &[u8], png_width: u32) -> Vec<u8> {
+    let width = png_width as usize;
+    let half = width / 2;
+    let mut out = Vec::new();
+    let height = rgba.len() / (width * 4);
+    for y in 0..height {
+        let row = y * width * 4;
+        out.extend_from_slice(&rgba[row + half * 4..row + width * 4]);
+    }
+    out
+}
+
+#[test]
+fn flatten_compare_matches_rgba_and_a_real_flatten_without_writing() {
+    let mut document = stacked();
+    document.set_layer_opacity(1, 128).unwrap();
+    document.add_frame();
+    document.set_active_frame(1).unwrap();
+    document.paint_on(0, 0, 0, 3).unwrap();
+    document.set_active_frame(0).unwrap();
+    let saved = document.save_project();
+    let blend = document.frame_rgba(0).unwrap();
+    assert_eq!(&blend[..4], &[153, 117, 136, 255]);
+    assert_eq!(document.composite_pixels(0).unwrap(), vec![7, 0]);
+
+    let compared = document.export_flatten_compare(0, 1).unwrap();
+    assert_eq!(document.save_project(), saved);
+    assert_eq!(compared.cover, vec![7, 0]);
+    assert_eq!(compared.indices, vec![8, 0]);
+    assert_eq!(compared.index_changes, 1);
+    assert_eq!(compared.color_changes, 1);
+    assert_eq!(compared.flatten_rows, vec!["8.".to_string()]);
+    assert_eq!((compared.png_width, compared.png_height), (4, 1));
+    let image = decode_sheet_png(&compared.png).unwrap();
+    assert_eq!(left_panel(&image.rgba, image.width), blend);
+    let mut baked = document.clone();
+    baked.flatten().unwrap();
+    assert_eq!(
+        right_panel(&image.rgba, image.width),
+        baked.frame_rgba(0).unwrap()
+    );
+    assert_eq!(
+        &right_panel(&image.rgba, image.width)[..4],
+        &[140, 110, 184, 255]
+    );
+    assert_eq!(document.save_project(), saved);
+    assert_eq!(document.layer_count(), 2);
+    assert_eq!(document.layer_opacity(1).unwrap(), 128);
+
+    let uncovered = document.export_flatten_compare(1, 1).unwrap();
+    assert_eq!(uncovered.indices, vec![3, 0]);
+    assert_eq!(uncovered.index_changes, 0);
+    assert_eq!(uncovered.color_changes, 0);
+    let uncovered_png = decode_sheet_png(&uncovered.png).unwrap();
+    let frame_rgba = document.frame_rgba(1).unwrap();
+    assert_eq!(
+        left_panel(&uncovered_png.rgba, uncovered_png.width),
+        frame_rgba
+    );
+    assert_eq!(
+        right_panel(&uncovered_png.rgba, uncovered_png.width),
+        baked.frame_rgba(1).unwrap()
+    );
+
+    let scaled = document.export_flatten_compare(0, 2).unwrap();
+    assert_eq!((scaled.png_width, scaled.png_height), (8, 2));
+    let scaled_png = decode_sheet_png(&scaled.png).unwrap();
+    assert_eq!(&scaled_png.rgba[..4], &[153, 117, 136, 255]);
+    assert_eq!(&scaled_png.rgba[16..20], &[140, 110, 184, 255]);
+    assert_eq!(document.save_project(), saved);
+
+    let settled = baked.export_flatten_compare(0, 1).unwrap();
+    assert_eq!(settled.index_changes, 0);
+    assert_eq!(settled.color_changes, 0);
+    let settled_png = decode_sheet_png(&settled.png).unwrap();
+    assert_eq!(
+        left_panel(&settled_png.rgba, settled_png.width),
+        right_panel(&settled_png.rgba, settled_png.width)
+    );
+}
+
+#[test]
+fn flatten_compare_follows_the_alpha_cutoff_and_an_exact_palette_alpha() {
+    let mut faint = Document::new(1, 1).unwrap();
+    faint.paint(0, 0, 7).unwrap();
+    faint.set_layer_opacity(0, 10).unwrap();
+    let saved = faint.save_project();
+    let compared = faint.export_flatten_compare(0, 1).unwrap();
+    assert_eq!(compared.indices, vec![0]);
+    assert_eq!(compared.index_changes, 1);
+    assert_eq!(compared.color_changes, 1);
+    let image = decode_sheet_png(&compared.png).unwrap();
+    assert_eq!(left_panel(&image.rgba, image.width), vec![74, 140, 196, 10]);
+    assert_eq!(right_panel(&image.rgba, image.width), vec![0, 0, 0, 0]);
+    let mut baked = faint.clone();
+    baked.flatten().unwrap();
+    assert_eq!(
+        right_panel(&image.rgba, image.width),
+        baked.frame_rgba(0).unwrap()
+    );
+    assert_eq!(faint.save_project(), saved);
+
+    let mut half = Document::new(1, 1).unwrap();
+    half.paint(0, 0, 7).unwrap();
+    half.set_layer_opacity(0, 128).unwrap();
+    let half_view = half.export_flatten_compare(0, 1).unwrap();
+    assert_eq!(half_view.indices, vec![7]);
+    assert_eq!(half_view.index_changes, 0);
+    assert_eq!(half_view.color_changes, 1);
+    let half_png = decode_sheet_png(&half_view.png).unwrap();
+    assert_eq!(
+        left_panel(&half_png.rgba, half_png.width),
+        vec![74, 140, 196, 128]
+    );
+    assert_eq!(
+        right_panel(&half_png.rgba, half_png.width),
+        vec![74, 140, 196, 255]
+    );
+
+    let mut kept = Document::load_project(
+        r#"{
+  "format": "pixelforge-project",
+  "version": 1,
+  "width": 1,
+  "height": 1,
+  "activeFrame": 0,
+  "palette": [
+    { "r": 0, "g": 0, "b": 0, "a": 0 },
+    { "r": 232, "g": 93, "b": 76, "a": 255 },
+    { "r": 0, "g": 0, "b": 10, "a": 100 }
+  ],
+  "layers": [ { "name": "body" }, { "name": "gear" } ],
+  "frames": [ { "layers": [ { "pixels": [1] }, { "pixels": [2] } ] } ]
+}"#,
+    )
+    .unwrap();
+    let exact = kept.export_flatten_compare(0, 1).unwrap();
+    assert_eq!(exact.indices, vec![2]);
+    assert_eq!(exact.index_changes, 0);
+    assert_eq!(exact.color_changes, 0);
+    let exact_png = decode_sheet_png(&exact.png).unwrap();
+    let color = vec![0, 0, 10, 100];
+    assert_eq!(left_panel(&exact_png.rgba, exact_png.width), color);
+    assert_eq!(right_panel(&exact_png.rgba, exact_png.width), color);
+    kept.flatten().unwrap();
+    assert_eq!(kept.frame_rgba(0).unwrap(), color);
+}
+
+#[test]
+fn preview_compare_is_read_only_and_rejects_a_scoped_view() {
+    let mut document = stacked();
+    document.set_layer_opacity(1, 128).unwrap();
+    let saved = document.save_project();
+    let plain = tool(&mut document, "previewFrame", json!({}));
+    assert!(plain.get("compare").is_none());
+    assert!(plain.get("flattenPixels").is_none());
+    assert_eq!(plain["pngWidth"], json!(2));
+    let off = tool(&mut document, "previewFrame", json!({ "compare": false }));
+    assert!(off.get("compare").is_none());
+    assert_eq!(off["pngWidth"], json!(2));
+
+    let compared = tool(
+        &mut document,
+        "previewFrame",
+        json!({ "compare": true, "scale": 1 }),
+    );
+    assert_eq!(compared["compare"], json!(true));
+    assert_eq!(compared["panels"], json!(["rgba", "indexed"]));
+    assert_eq!(compared["pngWidth"], json!(4));
+    assert_eq!(compared["pngHeight"], json!(1));
+    assert_eq!(compared["pixels"], json!([7, 0]));
+    assert_eq!(compared["flattenPixels"], json!([8, 0]));
+    assert_eq!(compared["flattenRows"], json!(["8."]));
+    assert_eq!(compared["indexChanges"], json!(1));
+    assert_eq!(compared["colorChanges"], json!(1));
+    assert_eq!(document.save_project(), saved);
+
+    let layered = tool_err(
+        &mut document,
+        "previewFrame",
+        json!({ "compare": true, "layer": 0 }),
+    );
+    assert_eq!(layered["code"], json!("InvalidParams"));
+    let masked = tool_err(
+        &mut document,
+        "previewFrame",
+        json!({ "compare": true, "x": 0, "y": 0, "width": 1, "height": 1 }),
+    );
+    assert_eq!(masked["code"], json!("InvalidParams"));
+    let bad = tool_err(&mut document, "previewFrame", json!({ "compare": "yes" }));
+    assert_eq!(bad["code"], json!("InvalidParams"));
+    assert_eq!(document.save_project(), saved);
+}
+
 fn dist(left: [u8; 3], right: [u8; 3]) -> u32 {
     left.into_iter()
         .zip(right)

@@ -82,7 +82,7 @@ pub use direction::{
 };
 pub use document::{BakeFrame, BakeOptions, BakeReport, Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};
-pub use export::{sprite_sheet_layout, SpriteSheetLayout};
+pub use export::{sprite_sheet_layout, FlattenCompare, SpriteSheetLayout};
 pub use frame::Frame;
 pub use palette::{IndexPolicy, Palette};
 pub use palette_file::PaletteImportMode;

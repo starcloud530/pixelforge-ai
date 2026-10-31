@@ -7,6 +7,9 @@
 //! layer underneath. Opacity 1..=254 blends with straight-alpha source-over.
 //! Export leaves that blend unquantized. [`Document::flatten`] snaps the same
 //! buffer onto the nearest palette index.
+//! [`Document::export_flatten_compare`] places that blend on the left of one
+//! PNG and the palette color of the indices flatten would write on the right.
+//! It does not change the document.
 //!
 //! A sequence is one PNG per frame, in timeline order. A sprite sheet packs
 //! those same frames into one PNG. See [`sprite_sheet_layout`] for the grid.
@@ -180,6 +183,38 @@ pub fn sprite_sheet_layout_with(
     })
 }
 
+/// Read-only side-by-side of one frame. Not stored on the document.
+///
+/// The PNG is two panels, left to right, with no gutter. The left panel is
+/// [`Document::frame_rgba`]: the unquantized straight-alpha composite, the
+/// same buffer as the color preview and `export png`. The right panel is the
+/// palette color of the indices [`Document::flatten`] would store for this
+/// frame. Those indices are colored through the palette, which is what
+/// `frame_rgba` returns after flatten: the result layer is visible and fully
+/// opaque, so it does not blend into a lower layer, and a kept translucent
+/// palette entry still shows that entry's alpha. The project is not flattened
+/// and the undo stack is not touched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlattenCompare {
+    pub frame: usize,
+    pub width: u16,
+    pub height: u16,
+    pub scale: u32,
+    pub png_width: u32,
+    pub png_height: u32,
+    pub png: Vec<u8>,
+    /// Covering indices. Same buffer as [`Document::composite_pixels`].
+    pub cover: Vec<u8>,
+    /// Indices flatten would store for this frame.
+    pub indices: Vec<u8>,
+    /// One ASCII row per canvas row of [`Self::indices`].
+    pub flatten_rows: Vec<String>,
+    /// Cells where [`Self::indices`] differs from [`Self::cover`].
+    pub index_changes: usize,
+    /// Cells where the left RGBA differs from the right panel's color.
+    pub color_changes: usize,
+}
+
 /// Read-only comparison of two frames. Not stored on the document.
 ///
 /// The PNG is three panels, left to right: `frame`, `with`, then an onion
@@ -261,6 +296,89 @@ impl Document {
         layer: Option<usize>,
     ) -> Result<Vec<u8>, KernelError> {
         self.export_view_png_masked(index, scale, layer, None)
+    }
+
+    /// Side-by-side PNG of one frame. Does not change the document.
+    ///
+    /// Left is [`Self::frame_rgba`]. Right is the palette color of the indices
+    /// [`Self::flatten`] would write for this frame, using the same snap as
+    /// flatten (`alpha < 128` is index 0, otherwise nearest opaque entry by
+    /// squared RGB, ties keep the lower index, and an exact cover stays).
+    /// The two panels meet with no gutter. `scale` nearest-neighbor repeats
+    /// each cell. Scale 0, or a width that does not fit in a PNG, is
+    /// [`KernelError::ExportScale`]. A missing frame is
+    /// [`KernelError::FrameIndex`]. A blend that needs a palette entry when
+    /// the palette has none is [`KernelError::NoPaintColor`].
+    pub fn export_flatten_compare(
+        &self,
+        index: usize,
+        scale: u32,
+    ) -> Result<FlattenCompare, KernelError> {
+        let scale = require_scale(scale)?;
+        let width = self.width();
+        let height = self.height();
+        let rgba = self.frame_rgba(index)?;
+        let cover = self.composite_pixels(index)?;
+        let indexed_indices =
+            crate::palette_map::bake_composite(self.palette_colors(), &rgba, &cover)?;
+        let indexed = expand_indexed(self.palette_colors(), &indexed_indices);
+        let index_changes = cover
+            .iter()
+            .zip(indexed_indices.iter())
+            .filter(|(left, right)| left != right)
+            .count();
+        let color_changes = rgba
+            .chunks_exact(4)
+            .zip(indexed.chunks_exact(4))
+            .filter(|(left, right)| left != right)
+            .count();
+        let cell_width = mul_scale(u32::from(width), scale)?;
+        let cell_height = mul_scale(u32::from(height), scale)?;
+        let png_width = cell_width
+            .checked_mul(2)
+            .ok_or(KernelError::ExportScale { scale })?;
+        let png_height = cell_height;
+        let len = rgba_byte_len(png_width, png_height, scale)?;
+        let mut buffer = vec![0u8; len];
+        let cell_width_px =
+            usize::try_from(cell_width).map_err(|_| KernelError::ExportScale { scale })?;
+        let cell_height_px =
+            usize::try_from(cell_height).map_err(|_| KernelError::ExportScale { scale })?;
+        let stride = usize::try_from(png_width).map_err(|_| KernelError::ExportScale { scale })?;
+        let left = nearest_rgba(&rgba, width, height, scale)?;
+        let right = nearest_rgba(&indexed, width, height, scale)?;
+        blit_rgba(
+            &mut buffer,
+            stride,
+            0,
+            0,
+            cell_width_px,
+            cell_height_px,
+            &left,
+        );
+        blit_rgba(
+            &mut buffer,
+            stride,
+            cell_width_px,
+            0,
+            cell_width_px,
+            cell_height_px,
+            &right,
+        );
+        Ok(FlattenCompare {
+            frame: index,
+            width,
+            height,
+            scale,
+            png_width,
+            png_height,
+            png: encode_rgba_png(png_width, png_height, &buffer),
+            flatten_rows: index_rows(&indexed_indices, width),
+            cover,
+            indices: indexed_indices,
+            index_changes,
+            color_changes,
+        })
     }
 
     /// [`Self::export_view_png`], with cells outside `mask` painted as protect.
@@ -920,6 +1038,14 @@ fn resolve_apng_source(
             Ok((from, to, loop_mode, None))
         }
     }
+}
+
+fn index_rows(indices: &[u8], width: u16) -> Vec<String> {
+    let stride = usize::from(width);
+    indices
+        .chunks(stride)
+        .map(|row| row.iter().copied().map(crate::cell_glyph).collect())
+        .collect()
 }
 
 fn rgba_of(palette: &[Rgba], index: u8) -> [u8; 4] {

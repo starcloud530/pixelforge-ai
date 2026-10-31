@@ -5,7 +5,8 @@ description: >-
   says 分层, 装备, 身体, body, gear, or limbs, or when adding or selecting
   layers, drawing with --layer without switching the active layer, showing or
   hiding a layer, setting layer opacity, previewing the composite versus one
-  layer, reordering the stack, or flattening back to a single layer. Follow
+  layer, reordering the stack, flattening back to a single layer, or comparing
+  a translucent stack with `preview --compare` before flatten. Follow
   the pixelforge skill's index-color invariants first.
   Shape on a layer still follows pixelforge-draw. A four-direction sheet layout
   is pixelforge-sprite-4dir. A read-only review is pixelforge-critique.
@@ -103,7 +104,13 @@ pixelforge scene --project hero.json
 pixelforge layer flatten --project hero.json
 ```
 
-RGBA 混合收成名为 `Layer 1` 的一层：隐藏层和 opacity 0 不进入。alpha 小于 128 写成索引 0，否则按平方 RGB 距离取最近的非 0 项，平局取较小索引。盖住索引的颜色已经等于混合结果时留下那个索引。结果层可见且不透明，所以层透明度本身不会留在格子里。文件回到单层工程，不再写 `layers` 和 `activeLayer`。彩色 preview 在压平前是未量化的混合，压平后是收成的索引色。对照：
+RGBA 混合收成名为 `Layer 1` 的一层：隐藏层和 opacity 0 不进入。alpha 小于 128 写成索引 0，否则按平方 RGB 距离取最近的非 0 项，平局取较小索引。盖住索引的颜色已经等于混合结果时留下那个索引。结果层可见且不透明，所以层透明度本身不会留在格子里。文件回到单层工程，不再写 `layers` 和 `activeLayer`。彩色 preview 在压平前是未量化的混合，压平后是收成的索引色。不改工程、也不先压平的对照：
+
+```bash
+pixelforge preview --project hero.json --compare --scale 4
+```
+
+左是未量化 RGBA，右是 flatten 会写下的索引再按调色板着色。默认 `<stem>.compare.png`。ASCII 仍是盖住索引。要真的收成单层：
 
 ```bash
 pixelforge preview --project hero.json --output before.png
@@ -111,9 +118,9 @@ pixelforge layer flatten --project hero.json
 pixelforge preview --project hero.json --output after.png
 ```
 
-压平是一步撤销，但下一个进程没有这个栈；要留着分层就先复制文件，或在命令上带 `--checkpoint`。
+压平是一步撤销，但下一个进程没有这个栈；要留着分层就先复制文件，或在命令上带 `--checkpoint`。看差用上面的 `--compare`，不必先压平。
 
-*`--layer` does not select the layer. `preview` without `--layer` is the composite: ASCII is the covering index, and the color PNG is the unquantized blend. `layer flatten` snaps that blend into one layer named `Layer 1`.*
+*`--layer` does not select the layer. `preview` without `--layer` is the composite: ASCII is the covering index, and the color PNG is the unquantized blend. `preview --compare` puts that blend beside the palette color of the indices flatten would write and does not change the file. `layer flatten` snaps that blend into one layer named `Layer 1`.*
 
 ## 部件不是层 Parts are not layers
 
