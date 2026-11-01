@@ -7,7 +7,7 @@
 use std::fs;
 use std::path::Path;
 
-use pixelforge_kernel::{parse_autotile, Document, TileMap, TILEMAP_FORMAT, TOOL_API_VERSION};
+use pixelforge_kernel::{parse_autotile, Document, TileMap, TOOL_API_VERSION};
 use serde_json::{json, Value};
 
 use crate::cli::{
@@ -397,15 +397,6 @@ pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
         eprintln!("pixelforge: wrote {}", path.display());
     }
     status
-}
-
-pub fn is_tilemap_file(path: &Path) -> Result<bool, CliFailure> {
-    let text = fs::read_to_string(path).map_err(|err| CliFailure::io(path, err))?;
-    let value: Value = match serde_json::from_str(&text) {
-        Ok(value) => value,
-        Err(_) => return Ok(false),
-    };
-    Ok(value.get("format").and_then(Value::as_str) == Some(TILEMAP_FORMAT))
 }
 
 fn tilemap_new(

@@ -1,0 +1,33 @@
+{
+  "assetRoot": ".",
+  "canvases": [
+    {
+      "height": 64,
+      "name": "sprite",
+      "width": 64
+    }
+  ],
+  "format": "pixelforge-manifest",
+  "layout": [
+    {
+      "canvas": "sprite",
+      "dir": "zombie",
+      "kind": "character",
+      "name": "characters"
+    },
+    {
+      "canvas": "sprite",
+      "dir": "props",
+      "kind": "prop",
+      "name": "props"
+    }
+  ],
+  "name": "zombie-outpost",
+  "note": "顶视四向。角色和道具都是 64×64：角色在 zombie/，行序 down、left、right、up，列是 idle 加三帧 walk；道具在 props/。默认色板是 zombie/zombie.json 里的调色板。本文件只记项目约定，不存像素。",
+  "palette": {
+    "path": "zombie/zombie.json",
+    "ref": "zombie"
+  },
+  "perspective": "top",
+  "version": 1
+}
