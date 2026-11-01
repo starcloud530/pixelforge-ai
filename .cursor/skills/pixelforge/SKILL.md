@@ -22,7 +22,10 @@ description: >-
   comparing the unquantized RGBA composite with the indices flatten would
   write (`preview --compare`),
   validating that sheet with validate-atlas before game import,
-  or building a tileset, a 4-neighbor autotile, a tilemap, and a Tiled `.tmj`.
+  or building a tileset, a 4-neighbor autotile, a tilemap, and a Tiled `.tmj`,
+  or reading and writing a pixelforge-manifest with `project init`, `project show`,
+  and `project validate` (canvas tiers, perspective, directory rules, palette
+  path; project memory, not a canvas and not an asset registry).
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
   drawing request inside one batched call. `direction fill` mirrors or copies
@@ -45,6 +48,8 @@ Edit indexed pixels only through the `pixelforge` CLI. The Rust kernel owns the 
 ## When to use
 
 创建或修改 `pixelforge-project`、调色板、帧、导出，或任何一次 `pixelforge` 调用。产品路径是：外部 Agent → `pixelforge` CLI → `Document::call_tool`。网页里的一轮面板是可选演示。嵌在应用里的多轮对话（#14）不是产品。MCP 不在范围内；以后的封装只调用这支 CLI。
+
+`pixelforge project` 读写的是项目清单（`pixelforge-manifest`）：尺寸档、视角、目录约定、默认色板路径、一段短说明、资产根。这是项目记忆，不是画布，也不是素材库。不要往清单里画像素。见 `docs/project-manifest.md`。
 
 画角色、立绘、剪影：同时读 `pixelforge-draw`。四向走加待机的精灵表：同时读 `pixelforge-sprite-4dir`。身体、装备、四肢分层：同时读 `pixelforge-layers`。只读挑错：读 `pixelforge-critique`，不要改像素。多帧、同姿只改差、或要缩短 `fillRect` 次数时，读下面的「最少编辑路径」。
 
@@ -749,6 +754,25 @@ pixelforge export tilemap --map map.json --tileset tiles.json \
 地图上的 `fillTiles`、`autotile`、`setTile` 走 `pixelforge call --project map.json`。`--request` 里的工具名是 `tilemapTools` 那一份，不是像素文档的 `paint`。一次 `call` 里的多个请求共享这一进程的地图撤销栈。进程退出后，地图没有检查点可撤销。
 
 *On a map, `fillTiles`, `autotile`, and `setTile` go through `pixelforge call --project map.json`. Those names are the `tilemapTools` list, not the pixel document's `paint`. Several requests in one `call` share that process's map undo stack. After the process exits, a tilemap has no checkpoint to undo.*
+
+## 项目清单 Project manifest
+
+`pixelforge project init`、`project show`、`project validate` 管的是 `pixelforge-manifest`。它记画布档位、视角（`top` / `side` / `front` / `oblique`）、目录角色、默认色板路径、一段短说明、资产根和相对路径。相对路径不能有 `..`。
+
+`show` 不读像素。`validate` 只核对约定：写了 `canvas` 的目录里，直接放着的 `pixelforge-project` 必须是那一档。atlas 跳过。`projects` 是数量，不是文件名单。通过不等于画完。
+
+不做素材 GUI、地图 GUI、内嵌聊天、团队权限、自动生图，也不做逐个资产登记、角色动画矩阵或导出版本清单。丧尸包的例子是 `examples/game-pack-zombie/pixelforge.manifest.json`。格式全文在 `docs/project-manifest.md`。
+
+*`pixelforge project init`, `project show`, and `project validate` own a `pixelforge-manifest`. It stores canvas tiers, perspective (`top`, `side`, `front`, `oblique`), directory roles, the default palette path, a short note, and the asset root. Relative paths cannot contain `..`.*
+
+*`show` does not read pixels. `validate` checks conventions: a `pixelforge-project` directly inside a directory that names a canvas must match that tier. Atlas files are skipped. `projects` is a count, not a file list. A pass does not mean the picture is finished.*
+
+*An asset GUI, a map GUI, an embedded chat, team auth, and image generation are out. So are a per-asset registry, a character animation matrix, and a versioned delivery list. The zombie pack example is `examples/game-pack-zombie/pixelforge.manifest.json`. The format is `docs/project-manifest.md`.*
+
+```bash
+pixelforge project show --manifest examples/game-pack-zombie/pixelforge.manifest.json
+pixelforge project validate --manifest examples/game-pack-zombie/pixelforge.manifest.json
+```
 
 ## Catalog
 

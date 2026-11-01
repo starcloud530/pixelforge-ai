@@ -1671,6 +1671,25 @@ CLI：`tilemap new`、`tilemap inspect`、`tilemap get`、`tilemap set`、`tilem
 
 例子：`examples/base-tiles/`。地面是 tile 0，围墙规则把 mask 映射到 tile `mask + 1`，导出 `base.tmj` 和旁边的 `tiles.png`。
 
+## 项目清单 Project manifest
+
+项目清单是另一份文件，`format` 为 `pixelforge-manifest`，version 1。它记画布档位、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径。不存像素，不代替 `pixelforge-project`。字段、退出码和不做的事见 [project-manifest.md](project-manifest.md)。例子是 `examples/game-pack-zombie/pixelforge.manifest.json`。
+
+*A project manifest is a separate `pixelforge-manifest` version 1 file. It stores canvas tiers, perspective, directory rules, the default palette path, a short note, and the asset root. It does not store pixels and it does not replace a `pixelforge-project`. Fields, exit codes, and the out-of-scope list are in [project-manifest.md](project-manifest.md). The example is `examples/game-pack-zombie/pixelforge.manifest.json`.*
+
+这些名字在 `pixelforge tools` 的 `manifestTools` 里。`ArtManifest::call_tool` 用同一份信封。文件没有撤销栈。`pixelforge call --project manifest.json` 发现这份 format 之后走清单工具，不走像素文档，也不走地图。`--checkpoint` 和 `--preview` 不能用。
+
+| tool | params | 作用 |
+| --- | --- | --- |
+| `inspectManifest` | 无 | 返回清单对象 |
+| `validateManifest` | `rootExists`，可选 `files` | 用调用方已经看到的磁盘对照约定。不自己读盘 |
+
+`files` 的每一项是 `{ "path", "kind" }`，`kind` 为 `file`、`dir` 或 `missing`。文件还可以带 `format`、成对的 `width` / `height`，以及 `unreadable`。漏探针是 `probeMissing`。尺寸不符是 `canvasSize`。空目录是 warning `layoutEmpty`。`result.checks.layout[].projects` 是数量，不是文件名单。
+
+CLI：`project init`、`project show`、`project validate`。`validate` 在 `errorCount` 大于 0 时退出码 1。工具响应本身仍是 `ok: true`。文件打不开是退出码 2，`ManifestFile`。
+
+*Manifest tool names are `manifestTools` from `pixelforge tools`. `ArtManifest::call_tool` uses the same envelope. The file has no undo stack. `pixelforge call --project manifest.json` dispatches these tools when the format is `pixelforge-manifest`, not the pixel document and not the tilemap. `--checkpoint` and `--preview` are refused. `validateManifest` compares the caller's disk snapshot and does not read the disk itself. A missing probe is `probeMissing`. A canvas miss is `canvasSize`. An empty directory is a `layoutEmpty` warning. `projects` is a count, not a file list. `project validate` exits 1 when `errorCount` is greater than 0. The tool response stays `ok: true`. An unreadable file exits 2 with `ManifestFile`.*
+
 ## 不变量 Invariants
 
 - 改像素、调色板、帧和时长只通过 `Document` 的公开方法。Tool API 不写第二份缓冲。

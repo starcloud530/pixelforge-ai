@@ -31,13 +31,15 @@
 //! A tileset is this same document with a 16 or 32 tile size and one tile per
 //! frame. A tilemap, 4-neighbor autotile rules, and Tiled `.tmj` export live in
 //! [`tiles`] and do not add a second pixel buffer.
+//! A game-art manifest ([`manifest`]) records canvas tiers, perspective, and
+//! directory rules. It is not a canvas and it does not store pixels.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
 //! as onion skin; it is not part of the document. [`Document::call_tool`] is
 //! the stable Tool API: named JSON tools that dispatch onto this document and
 //! its undo stack. The local `pixelforge` command (`crates/pixelforge-cli`)
 //! and the browser shell (through `pixelforge-kernel-wasm`) are callers.
 //! See `docs/tech-stack.md`, `docs/dev-setup.md`, `docs/export.md`,
-//! `docs/tool-api.md`, and `docs/agent-skill.md`.
+//! `docs/tool-api.md`, `docs/project-manifest.md`, and `docs/agent-skill.md`.
 
 mod apng;
 mod aseprite;
@@ -51,6 +53,7 @@ mod error;
 mod export;
 mod frame;
 mod history;
+mod manifest;
 mod palette;
 mod palette_file;
 mod palette_map;
@@ -85,6 +88,10 @@ pub use document::{BakeFrame, BakeOptions, BakeReport, Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};
 pub use export::{sprite_sheet_layout, FlattenCompare, SpriteSheetLayout};
 pub use frame::Frame;
+pub use manifest::{
+    ArtManifest, CanvasTier, LayoutRule, ManifestDraft, ManifestError, ManifestProbe, ProbeKind,
+    LAYOUT_KINDS, MANIFEST_FORMAT, MANIFEST_TOOL_NAMES, PERSPECTIVES,
+};
 pub use palette::{IndexPolicy, Palette};
 pub use palette_file::PaletteImportMode;
 pub use part::{Anchor, LayerAttach, Part, PartUpdate};

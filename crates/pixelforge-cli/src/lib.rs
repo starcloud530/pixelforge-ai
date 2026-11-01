@@ -9,6 +9,7 @@ mod checkpoint;
 mod cli;
 mod export_files;
 mod failure;
+mod manifest_cmd;
 mod output;
 mod preview;
 mod requests;
@@ -21,7 +22,9 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
-use pixelforge_kernel::{Mask, Selection, TILEMAP_TOOL_NAMES, TOOL_API_VERSION, TOOL_NAMES};
+use pixelforge_kernel::{
+    Mask, Selection, MANIFEST_TOOL_NAMES, TILEMAP_TOOL_NAMES, TOOL_API_VERSION, TOOL_NAMES,
+};
 use serde_json::{json, Value};
 
 use base64::engine::general_purpose::STANDARD;
@@ -142,6 +145,7 @@ fn execute(cli: Cli) -> i32 {
         Command::Autotile { command } => tiles_cmd::autotile(command),
         Command::ValidateTiles(args) => tiles_cmd::validate(args),
         Command::ValidateAtlas(args) => validate_atlas::run(args),
+        Command::Project { command } => manifest_cmd::run(command),
         Command::Tools => cmd_tools(),
     }
 }
@@ -1827,7 +1831,11 @@ fn cmd_tools() -> i32 {
     let body = json!({
         "ok": true,
         "apiVersion": TOOL_API_VERSION,
-        "result": { "tools": TOOL_NAMES, "tilemapTools": TILEMAP_TOOL_NAMES },
+        "result": {
+            "tools": TOOL_NAMES,
+            "tilemapTools": TILEMAP_TOOL_NAMES,
+            "manifestTools": MANIFEST_TOOL_NAMES,
+        },
     });
     let line = serde_json::to_string(&body).expect("tool list is JSON");
     if print_line(&line) {
@@ -1846,8 +1854,21 @@ fn open_project(doc: &ProjectArgs) -> Result<Session, CliFailure> {
 }
 
 fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
-    match tiles_cmd::is_tilemap_file(&doc.project) {
-        Ok(true) => {
+    let sidecar = match manifest_cmd::peek_sidecar(&doc.project) {
+        Ok(sidecar) => sidecar,
+        Err(failure) => return emit(failure),
+    };
+    match sidecar {
+        manifest_cmd::Sidecar::Manifest => {
+            if doc.checkpoint.is_some() {
+                return emit(CliFailure::new(
+                    "Cli",
+                    "a project manifest does not use --checkpoint",
+                ));
+            }
+            return manifest_cmd::apply_call(&doc.project, requests, preview);
+        }
+        manifest_cmd::Sidecar::Tilemap => {
             if doc.checkpoint.is_some() {
                 return emit(CliFailure::new(
                     "Cli",
@@ -1856,8 +1877,7 @@ fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
             }
             return tiles_cmd::apply_call(&doc.project, requests, preview);
         }
-        Ok(false) => {}
-        Err(failure) => return emit(failure),
+        manifest_cmd::Sidecar::Other => {}
     }
     let mut session = match open_project(doc) {
         Ok(session) => session,
