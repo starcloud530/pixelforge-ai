@@ -6,6 +6,11 @@
 //! uses. Any other `{action}_{facing}` tag is the same action on every
 //! facing, with the same columns. Naming those tags does not paint pixels.
 //!
+//! `fillDirections` copies stored indices from one cardinal row onto the
+//! others, or horizontally mirrors left and right. The copy is not new art,
+//! not a natural gait, and not an aesthetic pass. Eight-direction diagonal
+//! rows are left unchanged.
+//!
 //! Row order matches the sheet, not compass order:
 //!
 //! | Row | Compass | Tag suffix |
@@ -23,6 +28,8 @@
 //! and does not move the first four rows. A tag may use the screen suffix or
 //! a compass alias (`south`, `s`, `sw`, …). Auto-named tags use the screen
 //! suffix, so an existing `idle_down` sheet stays the canonical name.
+
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 
@@ -734,6 +741,234 @@ fn standard_spans(columns: u32) -> Vec<(&'static str, usize, usize)> {
         vec![("idle", 0, 0)]
     } else {
         vec![("idle", 0, 0), ("walk", 1, columns as usize - 1)]
+    }
+}
+
+/// How [`crate::Document::fill_directions`] moves indices.
+///
+/// `Mirror` horizontally flips left into right, or right into left.
+/// `Copy` repeats the source row on the other three cardinals and does not
+/// flip. Neither mode writes a diagonal row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FillMode {
+    Mirror,
+    Copy,
+}
+
+impl FillMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mirror => "mirror",
+            Self::Copy => "copy",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "mirror" => Some(Self::Mirror),
+            "copy" => Some(Self::Copy),
+            _ => None,
+        }
+    }
+}
+
+/// One column of a source segment, relative to that facing's row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FillColumn {
+    pub column: u32,
+    pub action: String,
+}
+
+/// Cardinal targets and the source columns they receive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FillPlan {
+    pub source: &'static Facing,
+    pub hflip: bool,
+    pub targets: Vec<&'static Facing>,
+    pub columns: Vec<FillColumn>,
+}
+
+/// One written, skipped, or unchanged target frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectionFillFrame {
+    pub frame: u32,
+    pub source: u32,
+    pub action: String,
+    pub status: &'static str,
+}
+
+/// One cardinal the fill considered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectionFillTarget {
+    pub facing: &'static str,
+    pub compass: &'static str,
+    pub hflip: bool,
+    pub frames: Vec<DirectionFillFrame>,
+}
+
+/// Result of a fill. `wrote` is false when every target frame was skipped or
+/// already matched. Diagonal rows are `none` on a 4-direction layout and
+/// `skipped` on an 8-direction layout.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectionFillReport {
+    pub mode: &'static str,
+    pub from: &'static str,
+    pub compass: &'static str,
+    pub overwrite: bool,
+    pub wrote: bool,
+    pub frames_written: u32,
+    pub frames_skipped: u32,
+    /// `none` when the layout has no diagonal rows. `skipped` when count is 8:
+    /// those rows are not painted.
+    pub diagonals: &'static str,
+    pub targets: Vec<DirectionFillTarget>,
+}
+
+/// Columns to copy, and the cardinal rows that receive them.
+///
+/// The source facing must already have a valid idle/walk split. Every other
+/// `{action}_{facing}` that appears on a cardinal in this layout must also
+/// exist on the source, inside that row. A miss is [`KernelError::DirectionFill`]
+/// and the caller writes nothing. A second name for one action is
+/// [`KernelError::DirectionSegment`]. Diagonal tags are not sources and not
+/// targets.
+pub(crate) fn plan_fill(
+    tags: &[Tag],
+    layout: DirectionLayout,
+    source: &'static Facing,
+    mode: FillMode,
+) -> Result<FillPlan, KernelError> {
+    if source.diagonal {
+        return Err(KernelError::DirectionFill {
+            detail: "direction fill writes the four cardinals; eight-direction diagonals are left unchanged".into(),
+        });
+    }
+    let targets = match mode {
+        FillMode::Mirror => {
+            let Some(opposite) = mirror_target(source) else {
+                return Err(KernelError::DirectionFill {
+                    detail: "mirror flips left and right; copy north and south instead".into(),
+                });
+            };
+            vec![opposite]
+        }
+        FillMode::Copy => FACINGS[..4]
+            .iter()
+            .filter(|facing| facing.index != source.index)
+            .collect(),
+    };
+
+    let parsed = parse_owned(tags);
+    let mut seen_actions: Vec<String> = Vec::new();
+    for tag in parsed.iter().filter(|tag| tag.facing.index == source.index) {
+        let name = tag.action.as_str().to_string();
+        if seen_actions.iter().any(|existing| existing == &name) {
+            return Err(KernelError::DirectionSegment);
+        }
+        seen_actions.push(name);
+    }
+
+    let row_start = u32::from(source.index) * layout.columns;
+    let row_end = row_start + layout.columns - 1;
+    let on_source: Vec<&OwnedTag> = parsed
+        .iter()
+        .filter(|tag| tag.facing.index == source.index)
+        .collect();
+    let faults = idle_walk_faults(
+        &spans_of(&on_source, "idle"),
+        &spans_of(&on_source, "walk"),
+        row_start,
+        row_end,
+    );
+    if let Some(fault) = faults.first() {
+        return Err(KernelError::DirectionFill {
+            detail: fault_finding(source, *fault).message,
+        });
+    }
+
+    let mut others: Vec<String> = Vec::new();
+    for tag in &parsed {
+        if tag.facing.diagonal
+            || matches!(tag.action, DirectionAction::Idle | DirectionAction::Walk)
+        {
+            continue;
+        }
+        let name = tag.action.as_str().to_string();
+        if !others.iter().any(|existing| existing == &name) {
+            others.push(name);
+        }
+    }
+    for action in &others {
+        let hits: Vec<&OwnedTag> = on_source
+            .iter()
+            .copied()
+            .filter(|tag| tag.action.is(action))
+            .collect();
+        match hits.as_slice() {
+            [] => {
+                return Err(KernelError::DirectionFill {
+                    detail: format!(
+                        "facing {} ({}) has no {}_{} segment",
+                        source.screen, source.compass, action, source.screen
+                    ),
+                });
+            }
+            [tag] => {
+                if tag.from > tag.to || tag.from < row_start || tag.to > row_end {
+                    return Err(KernelError::DirectionFill {
+                        detail: format!(
+                            "tag `{}` covers frames {}-{}, outside {} ({}) frames {row_start}-{row_end}",
+                            tag.name, tag.from, tag.to, source.screen, source.compass
+                        ),
+                    });
+                }
+            }
+            _ => return Err(KernelError::DirectionSegment),
+        }
+    }
+
+    let mut grouped: BTreeMap<u32, Vec<String>> = BTreeMap::new();
+    for tag in &on_source {
+        for frame in tag.from..=tag.to {
+            let actions = grouped.entry(frame - row_start).or_default();
+            let name = tag.action.as_str().to_string();
+            if !actions.iter().any(|existing| existing == &name) {
+                actions.push(name);
+            }
+        }
+    }
+    if grouped.is_empty() {
+        return Err(KernelError::DirectionFill {
+            detail: format!(
+                "facing {} ({}) has no idle/walk segment to copy",
+                source.screen, source.compass
+            ),
+        });
+    }
+    let columns = grouped
+        .into_iter()
+        .map(|(column, actions)| FillColumn {
+            column,
+            action: actions.join(","),
+        })
+        .collect();
+    Ok(FillPlan {
+        source,
+        hflip: mode == FillMode::Mirror,
+        targets,
+        columns,
+    })
+}
+
+/// Left (W) mirrors to right (E), and right mirrors to left.
+fn mirror_target(source: &Facing) -> Option<&'static Facing> {
+    match source.index {
+        1 => Some(&FACINGS[2]),
+        2 => Some(&FACINGS[1]),
+        _ => None,
     }
 }
 

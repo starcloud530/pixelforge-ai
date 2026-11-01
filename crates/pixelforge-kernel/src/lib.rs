@@ -77,8 +77,9 @@ pub use curve::{
     SampleHit,
 };
 pub use direction::{
-    parse_direction_tag, parse_facing, DirectionAction, DirectionFacingView, DirectionFinding,
-    DirectionLayout, DirectionReport, DirectionSegmentView, DirectionSheet, Facing, IdleWalkFault,
+    parse_direction_tag, parse_facing, DirectionAction, DirectionFacingView, DirectionFillFrame,
+    DirectionFillReport, DirectionFillTarget, DirectionFinding, DirectionLayout, DirectionReport,
+    DirectionSegmentView, DirectionSheet, Facing, FillMode, IdleWalkFault,
 };
 pub use document::{BakeFrame, BakeOptions, BakeReport, Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};

@@ -452,6 +452,16 @@ const BY_NAME = {
     },
     ["facing"],
   ),
+  fillDirections: tool(
+    "fillDirections",
+    "Copy one cardinal facing's segment frames onto the other cardinals, or horizontally mirror left and right. mode is mirror or copy. Does not fill diagonal rows. Skips a target frame that already has ink unless overwrite is true. Does not write tags, move parts, recolor, or repair highlights. Not a natural gait and not a generated four-direction drawing. One undo step when pixels or delays change.",
+    {
+      from: { type: "string", description: "Source facing: N, E, S, W, or down, left, right, up. mirror accepts only left or right." },
+      mode: { type: "string", description: "mirror flips left and right. copy repeats the source on the other cardinals and does not flip." },
+      overwrite: { type: "boolean", description: "When true, replace target frames that already hold ink or an explicit erase. Omit to skip them." },
+    },
+    ["from", "mode"],
+  ),
   listParts: tool(
     "listParts",
     "Read named parts and their anchors. A part is not a layer. Does not change the document.",
