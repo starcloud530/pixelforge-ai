@@ -1,6 +1,6 @@
 # 丧尸 / 据点道具包（#18）
 
-64×64 索引像素，给自家丧尸经营原型用的两张表。这里没有游戏工程。导入约定和工具侧门槛在 [docs/export.md](../../docs/export.md) 的「对接校验」和 Godot / Unity 两节。做这套表时记下的失败模式在 [FAILURES.md](FAILURES.md)。
+64×64 索引像素，给自家丧尸经营原型用的两张表。像素文件仍不是游戏工程。`pixelforge.manifest.json` 只记这套包的尺寸、顶视和目录约定，不存像素，见 [docs/project-manifest.md](../../docs/project-manifest.md)。导入约定和工具侧门槛在 [docs/export.md](../../docs/export.md) 的「对接校验」和 Godot / Unity 两节。做这套表时记下的失败模式在 [FAILURES.md](FAILURES.md)。
 
 画布是游戏默认档 64，不是立绘。丧尸走到细节阶段：剪影、色块、眼睛和破口都在，走路是三帧挪四肢。道具是路障、木箱、发电机、医疗箱。
 
@@ -8,6 +8,7 @@
 
 | 路径 | 内容 |
 | --- | --- |
+| `pixelforge.manifest.json` | `pixelforge-manifest`。顶视，角色和道具都是 64×64，色板指向 `zombie/zombie.json`。不是画布，也不是文件名单 |
 | `zombie/zombie.json` | 16 帧工程。行序 down、left、right、up（S/W/E/N）；列是 idle、walk A、walk B、walk C。`directionLayout` 是 `{count: 4, columns: 4}` |
 | `zombie/zombie-sheet.png` | 256×256，`--cols 4`，`--scale 1` |
 | `zombie/zombie-sheet.json` | `pixelforge-atlas`。标签 `idle_*` / `walk_*`，`loop` 为 `forward` |
@@ -62,6 +63,6 @@ pixelforge validate-atlas \
 python3 examples/game-pack-zombie/validate.py
 ```
 
-`cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查，并对丧尸工程跑 `direction validate`。表坏了，或四向 idle/walk 帧段缺了，这个测试失败。`direction validate` 通过只说明朝向和帧段齐，不是自然步态，也不是审美通过。
+`cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查，并对丧尸工程跑 `direction validate`。`game_pack_zombie_manifest` 再跑 `project validate`。表坏了、四向 idle/walk 帧段缺了、或清单和 64×64 对不上，这些测试失败。`direction validate` 通过只说明朝向和帧段齐，不是自然步态，也不是审美通过。`project validate` 通过只说明约定还在，不是画面验收。
 
 右朝向是左朝向 `hflip` 之后把高光画回画面左上。不要整帧重画。槽位已经占死后用 `copyRect`，不要 `duplicateFrame` 插进一行中间。`direction fill --from left --mode mirror` 只做这一步水平翻转，不修高光，也不是新的走路。不要对已提交的 `zombie.json` 加 `--overwrite`，否则画回去的高光会被镜像盖掉。只画一侧再填满基本朝向的小例子是 `examples/direction-fill/`。八向对角不在这条命令里。

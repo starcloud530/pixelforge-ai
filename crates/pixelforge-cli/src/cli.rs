@@ -74,6 +74,13 @@ Examples:
   pixelforge direction fill --project hero.json --from left --mode mirror
   pixelforge direction fill --project hero.json --from down --mode copy
   pixelforge direction export --project hero.json --facing south --output south.png
+  pixelforge project init --name zombie-outpost --perspective top \\
+      --note \"Top-down 64x64. Conventions only.\" \\
+      --canvas sprite:64x64 --palette zombie/zombie.json --palette-ref zombie \\
+      --layout characters:zombie:character:sprite \\
+      --layout props:props:prop:sprite --output pixelforge.manifest.json
+  pixelforge project show --manifest pixelforge.manifest.json
+  pixelforge project validate --manifest pixelforge.manifest.json
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, visibility, opacity, palette hash, frame delays) and does not dump
@@ -548,6 +555,18 @@ pub enum Command {
     /// Exit 0 when the checklist has no errors. Exit 1 when it has an error.
     /// Warnings alone stay exit 0. Exit 2 when the files cannot be read.
     ValidateAtlas(ValidateAtlasArgs),
+    /// Read or write a pixelforge-manifest. This is project memory, not a canvas.
+    ///
+    /// `init` writes conventions: canvas tiers, perspective, directory rules,
+    /// the default palette path, a short note, and the asset root. `show` prints
+    /// them. `validate` checks those paths and that pixelforge-project files in
+    /// a sized directory match the named tier. It does not draw, and it does
+    /// not list every asset. There is no asset GUI, map GUI, chat, team auth,
+    /// or image generator here.
+    Project {
+        #[command(subcommand)]
+        command: ProjectCmd,
+    },
     /// Print the Tool API tool names as JSON.
     Tools,
 }
@@ -2296,6 +2315,85 @@ pub struct TileFillArgs {
     pub flip_h: bool,
     #[arg(long)]
     pub flip_v: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum PerspectiveArg {
+    /// Top-down. Four-direction sheets use this.
+    Top,
+    /// Side view.
+    Side,
+    /// Front view, such as a standing portrait.
+    Front,
+    /// Three-quarter or oblique.
+    Oblique,
+}
+
+impl PerspectiveArg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Side => "side",
+            Self::Front => "front",
+            Self::Oblique => "oblique",
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum ProjectCmd {
+    /// Write a new pixelforge-manifest. Refuses when the file already exists.
+    ///
+    /// Does not create pixel files and does not copy a palette. `--canvas` is
+    /// `name:WxH`. `--layout` is `name:dir:kind` or `name:dir:kind:canvas`.
+    /// `kind` is character, prop, tile, portrait, ui, or effect. Paths are
+    /// relative to `--asset-root` and cannot contain `..`.
+    Init {
+        /// Short project name.
+        #[arg(long)]
+        name: String,
+        /// One short style or spec note. Not a design document.
+        #[arg(long)]
+        note: String,
+        /// top, side, front, or oblique.
+        #[arg(long, value_enum)]
+        perspective: PerspectiveArg,
+        /// Directory the other paths are relative to. `.` is the manifest's directory.
+        #[arg(long, default_value = ".")]
+        asset_root: String,
+        /// Default palette: a pixelforge-project `.json`, or a `.gpl`, `.hex`, or `.txt` file.
+        #[arg(long)]
+        palette: String,
+        /// Short label for that palette. Omitted from the file when unset.
+        #[arg(long)]
+        palette_ref: Option<String>,
+        /// Canvas tier, `name:WxH`. Repeat for more than one size.
+        #[arg(long, value_name = "NAME:WxH")]
+        canvas: Vec<String>,
+        /// Directory rule, `name:dir:kind` or `name:dir:kind:canvas`.
+        #[arg(long, value_name = "NAME:DIR:KIND[:CANVAS]")]
+        layout: Vec<String>,
+        /// Where to write the manifest.
+        #[arg(short, long, value_name = "FILE")]
+        output: PathBuf,
+    },
+    /// Print the manifest. Does not read pixels or check the disk.
+    Show {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+    },
+    /// Check conventions against the asset root. Does not edit files.
+    ///
+    /// Exit 0 when the checklist has no errors. Warnings alone stay exit 0.
+    /// Exit 1 when it has an error. Exit 2 when the file cannot be read.
+    /// A project file whose canvas does not match its layout tier is an error.
+    /// Atlas JSON in the same directory is ignored.
+    Validate {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+    },
 }
 
 #[derive(Args)]

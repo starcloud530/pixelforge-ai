@@ -115,13 +115,13 @@ python3 examples/base-tiles/validate.py
 python3 examples/lighthouse-outpost/validate.py
 ```
 
-前两条是内核和 CLI 测试。`cargo build -p pixelforge-cli` 把调试版 `pixelforge` 放到 `target/debug/`（上一条 `cargo test` 已经编过时，这一步几乎是空的）。`examples/game-pack-zombie/validate.py` 对已提交的丧尸表和道具表执行 `validate-atlas --strict`。`examples/base-tiles/validate.py` 核对图块和 `.tmj`。`examples/lighthouse-outpost/validate.py` 重跑灯塔脚本并核对小场景引用的导出文件。这些脚本只依赖 Python 标准库。
+前两条是内核和 CLI 测试。`cargo build -p pixelforge-cli` 把调试版 `pixelforge` 放到 `target/debug/`（上一条 `cargo test` 已经编过时，这一步几乎是空的）。`examples/game-pack-zombie/validate.py` 对已提交的丧尸表和道具表执行 `validate-atlas --strict`，并跑 `project validate` 核对 `pixelforge.manifest.json`。`examples/base-tiles/validate.py` 核对图块和 `.tmj`。`examples/lighthouse-outpost/validate.py` 重跑灯塔脚本并核对小场景引用的导出文件。这些脚本只依赖 Python 标准库。
 
 新功能要先收进上面 CI 会执行的测试或门槛脚本，再合进来。只在本地跑、工作流里没有的检查不算收录。
 
 *[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. The job uses `ubuntu-latest`, Rust stable with a Cargo cache, and `python3`. It runs the sequence above from the repository root. A non-zero exit fails CI. There is no deploy step. Multi-platform prebuilt packages are the next section, not this workflow.*
 
-*The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `examples/game-pack-zombie/validate.py` runs `validate-atlas --strict` on the committed zombie and prop sheets. `examples/base-tiles/validate.py` checks the tileset and `.tmj`. `examples/lighthouse-outpost/validate.py` rebuilds the lighthouse and checks that the mini-game points at the exported files. Those scripts use only the Python standard library.*
+*The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `examples/game-pack-zombie/validate.py` runs `validate-atlas --strict` on the committed zombie and prop sheets, and `project validate` on `pixelforge.manifest.json`. `examples/base-tiles/validate.py` checks the tileset and `.tmj`. `examples/lighthouse-outpost/validate.py` rebuilds the lighthouse and checks that the mini-game points at the exported files. Those scripts use only the Python standard library.*
 
 *A new feature needs a test or gate script that this workflow already runs before it is merged. A check that exists only on a laptop does not count.*
 

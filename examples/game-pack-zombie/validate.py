@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Re-run validate-atlas --strict and direction validate on the committed #18 pack.
+"""Re-run validate-atlas --strict, direction validate, and project validate.
 
 Exit 0 only when the zombie sheet and the prop sheet both have no atlas
-errors, and the zombie project passes direction validate (4-direction
-idle/walk). A broken PNG, atlas, rules file, or direction layout fails
+errors, the zombie project passes direction validate (4-direction
+idle/walk), and pixelforge.manifest.json passes project validate.
+A broken PNG, atlas, rules file, direction layout, or manifest fails
 this script. `cargo test -p pixelforge-cli game_pack_zombie` calls the
-atlas check; `game_pack_zombie_directions` calls the direction gate.
+atlas check; `game_pack_zombie_directions` calls the direction gate;
+`game_pack_zombie_manifest` calls the manifest gate.
 """
 
 from __future__ import annotations
@@ -91,6 +93,31 @@ def validate_directions(binary: str, project: Path) -> None:
         raise SystemExit(proc.stdout)
 
 
+def validate_manifest(binary: str, manifest: Path) -> None:
+    proc = subprocess.run(
+        [binary, "project", "validate", "--manifest", str(manifest)],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(proc.stderr.strip())
+    if proc.returncode != 0:
+        raise SystemExit(proc.stdout or proc.stderr)
+    body = json.loads(proc.stdout)
+    result = body["result"]
+    checks = result["checks"]
+    if (
+        not body.get("ok")
+        or result["errorCount"] != 0
+        or result["warningCount"] != 0
+        or checks["perspective"] != "top"
+        or checks["canvases"] != [{"name": "sprite", "width": 64, "height": 64}]
+        or [row["projects"] for row in checks["layout"]] != [1, 1]
+    ):
+        raise SystemExit(proc.stdout)
+
+
 def main() -> None:
     binary = find_binary()
     validate(
@@ -108,6 +135,7 @@ def main() -> None:
         False,
     )
     validate_directions(binary, ROOT / "zombie" / "zombie.json")
+    validate_manifest(binary, ROOT / "pixelforge.manifest.json")
 
 
 if __name__ == "__main__":
