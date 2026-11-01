@@ -78,6 +78,7 @@ pub const TOOL_NAMES: &[&str] = &[
     "validateDirections",
     "listDirections",
     "exportDirection",
+    "fillDirections",
     "listParts",
     "addPart",
     "setPart",
@@ -809,6 +810,13 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
                 "sheetHeight": sheet.sheet_height,
                 "scale": sheet.scale,
             }))
+        }
+        "fillDirections" => {
+            let (from, mode, overwrite) = parse_fill_directions(params)?;
+            let report = document
+                .fill_directions(&from, mode, overwrite)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::to_value(report).expect("direction fill report is JSON"))
         }
         "listParts" => {
             parse_empty(tool, params)?;
@@ -3236,6 +3244,19 @@ fn parse_set_direction(params: Value) -> Result<(u8, u32, bool), ToolFailure> {
     let columns = require_u32_at_least("setDirectionLayout", &map, "columns", 1)?;
     let apply = optional_bool("setDirectionLayout", &map, "apply")?;
     Ok((count, columns, apply))
+}
+
+fn parse_fill_directions(
+    params: Value,
+) -> Result<(String, crate::direction::FillMode, bool), ToolFailure> {
+    let map = expect_object("fillDirections", params)?;
+    reject_params("fillDirections", &map, &["from", "mode", "overwrite"])?;
+    let from = require_string("fillDirections", &map, "from")?;
+    let mode_text = require_string("fillDirections", &map, "mode")?;
+    let mode = crate::direction::FillMode::parse(&mode_text)
+        .ok_or_else(|| invalid_params("fillDirections", "mode must be mirror or copy"))?;
+    let overwrite = optional_bool("fillDirections", &map, "overwrite")?;
+    Ok((from, mode, overwrite))
 }
 
 fn parse_export_direction(params: Value) -> Result<(String, u32), ToolFailure> {

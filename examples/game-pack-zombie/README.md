@@ -64,4 +64,4 @@ python3 examples/game-pack-zombie/validate.py
 
 `cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查，并对丧尸工程跑 `direction validate`。表坏了，或四向 idle/walk 帧段缺了，这个测试失败。`direction validate` 通过只说明朝向和帧段齐，不是自然步态，也不是审美通过。
 
-右朝向是左朝向 `hflip` 之后把高光画回画面左上。不要整帧重画。槽位已经占死后用 `copyRect`，不要 `duplicateFrame` 插进一行中间。
+右朝向是左朝向 `hflip` 之后把高光画回画面左上。不要整帧重画。槽位已经占死后用 `copyRect`，不要 `duplicateFrame` 插进一行中间。`direction fill --from left --mode mirror` 只做这一步水平翻转，不修高光，也不是新的走路。不要对已提交的 `zombie.json` 加 `--overwrite`，否则画回去的高光会被镜像盖掉。只画一侧再填满基本朝向的小例子是 `examples/direction-fill/`。八向对角不在这条命令里。

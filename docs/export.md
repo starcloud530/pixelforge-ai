@@ -119,7 +119,7 @@ stdout 是一行 JSON。`tool` 是 `validateAtlas`。`result.errors` 和 `result
 
 规则文件是 `pixelforge-atlas-rules` version 1。未知字段会拒绝，避免把写错的键当成没写。命令行上出现的旗标覆盖文件里的同名字段。`sizes: []` 表示不查尺寸档。`tagPolicy: optional` 表示空标签列表不记一笔，`requireTags` 仍然要有。`fourDirection` 是 `auto`（默认：出现四向或八向名字才查）、`on` 或 `off`。`--loose` 仍把方向名字降成 warning。
 
-工程里的硬门槛是另一条命令，不读 PNG：`pixelforge direction validate --project hero.json`。它要求已经 `direction set` 的布局。缺方向、缺帧，或 idle/walk 帧段对不上，是 error，没有 loose，退出码 1。八向要把 `count` 设成 8。这条检查不生成步态，通过也不等于动作自然或画面过关。自动命名是 `direction apply`：它只写已有的 idle/walk 标签区间。
+工程里的硬门槛是另一条命令，不读 PNG：`pixelforge direction validate --project hero.json`。它要求已经 `direction set` 的布局。缺方向、缺帧，或 idle/walk 帧段对不上，是 error，没有 loose，退出码 1。八向要把 `count` 设成 8。这条检查不生成步态，通过也不等于动作自然或画面过关。自动命名是 `direction apply`：它只写已有的 idle/walk 标签区间。`direction fill` 才写像素，而且只做水平镜像或整帧拷贝：left 与 right 可以镜像，其余基本朝向用 `copy` 占位。八向的对角行不填。这不是新画，不是自然步态，也不是 PixelLab 自动画四向。
 
 ```bash
 pixelforge validate-atlas --atlas hero-sheet.json --sheet hero-sheet.png --loose

@@ -50,6 +50,7 @@ export const TOOL_NAMES = [
   "validateDirections",
   "listDirections",
   "exportDirection",
+  "fillDirections",
   "listParts",
   "addPart",
   "setPart",

@@ -1594,6 +1594,22 @@ fn cmd_direction(command: DirectionCmd) -> i32 {
             apply(&doc, vec![request("clearDirectionLayout", json!({}))])
         }
         DirectionCmd::Apply { doc } => apply(&doc, vec![request("applyDirectionTags", json!({}))]),
+        DirectionCmd::Fill {
+            doc,
+            from,
+            mode,
+            overwrite,
+        } => apply(
+            &doc,
+            vec![request(
+                "fillDirections",
+                json!({
+                    "from": from,
+                    "mode": mode.as_str(),
+                    "overwrite": overwrite,
+                }),
+            )],
+        ),
         DirectionCmd::List { doc } => apply(&doc, vec![request("listDirections", json!({}))]),
         DirectionCmd::Validate { doc } => {
             let mut session = match open_project(&doc) {

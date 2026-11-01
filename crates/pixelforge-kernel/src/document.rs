@@ -11,7 +11,10 @@ use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
 };
-use crate::direction::{self, tags_after_apply, DirectionLayout, DirectionReport};
+use crate::direction::{
+    self, tags_after_apply, DirectionFillFrame, DirectionFillReport, DirectionFillTarget,
+    DirectionLayout, DirectionReport, FillMode,
+};
 use crate::error::KernelError;
 use crate::frame::Frame;
 use crate::history::{Change, History};
@@ -3147,6 +3150,182 @@ impl Document {
     pub fn apply_direction_tags(&mut self) -> Result<bool, KernelError> {
         let layout = self.direction_layout.ok_or(KernelError::DirectionMissing)?;
         self.set_direction_layout(layout, true)
+    }
+
+    /// Copies one cardinal facing's segment frames onto the other cardinals.
+    ///
+    /// `FillMode::Mirror` horizontally flips left into right, or right into
+    /// left. `FillMode::Copy` repeats the source indices on the other three
+    /// cardinals and does not flip. North and south have no mirror target.
+    /// Eight-direction diagonal rows are not written. The source row must
+    /// already have its idle/walk segment, and every other cardinal
+    /// `{action}_{facing}` in the layout. A missing source segment writes
+    /// nothing.
+    ///
+    /// Every layer is copied, including a polish explicit-erase mark. Index 0
+    /// stays transparent. Palette colors are not changed. Parts, anchors,
+    /// curves, constraints, tags, the selection, and the active frame stay.
+    /// This is a frame blit, not `flipPart`. A non-empty target frame is
+    /// skipped unless `overwrite` is set. A frame counts as non-empty when any
+    /// layer holds a non-zero index or an explicit erase. Matching pixels are
+    /// not recorded. A change of pixels or delays is one undo step.
+    ///
+    /// A later `bake` still rebuilds a managed layer from the rest frame.
+    /// `flatten` still snaps the composite. This call does not run either.
+    pub fn fill_directions(
+        &mut self,
+        from: &str,
+        mode: FillMode,
+        overwrite: bool,
+    ) -> Result<DirectionFillReport, KernelError> {
+        let layout = self.direction_layout.ok_or(KernelError::DirectionMissing)?;
+        let facing = direction::parse_facing(from).ok_or(KernelError::DirectionFacing)?;
+        if facing.index >= layout.count {
+            return Err(KernelError::DirectionFacing);
+        }
+        if self.frame_count() != layout.frame_len() {
+            return Err(KernelError::DirectionFrames {
+                need: layout.frame_len(),
+                len: self.frame_count(),
+            });
+        }
+        let plan = direction::plan_fill(&self.tags, layout, facing, mode)?;
+        let mut changes = Vec::new();
+        let mut frames_written = 0u32;
+        let mut frames_skipped = 0u32;
+        let mut targets = Vec::new();
+        let source_row = usize::from(plan.source.index) * layout.columns as usize;
+        for target in &plan.targets {
+            let dest_row = usize::from(target.index) * layout.columns as usize;
+            let mut frames = Vec::new();
+            for column in &plan.columns {
+                let source_frame = source_row + column.column as usize;
+                let dest_frame = dest_row + column.column as usize;
+                let status = if !overwrite && self.frame_has_content(dest_frame) {
+                    frames_skipped += 1;
+                    "skipped"
+                } else if self.copy_frame_indices(
+                    source_frame,
+                    dest_frame,
+                    plan.hflip,
+                    &mut changes,
+                ) {
+                    frames_written += 1;
+                    "written"
+                } else {
+                    "unchanged"
+                };
+                frames.push(DirectionFillFrame {
+                    frame: u32::try_from(dest_frame).expect("frame index fits in u32"),
+                    source: u32::try_from(source_frame).expect("frame index fits in u32"),
+                    action: column.action.clone(),
+                    status,
+                });
+            }
+            targets.push(DirectionFillTarget {
+                facing: target.screen,
+                compass: target.compass,
+                hflip: plan.hflip,
+                frames,
+            });
+        }
+        self.history.record_group(changes);
+        Ok(DirectionFillReport {
+            mode: mode.as_str(),
+            from: plan.source.screen,
+            compass: plan.source.compass,
+            overwrite,
+            wrote: frames_written > 0,
+            frames_written,
+            frames_skipped,
+            diagonals: if layout.count == 8 { "skipped" } else { "none" },
+            targets,
+        })
+    }
+
+    /// A frame already holds ink or an explicit erase on some layer.
+    fn frame_has_content(&self, frame: usize) -> bool {
+        let frame = &self.frames[frame];
+        frame
+            .layers()
+            .iter()
+            .any(|pixels| pixels.iter().any(|index| *index != TRANSPARENT_INDEX))
+            || frame
+                .erasures()
+                .iter()
+                .any(|marks| marks.iter().any(|mark| *mark != 0))
+    }
+
+    /// Copies every layer of `source` onto `dest`. `hflip` maps `x` to
+    /// `width - 1 - x`. Returns whether any index, erase mark, or delay changed.
+    fn copy_frame_indices(
+        &mut self,
+        source: usize,
+        dest: usize,
+        hflip: bool,
+        changes: &mut Vec<Change>,
+    ) -> bool {
+        let width = self.width;
+        let height = self.height;
+        let layer_count = self.layer_count();
+        let mut changed = false;
+        for layer in 0..layer_count {
+            let src_pixels = self.frames[source].layer_pixels(layer).to_vec();
+            let src_erase = self.frames[source].layer_erase(layer).to_vec();
+            for y in 0..height {
+                let row = usize::from(y) * usize::from(width);
+                for x in 0..width {
+                    let src_x = if hflip { width - 1 - x } else { x };
+                    let src_offset = row + usize::from(src_x);
+                    let dst_offset = row + usize::from(x);
+                    let index = src_pixels[src_offset];
+                    let mark = if index == TRANSPARENT_INDEX {
+                        src_erase[src_offset]
+                    } else {
+                        0
+                    };
+                    let before_index = self.frames[dest].layer_pixels(layer)[dst_offset];
+                    if before_index != index {
+                        self.frames[dest].set_on(layer, dst_offset, index);
+                        changes.push(Change::Pixel {
+                            frame: dest,
+                            layer,
+                            offset: dst_offset,
+                            before: before_index,
+                            after: index,
+                        });
+                        changed = true;
+                    }
+                    let before_mark = self.frames[dest].layer_erase(layer)[dst_offset];
+                    if before_mark != mark {
+                        self.frames[dest].set_erase(layer, dst_offset, mark);
+                        changes.push(Change::EraseMark {
+                            frame: dest,
+                            layer,
+                            offset: dst_offset,
+                            before: before_mark,
+                            after: mark,
+                        });
+                        changed = true;
+                    }
+                }
+            }
+        }
+        let src_delay = self.frames[source].delay_ms();
+        let dst_delay = self.frames[dest].delay_ms();
+        if src_delay != dst_delay {
+            self.frames[dest].set_delay_ms(src_delay);
+            if dest == self.active && self.playback.elapsed_ms >= src_delay {
+                self.playback.elapsed_ms = 0;
+            }
+            changes.push(Change::FrameDelay {
+                index: dest,
+                before: dst_delay,
+                after: src_delay,
+            });
+            changed = true;
+        }
+        changed
     }
 
     /// Hard checklist. Missing directions and missing idle/walk spans are errors.

@@ -144,6 +144,11 @@
 | `AutotileFile` | 不是 version 1 的 `pixelforge-autotile` |
 | `AutotileNeighbors` | `neighbors` 不是 4。8 邻接不在这一版 |
 | `AutotileRule` | 16 种掩码缺了、重复了，或位序不是 `n,e,s,w`。整次不写 |
+| `DirectionMissing` | 方向命令需要已经存下的布局，工程里没有 |
+| `DirectionFacing` | 朝向名不在这份布局里。四向没有对角 |
+| `DirectionFrames` | 帧数不是 `count * columns`。整次不写 |
+| `DirectionSegment` | 同一个动作在同一个朝向有两个名字。整次不写 |
+| `DirectionFill` | `fillDirections` 不能填这个朝向：对角行跳过，`mirror` 只配 left 与 right，或源朝向缺帧段、帧段不在该行里。整次不写 |
 
 `InvalidRequest` 的 `message`：`request is not JSON`、`request must be a JSON object`、`missing tool`、`tool must be a string`、`unknown field <name>`、`id must be a string or number`、`apiVersion must be an integer from 0 to 4294967295`。
 
@@ -157,13 +162,13 @@
 
 `paint`、`erase`、`fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart` 可以带可选布尔 `reportDirty`。省略或 `false` 时，这些工具的 `result` 与以前相同。见下面的「脏区」。这不是命令日志。
 
-撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints` 或 `bake` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
+撤销栈上限是 `MAX_UNDO`（100）。一次 `fillRect`、`strokeRect`、`line`、`ellipse`、`polygon`、`fill`、`eraseRect`、`copyRect`、`moveRect`、`flipHorizontal`、`flipVertical`、`rotate`、`resizeCanvas`、`translatePart`、`rotatePart`、`flipPart`、`solveConstraints`、`bake` 或 `fillDirections` 本身就是一步撤销。多次绘制或多块矩形要并成一步时，用 `beginGesture` … `endGesture` 包住。
 
 *`result` is `{}` when a tool does not list fields. Read-only tools (`inspect`, `scene`, `saveProject`, both exports, `previewFrame`, `diffFrames`, `listLayers`, `listParts`, `listCurves`, `sampleCurve`, `samplePart`, and `listConstraints`) do not push undo entries. A paint, rectangle fill, rectangle erase, rectangle copy or move, horizontal flip, vertical flip, rectangle rotation, canvas resize, recolor, delay, lock, index policy, layer rename, layer role, layer visibility, layer opacity, tag edit, part edit, anchor edit, part translate / rotate / flip, curve-key edit, or `solveConstraints` that does not change the current value, a `bake` that changes neither pixels nor delays, a `combineMask` or `selectConnected` that stores the same mask, and an import, remap, or PNG crush that does not change the document, are not recorded either. `importAseprite`, like `loadProject`, replaces the document and starts with an empty undo stack.*
 
 *`paint`, `erase`, `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, and `flipPart` take an optional boolean `reportDirty`. Omit it, or send `false`, and those results stay as they were. See Dirty region below. This is not a command log.*
 
-*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, `solveConstraints`, or `bake` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
+*The undo stack keeps `MAX_UNDO` (100) entries. One `fillRect`, `strokeRect`, `line`, `ellipse`, `polygon`, `fill`, `eraseRect`, `copyRect`, `moveRect`, `flipHorizontal`, `flipVertical`, `rotate`, `resizeCanvas`, `translatePart`, `rotatePart`, `flipPart`, `solveConstraints`, `bake`, or `fillDirections` is already one undo step. Wrap several paints or several rectangles in `beginGesture` … `endGesture` when they should undo together.*
 
 ### `inspect`
 
@@ -689,6 +694,8 @@ idle / walk 的切分和精灵表一样：有 idle 时它只占该行第一格�
 
 `applyDirectionTags` 按上面的标准切分写下 idle/walk。一格的行只写 idle。更长的行把 idle 放在第一格、walk 放在其余格。已经用别名的标签留着原名，只改区间。同一个动作在同一个朝向有两个名字时整次不写。不画像素。`setDirectionLayout` 的 `apply: true` 把存布局和写标签收成一步撤销。
 
+`fillDirections` 才搬索引。它要求已经有布局，而且帧数正好是 `count * columns`。源朝向必须已经有合法的 idle/walk 帧段；布局里任一基本朝向出现过的其它 `{动作}_{朝向}`，源朝向也必须有，而且落在该行里面。缺了整次不写。写入时按这些帧段的相对列对齐：源的第 0 列写到目标朝向的第 0 列。`mirror` 只把 left 水平翻到 right，或把 right 翻到 left；北和南没有镜像目标，用 `copy`。`copy` 把源帧的索引导进其余三个基本朝向，不翻转。八向布局的四行对角不写，`result.diagonals` 是 `skipped`；四向是 `none`。目标帧任一层已有非 0 索引或显式擦除时默认跳过整帧，`overwrite: true` 才盖掉。像素和时长都没变的帧不进撤销栈。有变化时，这一次填充是一步撤销。不改标签、部件、选区、当前帧。水平翻转和矩形 `flipHorizontal` 用同一条规则：`x` 收到 `width - 1 - x`，只搬索引，不改颜色，也不搬部件。这不是新画，不是自然步态，不修高光，也不是自动生成的四向原画。
+
 *A direction layout stores how facing rows are arranged. It is not a second animation language and not a gait. The project file stores `directionLayout` as `{ count, columns }` and omits it when unset. Old files load with no layout. The version stays 1.*
 
 *`count` is 4 or 8. 4 is the formal N/E/S/W set. Row order matches the sheet, not compass order clockwise from north: S/`down`, W/`left`, E/`right`, N/`up`. 8 appends SW/`downleft`, SE/`downright`, NW/`upleft`, NE/`upright` and does not move the first four rows. `columns` is the frame count of each row. `count * columns` must be from 1 to 4096.*
@@ -700,6 +707,8 @@ idle / walk 的切分和精灵表一样：有 idle 时它只占该行第一格�
 *`validateDirections` reports `layout`, `frames`, `missingDirection`, or `segment` in `result.errors`. `errorCount` above zero fails the gate. There is no loose mode. The call does not write. A pass means the spans are present. It does not mean the gait is natural or that the picture passes an aesthetic check.*
 
 *`applyDirectionTags` writes that idle/walk split. A one-frame row gets idle only. A longer row puts idle on the first frame and walk on the rest. An alias tag keeps its name and its range is corrected. Two names for one action on one facing write nothing. It does not paint. `setDirectionLayout` with `apply: true` stores the layout and the tags in one undo step.*
+
+*`fillDirections` is the call that moves indices. The layout must already be stored, and the frame count must be `count * columns`. The source facing must already have a valid idle/walk segment. Every other `{action}_{facing}` that appears on a cardinal in the layout must also exist on the source, inside that row. A miss writes nothing. Columns line up inside those segments: source column 0 is written to column 0 of each target. `mirror` flips left into right, or right into left. North and south have no mirror target; use `copy`. `copy` repeats the source indices on the other three cardinals and does not flip. On an eight-direction layout the four diagonal rows are not written and `result.diagonals` is `skipped`. On four directions it is `none`. A target frame that already holds a non-zero index or an explicit erase on any layer is skipped unless `overwrite` is true. A frame whose pixels and delay already match is not recorded. A change is one undo step. Tags, parts, the selection, and the active frame stay. The horizontal flip is the same rule as rectangle `flipHorizontal`: `x` receives `width - 1 - x`. Indices move. Colors and parts do not. This is not new art, not a natural gait, does not repair highlights, and is not a generated four-direction drawing.*
 
 ### `setDirectionLayout`
 
@@ -750,6 +759,26 @@ CLI：`pixelforge direction validate`。`errorCount` 大于 0 时退出码是 1�
 CLI：`pixelforge direction export --facing south --output south.png`。文件由 CLI 写到 `--output`。
 
 错误：`DirectionMissing`、`DirectionFacing`、`DirectionFrames`。`scale` 不是至少 1 的整数时是 `InvalidParams` 或 `ExportScale`。
+
+### `fillDirections`
+
+`params`：`from`、`mode`（`mirror` 或 `copy`）。可选 `overwrite`（缺省 false）。`from` 接受 `N`/`E`/`S`/`W`、`down`/`left`/`right`/`up`，和 `direction` 其它命令一样。对角名在八向布局里也认，但这一版不拿它们当源，返回 `DirectionFill`。
+
+`mirror` 的源只能是 left 或 right。`copy` 的源是四个基本朝向之一。北、南、以及八向对角都不能 `mirror`。
+
+`result`：`{ "mode", "from", "compass", "overwrite", "wrote", "framesWritten", "framesSkipped", "diagonals", "targets" }`。`from` 是画面后缀。`diagonals` 在四向是 `none`，在八向是 `skipped`。`targets` 的每一项是 `{ "facing", "compass", "hflip", "frames" }`。`frames` 的每一项是 `{ "frame", "source", "action", "status" }`。`status` 是 `written`、`skipped` 或 `unchanged`。`action` 是盖住这一列的源帧段，多段时用逗号接在一起，例如 `idle,attack`。`wrote` 为 false 时不进撤销栈。
+
+每一层都拷，包括 `polish` 上的显式擦除。索引 0 仍是透明。非 0 索引落到目标格时，那一格的擦除标记清成 0。源帧的 `delayMs` 一起写到实际写入的目标帧；被跳过的帧时长不动。选区不裁这一次填充。部件原点不动。之后的 `bake` 仍会从静止帧重建被曲线或约束管着的层；没被管着的层留下这次写上的索引。`flattenLayers` 仍按原来的规则收成索引。
+
+CLI：`pixelforge direction fill --from left --mode mirror`。占位用 `pixelforge direction fill --from down --mode copy`。`--overwrite` 盖掉已有墨水。先 `direction set --apply` 或自己打好源朝向的 `{动作}_{朝向}` 标签，再填充。填充不写标签。
+
+错误：`DirectionMissing`、`DirectionFacing`、`DirectionFrames`、`DirectionSegment`、`DirectionFill`。`mode` 不是 `mirror` 或 `copy` 时是 `InvalidParams`。
+
+*Copies or horizontally mirrors one cardinal row. `mode` is `mirror` or `copy`. `overwrite` defaults to false. A diagonal source is `DirectionFill` even when the layout count is 8. `mirror` accepts only left or right. `copy` accepts one of the four cardinals.*
+
+*`result.diagonals` is `none` or `skipped`. Each target lists `hflip` and one entry per source segment column. `status` is `written`, `skipped`, or `unchanged`. `wrote` false is not recorded. Every layer is copied, including a polish erase mark. A non-zero index clears the destination erase mark. The source `delayMs` is copied onto a frame that is written. A skipped frame keeps its delay. The selection does not clip the fill. Part origins stay. A later `bake` still rebuilds a managed layer from the rest frame. `flattenLayers` still snaps the composite.*
+
+*CLI: `pixelforge direction fill --from left --mode mirror`. A placeholder for the other cardinals is `pixelforge direction fill --from down --mode copy`. `--overwrite` replaces ink. Set the tags first with `direction set --apply`, or name the source `{action}_{facing}` segments yourself. Fill does not write tags.*
 
 ### 部件与锚点 Parts and anchors
 
