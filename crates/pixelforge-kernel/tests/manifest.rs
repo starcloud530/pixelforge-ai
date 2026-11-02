@@ -727,6 +727,128 @@ fn owner_cycle_is_an_error() {
 }
 
 #[test]
+fn asset_tags_follow_animation_tag_rules() {
+    let mut value: serde_json::Value = serde_json::from_str(&manifest().save()).unwrap();
+    value["assets"] = json!([{
+        "id": "hero",
+        "kind": "clip",
+        "path": "sprites/hero.json",
+        "tags": [" walk down ", "行走", "01_walk"]
+    }]);
+    let loaded = ArtManifest::load(&value.to_string()).expect("load compatible tags");
+    assert_eq!(
+        loaded.assets()[0].tags,
+        [
+            "walk down".to_string(),
+            "行走".to_string(),
+            "01_walk".to_string()
+        ]
+    );
+
+    value["assets"][0]["tags"] = json!(["walk down", " walk down "]);
+    assert!(ArtManifest::load(&value.to_string())
+        .unwrap_err()
+        .message()
+        .contains("repeated"));
+    value["assets"][0]["tags"] = json!(["\n"]);
+    assert!(ArtManifest::load(&value.to_string()).is_err());
+
+    let mut manifest = manifest();
+    let added = tool(
+        &mut manifest,
+        json!({
+            "tool": "addAsset",
+            "params": {
+                "id": "hero",
+                "kind": "clip",
+                "path": "sprites/hero.json",
+                "tags": ["walk down", "行走", "01_walk"]
+            }
+        }),
+    );
+    assert_eq!(added["ok"], json!(true), "{added}");
+    assert_eq!(
+        added["result"]["tags"],
+        json!(["walk down", "行走", "01_walk"])
+    );
+
+    let replaced = tool(
+        &mut manifest,
+        json!({"tool": "setAsset", "params": {"id": "hero", "tags": [" 行走 "]}}),
+    );
+    assert_eq!(replaced["ok"], json!(true), "{replaced}");
+    assert_eq!(replaced["result"]["tags"], json!(["行走"]));
+
+    tool(
+        &mut manifest,
+        json!({"tool": "setAsset", "params": {"id": "hero", "tags": ["walk down", "行走", "01_walk"]}}),
+    );
+    for tag in ["walk down", " 行走 ", "01_walk"] {
+        let listed = tool(
+            &mut manifest,
+            json!({"tool": "listAssets", "params": {"tag": tag}}),
+        );
+        assert_eq!(listed["ok"], json!(true), "{listed}");
+        assert_eq!(listed["result"]["assets"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["result"]["assets"][0]["id"], json!("hero"));
+    }
+    let refused = tool(
+        &mut manifest,
+        json!({"tool": "listAssets", "params": {"tag": " "}}),
+    );
+    assert_eq!(refused["error"]["code"], "InvalidParams");
+}
+
+#[test]
+fn cycle_path_matches_the_full_asset_id() {
+    let mut manifest = manifest();
+    tool(
+        &mut manifest,
+        json!({"tool": "addAsset", "params": {"id": "a", "kind": "character", "path": "a.json"}}),
+    );
+    tool(
+        &mut manifest,
+        json!({
+            "tool": "addAsset",
+            "params": {
+                "id": "ab",
+                "kind": "character",
+                "path": "ab.json",
+                "dependsOn": ["ac"]
+            }
+        }),
+    );
+    tool(
+        &mut manifest,
+        json!({
+            "tool": "addAsset",
+            "params": {
+                "id": "ac",
+                "kind": "character",
+                "path": "ac.json",
+                "dependsOn": ["ab"]
+            }
+        }),
+    );
+    let report = manifest.asset_report(true, &[]);
+    let cycle = report
+        .errors
+        .iter()
+        .find(|error| error.code == "assetCycle")
+        .expect("cycle");
+    let start = cycle
+        .message
+        .strip_prefix("dependsOn cycle ")
+        .unwrap()
+        .split(" -> ")
+        .next()
+        .unwrap();
+    let expected = format!("{start}.json");
+    assert_eq!(cycle.path.as_deref(), Some(expected.as_str()));
+    assert_ne!(cycle.path.as_deref(), Some("a.json"));
+}
+
+#[test]
 fn asset_file_refuses_a_bad_id_and_a_repeated_id() {
     let mut value: serde_json::Value = serde_json::from_str(&manifest().save()).unwrap();
     value["assets"] = json!([

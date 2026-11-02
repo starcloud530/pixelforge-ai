@@ -297,6 +297,52 @@ fn validate_reports_a_missing_path_a_cycle_and_a_blocked_remove() {
     assert_eq!(status(&removed), 0, "{}", stderr(&removed));
     assert_eq!(json_line(&removed)["result"]["removed"], json!(true));
 
+    let spaced = pixelforge(&[
+        "asset",
+        "add",
+        "--manifest",
+        arg,
+        "--id",
+        "hero.note",
+        "--kind",
+        "clip",
+        "--path",
+        "sprites/hero.json",
+        "--owner",
+        "hero",
+        "--depends-on",
+        "hero",
+        "--tag",
+        "walk down",
+        "--tag",
+        "行走",
+        "--tag",
+        "01_walk",
+    ]);
+    assert_eq!(status(&spaced), 0, "{}", stderr(&spaced));
+    assert_eq!(
+        json_line(&spaced)["result"]["tags"],
+        json!(["walk down", "行走", "01_walk"])
+    );
+    let filtered = pixelforge(&["asset", "list", "--manifest", arg, "--tag", "walk down"]);
+    assert_eq!(status(&filtered), 0, "{}", stderr(&filtered));
+    assert_eq!(
+        json_line(&filtered)["result"]["assets"][0]["id"],
+        json!("hero.note")
+    );
+    let renamed = pixelforge(&[
+        "asset",
+        "set",
+        "--manifest",
+        arg,
+        "--id",
+        "hero.note",
+        "--tag",
+        "行走",
+    ]);
+    assert_eq!(status(&renamed), 0, "{}", stderr(&renamed));
+    assert_eq!(json_line(&renamed)["result"]["tags"], json!(["行走"]));
+
     let call = pixelforge(&[
         "call",
         "--project",

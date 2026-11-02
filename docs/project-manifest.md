@@ -95,7 +95,7 @@ version 1。`format` 必须是 `pixelforge-manifest`。未知字段拒绝，文�
 | `owner` | 否 | 这条记录属于哪个角色或分组。`show` 的 `owns` 和 `graph` 的 `owner` 边读它。`validate` 要求目标存在、不是自己、目标的 `kind` 是 `character` 或 `group`，并且 owner 链不成环（`assetOwner`） |
 | `dependsOn` | 否 | 先得有的资产 id。`asset dependents`、`graph` 和环检测读它。指到没有的 id 是 `assetRef`。成环是 `assetCycle` |
 | `produces` | 否 | 这条记录是哪些 id 的来源。`show` / `graph` 读它。`validate` 要求对方的 `dependsOn` 含有自己（`assetProduces`）。反过来不要求：道具可以依赖一份共享色板，而色板并不「生产」这个道具 |
-| `tags` | 否 | `asset list --tag` 的过滤。一条 clip 上写的是该工程里已经有的帧标签名，例如 `walk_down`。`validate` 只查记号合法、本条不重复。它不打开像素文件 |
+| `tags` | 否 | `asset list --tag` 的过滤。规则和动画标签 `tag add` 相同：去掉首尾空白后 1 到 64 个字符，不能有控制字符。空格、非 ASCII 和开头的数字都可以，例如 `walk down`、`行走`、`01_walk`。同一条里去空白后不能重复。不打开像素文件 |
 
 *`id` is the stable name, for example `zombie.walk`. `list`, `show`, `graph`, and `dependents` look it up, and `validate` rejects a duplicate. It is 1 to 64 characters, starts with a letter, and then uses letters, digits, `.`, `_`, or `-`, with no empty dot segment.*
 
@@ -109,7 +109,7 @@ version 1。`format` 必须是 `pixelforge-manifest`。未知字段拒绝，文�
 
 *`produces` is the ids this record is the source of. `show` and `graph` read it. `validate` requires that product to list this id in `dependsOn` (`assetProduces`). The converse is not required: a prop may depend on a shared palette asset without that palette producing the prop.*
 
-*`tags` is what `asset list --tag` filters. On a clip they are frame-tag names already in that project, such as `walk_down`. `validate` checks that the token is well formed and not repeated on this record. It does not open the pixel file.*
+*`tags` is what `asset list --tag` filters. The rule is the animation-tag rule from `tag add`: after trim, 1 to 64 characters and no control character. A space, a non-ASCII name, and a leading digit are allowed, such as `walk down`, `行走`, and `01_walk`. A repeated tag on one record is refused. The check does not open the pixel file.*
 
 `kind` 里多出来的三个值是为了让 id 说的是真话：
 

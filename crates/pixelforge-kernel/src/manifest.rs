@@ -11,7 +11,9 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::project::PROJECT_FORMAT;
+use crate::tag::normalize_tag_name;
 use crate::MAX_CANVAS_EDGE;
+use crate::MAX_TAG_NAME_CHARS;
 use crate::TOOL_API_VERSION;
 
 /// `format` of a project-manifest file.
@@ -821,11 +823,7 @@ impl ArtManifest {
             }
         }
         for cycle in depends_cycles(&self.assets) {
-            let path = self
-                .assets
-                .iter()
-                .find(|asset| cycle.starts_with(&asset.id))
-                .map(|asset| asset.path.clone());
+            let path = path_of_cycle_start(&self.assets, &cycle);
             push_finding(
                 &mut errors,
                 "assetCycle",
@@ -834,11 +832,7 @@ impl ArtManifest {
             );
         }
         for cycle in owner_cycles(&self.assets) {
-            let path = self
-                .assets
-                .iter()
-                .find(|asset| cycle.starts_with(&asset.id))
-                .map(|asset| asset.path.clone());
+            let path = path_of_cycle_start(&self.assets, &cycle);
             push_finding(
                 &mut errors,
                 "assetOwner",
@@ -1094,7 +1088,7 @@ fn vet_assets(assets: Vec<AssetRecord>) -> Result<Vec<AssetRecord>, ManifestErro
         };
         let depends_on = vet_id_list(asset.depends_on, "dependsOn")?;
         let produces = vet_id_list(asset.produces, "produces")?;
-        let tags = vet_id_list(asset.tags, "tag")?;
+        let tags = vet_tag_list(asset.tags)?;
         seen.push(id.clone());
         checked.push(AssetRecord {
             id,
@@ -1124,6 +1118,41 @@ fn vet_id_list(ids: Vec<String>, what: &str) -> Result<Vec<String>, ManifestErro
         checked.push(id);
     }
     Ok(checked)
+}
+
+fn vet_tag_list(tags: Vec<String>) -> Result<Vec<String>, ManifestError> {
+    if tags.len() > MAX_ASSET_LINKS {
+        return Err(file_err(format!(
+            "asset tags must be at most {MAX_ASSET_LINKS}"
+        )));
+    }
+    let mut checked = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let tag = check_asset_tag(&tag)?;
+        if checked.iter().any(|existing| existing == &tag) {
+            return Err(file_err(format!("asset tag {tag} is repeated")));
+        }
+        checked.push(tag);
+    }
+    Ok(checked)
+}
+
+/// Same rule as an animation tag from `tag add`: trim, then 1..=64 characters
+/// with no control character. Spaces, non-ASCII, and a leading digit stay.
+fn check_asset_tag(text: &str) -> Result<String, ManifestError> {
+    normalize_tag_name(text).map_err(|_| {
+        file_err(format!(
+            "asset tag must be 1 to {MAX_TAG_NAME_CHARS} characters without control characters"
+        ))
+    })
+}
+
+fn path_of_cycle_start(assets: &[AssetRecord], cycle: &str) -> Option<String> {
+    let id = cycle.split(" -> ").next()?;
+    assets
+        .iter()
+        .find(|asset| asset.id == id)
+        .map(|asset| asset.path.clone())
 }
 
 fn check_asset_id(text: &str, what: &str) -> Result<String, ManifestError> {
@@ -1519,7 +1548,7 @@ fn list_assets(manifest: &ArtManifest, params: &Map<String, Value>) -> Result<Va
         .map_err(|failure| prefix_params("listAssets", failure))?;
     let kind = optional_kind(params, "listAssets")?;
     let owner = optional_filter_id(params, "owner", "listAssets")?;
-    let tag = optional_filter_id(params, "tag", "listAssets")?;
+    let tag = optional_filter_tag(params, "listAssets")?;
     let assets = manifest
         .assets()
         .iter()
@@ -1775,6 +1804,25 @@ fn optional_kind(params: &Map<String, Value>, tool: &str) -> Result<Option<Strin
         }),
         Some(_) => Err(ToolFail::InvalidParams {
             message: format!("{tool}: kind must be a string"),
+        }),
+    }
+}
+
+fn optional_filter_tag(
+    params: &Map<String, Value>,
+    tool: &str,
+) -> Result<Option<String>, ToolFail> {
+    match params.get("tag") {
+        None => Ok(None),
+        Some(Value::String(text)) => {
+            check_asset_tag(text)
+                .map(Some)
+                .map_err(|error| ToolFail::InvalidParams {
+                    message: format!("{tool}: {}", error.message()),
+                })
+        }
+        Some(_) => Err(ToolFail::InvalidParams {
+            message: format!("{tool}: tag must be a string"),
         }),
     }
 }
