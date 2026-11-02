@@ -5,6 +5,7 @@
 //! stdout. Ergonomic subcommands only build the Tool API JSON. They do not
 //! write a second pixel buffer.
 
+mod asset_cmd;
 mod checkpoint;
 mod cli;
 mod export_files;
@@ -146,6 +147,7 @@ fn execute(cli: Cli) -> i32 {
         Command::ValidateTiles(args) => tiles_cmd::validate(args),
         Command::ValidateAtlas(args) => validate_atlas::run(args),
         Command::Project { command } => manifest_cmd::run(command),
+        Command::Asset { command } => asset_cmd::run(command),
         Command::Tools => cmd_tools(),
     }
 }

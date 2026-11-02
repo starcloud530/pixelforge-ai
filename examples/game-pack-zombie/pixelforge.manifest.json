@@ -1,5 +1,125 @@
 {
   "assetRoot": ".",
+  "assets": [
+    {
+      "id": "zombie",
+      "kind": "character",
+      "path": "zombie/zombie.json",
+      "produces": [
+        "zombie.idle",
+        "zombie.walk",
+        "zombie.sheet"
+      ]
+    },
+    {
+      "dependsOn": [
+        "zombie"
+      ],
+      "id": "zombie.idle",
+      "kind": "clip",
+      "owner": "zombie",
+      "path": "zombie/zombie.json",
+      "tags": [
+        "idle_down",
+        "idle_left",
+        "idle_right",
+        "idle_up"
+      ]
+    },
+    {
+      "dependsOn": [
+        "zombie"
+      ],
+      "id": "zombie.walk",
+      "kind": "clip",
+      "owner": "zombie",
+      "path": "zombie/zombie.json",
+      "tags": [
+        "walk_down",
+        "walk_left",
+        "walk_right",
+        "walk_up"
+      ]
+    },
+    {
+      "dependsOn": [
+        "zombie"
+      ],
+      "id": "zombie.sheet",
+      "kind": "sheet",
+      "owner": "zombie",
+      "path": "zombie/zombie-sheet.json"
+    },
+    {
+      "id": "props",
+      "kind": "group",
+      "path": "props/props.json",
+      "produces": [
+        "props.barricade",
+        "props.crate",
+        "props.generator",
+        "props.medkit",
+        "props.sheet"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.barricade",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "barricade"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.crate",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "crate"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.generator",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "generator"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.medkit",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "medkit"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.sheet",
+      "kind": "sheet",
+      "owner": "props",
+      "path": "props/props-sheet.json"
+    }
+  ],
   "canvases": [
     {
       "height": 64,

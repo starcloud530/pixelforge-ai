@@ -24,8 +24,10 @@ description: >-
   validating that sheet with validate-atlas before game import,
   or building a tileset, a 4-neighbor autotile, a tilemap, and a Tiled `.tmj`,
   or reading and writing a pixelforge-manifest with `project init`, `project show`,
-  and `project validate` (canvas tiers, perspective, directory rules, palette
-  path; project memory, not a canvas and not an asset registry).
+  and `project validate`, or registering assets with `asset add`, `asset list`,
+  `asset show`, `asset graph`, `asset dependents`, and `asset validate`
+  (canvas tiers, perspective, directory rules, palette path, stable asset ids
+  and relations; project memory, not a canvas).
   Take the shortest edit path: duplicate a same-pose frame and edit the diff,
   merge adjacent same-color fillRects into one taller rect, and count every
   drawing request inside one batched call. `direction fill` mirrors or copies
@@ -49,7 +51,7 @@ Edit indexed pixels only through the `pixelforge` CLI. The Rust kernel owns the 
 
 创建或修改 `pixelforge-project`、调色板、帧、导出，或任何一次 `pixelforge` 调用。产品路径是：外部 Agent → `pixelforge` CLI → `Document::call_tool`。网页里的一轮面板是可选演示。嵌在应用里的多轮对话（#14）不是产品。MCP 不在范围内；以后的封装只调用这支 CLI。
 
-`pixelforge project` 读写的是项目清单（`pixelforge-manifest`）：尺寸档、视角、目录约定、默认色板路径、一段短说明、资产根。这是项目记忆，不是画布，也不是素材库。不要往清单里画像素。见 `docs/project-manifest.md`。
+`pixelforge project` 读写的是项目清单（`pixelforge-manifest`）：尺寸档、视角、目录约定、默认色板路径、一段短说明、资产根。`assets` 是登记过的稳定 id 和关系。这是项目记忆，不是画布。不要往清单里画像素。登记不代替画画。见 `docs/project-manifest.md`。
 
 画角色、立绘、剪影：同时读 `pixelforge-draw`。四向走加待机的精灵表：同时读 `pixelforge-sprite-4dir`。身体、装备、四肢分层：同时读 `pixelforge-layers`。只读挑错：读 `pixelforge-critique`，不要改像素。多帧、同姿只改差、或要缩短 `fillRect` 次数时，读下面的「最少编辑路径」。
 
@@ -759,19 +761,23 @@ pixelforge export tilemap --map map.json --tileset tiles.json \
 
 `pixelforge project init`、`project show`、`project validate` 管的是 `pixelforge-manifest`。它记画布档位、视角（`top` / `side` / `front` / `oblique`）、目录角色、默认色板路径、一段短说明、资产根和相对路径。相对路径不能有 `..`。
 
-`show` 不读像素。`validate` 只核对约定：写了 `canvas` 的目录里，直接放着的 `pixelforge-project` 必须是那一档。atlas 跳过。`projects` 是数量，不是文件名单。通过不等于画完。
+`show` 不读像素。`validate` 核对约定：写了 `canvas` 的目录里，直接放着的 `pixelforge-project` 必须是那一档。目录扫描跳过 atlas，不把它自动登记。`projects` 是数量，不是文件名单。`checks.assets` 是已经登记的条数。通过不等于画完。
 
-不做素材 GUI、地图 GUI、内嵌聊天、团队权限、自动生图，也不做逐个资产登记、角色动画矩阵或导出版本清单。丧尸包的例子是 `examples/game-pack-zombie/pixelforge.manifest.json`。格式全文在 `docs/project-manifest.md`。
+`pixelforge asset` 把稳定 id 写进同一份清单的 `assets`。一条记录有 `id`（例如 `zombie.walk`）、`kind`、`path`，可选 `owner`（角色或 `group`）、`dependsOn`、`produces`、`tags`。空的可选字段不写进文件。`kind` 是 `character`、`group`、`gear`、`prop`、`tile`、`clip`、`sheet`。`clip` 是工程里的一段帧，`sheet` 是图集 JSON，`group` 是拥有多条记录的那份工程。`list --kind` / `--tag` 过滤。`show` 给出记录、`owns` 和 `dependents`。`graph` 是一跳关系。`dependents` 回答谁的 `dependsOn` 含有这个 id。`validate` 查缺失路径、悬空 id、owner 不是角色或分组、`produces` 没有被对方依赖、以及环。它不打开像素去对朝向 × 动作，也不存草稿 / 已导出。没有素材 GUI。丧尸包的例子是 `examples/game-pack-zombie/pixelforge.manifest.json`。格式全文在 `docs/project-manifest.md`。
 
 *`pixelforge project init`, `project show`, and `project validate` own a `pixelforge-manifest`. It stores canvas tiers, perspective (`top`, `side`, `front`, `oblique`), directory roles, the default palette path, a short note, and the asset root. Relative paths cannot contain `..`.*
 
-*`show` does not read pixels. `validate` checks conventions: a `pixelforge-project` directly inside a directory that names a canvas must match that tier. Atlas files are skipped. `projects` is a count, not a file list. A pass does not mean the picture is finished.*
+*`show` does not read pixels. `validate` checks conventions: a `pixelforge-project` directly inside a directory that names a canvas must match that tier. The directory scan skips atlas JSON and does not register it. `projects` is a count, not a file list. `checks.assets` is how many ids are registered. A pass does not mean the picture is finished.*
 
-*An asset GUI, a map GUI, an embedded chat, team auth, and image generation are out. So are a per-asset registry, a character animation matrix, and a versioned delivery list. The zombie pack example is `examples/game-pack-zombie/pixelforge.manifest.json`. The format is `docs/project-manifest.md`.*
+*`pixelforge asset` writes stable ids into the same file's `assets`. A record has `id` (for example `zombie.walk`), `kind`, and `path`, plus optional `owner` (a character or a `group`), `dependsOn`, `produces`, and `tags`. Empty optional fields are omitted. `kind` is `character`, `group`, `gear`, `prop`, `tile`, `clip`, or `sheet`. A `clip` is a frame span in a project, a `sheet` is the atlas JSON, and a `group` is the project that owns several records. `list --kind` / `--tag` filters. `show` returns the record, `owns`, and `dependents`. `graph` is one hop. `dependents` answers which records list this id in `dependsOn`. `validate` reports a missing path, a dangling id, an owner that is not a character or a group, a `produces` edge the product does not depend on, and a cycle. It does not open pixels to check facing by action, and it does not store draft or exported. There is no asset GUI. The zombie pack example is `examples/game-pack-zombie/pixelforge.manifest.json`. The format is `docs/project-manifest.md`.*
 
 ```bash
 pixelforge project show --manifest examples/game-pack-zombie/pixelforge.manifest.json
 pixelforge project validate --manifest examples/game-pack-zombie/pixelforge.manifest.json
+pixelforge asset show --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie.walk
+pixelforge asset graph --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie
+pixelforge asset dependents --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie
+pixelforge asset validate --manifest examples/game-pack-zombie/pixelforge.manifest.json
 ```
 
 ## Catalog

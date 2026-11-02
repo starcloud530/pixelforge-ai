@@ -3,11 +3,11 @@
 
 Exit 0 only when the zombie sheet and the prop sheet both have no atlas
 errors, the zombie project passes direction validate (4-direction
-idle/walk), and pixelforge.manifest.json passes project validate.
-A broken PNG, atlas, rules file, direction layout, or manifest fails
-this script. `cargo test -p pixelforge-cli game_pack_zombie` calls the
-atlas check; `game_pack_zombie_directions` calls the direction gate;
-`game_pack_zombie_manifest` calls the manifest gate.
+idle/walk), and pixelforge.manifest.json passes project validate and
+asset validate. A broken PNG, atlas, rules file, direction layout, or
+manifest fails this script. `cargo test -p pixelforge-cli game_pack_zombie`
+calls the atlas check; `game_pack_zombie_directions` calls the direction
+gate; `game_pack_zombie_manifest` calls the manifest gate.
 """
 
 from __future__ import annotations
@@ -112,10 +112,45 @@ def validate_manifest(binary: str, manifest: Path) -> None:
         or result["errorCount"] != 0
         or result["warningCount"] != 0
         or checks["perspective"] != "top"
+        or checks["assets"] != 10
         or checks["canvases"] != [{"name": "sprite", "width": 64, "height": 64}]
         or [row["projects"] for row in checks["layout"]] != [1, 1]
     ):
         raise SystemExit(proc.stdout)
+    assets = subprocess.run(
+        [binary, "asset", "validate", "--manifest", str(manifest)],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(assets.stderr.strip())
+    if assets.returncode != 0:
+        raise SystemExit(assets.stdout or assets.stderr)
+    asset_body = json.loads(assets.stdout)
+    if (
+        not asset_body.get("ok")
+        or asset_body["result"]["errorCount"] != 0
+        or asset_body["result"]["assets"] != 10
+    ):
+        raise SystemExit(assets.stdout)
+    shown = subprocess.run(
+        [binary, "asset", "show", "--manifest", str(manifest), "zombie.walk"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if shown.returncode != 0:
+        raise SystemExit(shown.stdout or shown.stderr)
+    record = json.loads(shown.stdout)["result"]["asset"]
+    if record["owner"] != "zombie" or record["tags"] != [
+        "walk_down",
+        "walk_left",
+        "walk_right",
+        "walk_up",
+    ]:
+        raise SystemExit(shown.stdout)
 
 
 def main() -> None:

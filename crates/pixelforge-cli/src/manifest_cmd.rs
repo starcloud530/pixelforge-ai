@@ -77,12 +77,13 @@ pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
         Ok(text) => text,
         Err(err) => return emit(CliFailure::io(path, err)),
     };
-    let manifest = match ArtManifest::load(&text) {
+    let mut manifest = match ArtManifest::load(&text) {
         Ok(manifest) => manifest,
         Err(error) => {
             return emit(CliFailure::new(error.code(), error.message()));
         }
     };
+    let original = manifest.save();
     let mut status = 0;
     for request in &requests {
         let response = manifest.call_tool(request);
@@ -94,6 +95,13 @@ pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
             status = 1;
             break;
         }
+    }
+    let updated = manifest.save();
+    if updated != original {
+        if let Err(err) = fs::write(path, updated) {
+            return emit(CliFailure::io(path, err));
+        }
+        eprintln!("pixelforge: wrote {}", path.display());
     }
     status
 }
@@ -135,7 +143,7 @@ fn init(
         Ok(rules) => rules,
         Err(failure) => return emit(failure),
     };
-    let manifest = match ArtManifest::new(ManifestDraft {
+    let mut manifest = match ArtManifest::new(ManifestDraft {
         name: name.to_string(),
         note: note.to_string(),
         perspective: perspective.as_str().to_string(),
@@ -144,6 +152,7 @@ fn init(
         palette_ref: palette_ref.map(str::to_string),
         canvases,
         layout: rules,
+        assets: Vec::new(),
     }) {
         Ok(manifest) => manifest,
         Err(error) => return emit(CliFailure::new(error.code(), error.message())),
@@ -162,7 +171,7 @@ fn init(
 }
 
 fn show(path: &Path) -> i32 {
-    let manifest = match load(path) {
+    let mut manifest = match load(path) {
         Ok(manifest) => manifest,
         Err(failure) => return emit(failure),
     };
@@ -175,7 +184,7 @@ fn show(path: &Path) -> i32 {
 }
 
 fn validate(path: &Path) -> i32 {
-    let manifest = match load(path) {
+    let mut manifest = match load(path) {
         Ok(manifest) => manifest,
         Err(failure) => return emit(failure),
     };
@@ -238,12 +247,12 @@ fn validate(path: &Path) -> i32 {
     }
 }
 
-fn load(path: &Path) -> Result<ArtManifest, CliFailure> {
+pub(crate) fn load(path: &Path) -> Result<ArtManifest, CliFailure> {
     let text = fs::read_to_string(path).map_err(|err| CliFailure::io(path, err))?;
     ArtManifest::load(&text).map_err(|error| CliFailure::new(error.code(), error.message()))
 }
 
-fn gather(
+pub(crate) fn gather(
     manifest: &ArtManifest,
     manifest_path: &Path,
 ) -> Result<(bool, Vec<ManifestProbe>), CliFailure> {
@@ -268,6 +277,12 @@ fn gather(
                 }
                 insert_probe(&mut probes, observe(&root, &rel, true)?);
             }
+        }
+        for asset in manifest.assets() {
+            if probes.contains_key(&asset.path) {
+                continue;
+            }
+            insert_probe(&mut probes, observe(&root, &asset.path, true)?);
         }
     }
     Ok((root_exists, probes.into_values().collect()))
@@ -378,7 +393,7 @@ fn json_u16(value: Option<&Value>) -> Option<u16> {
     u16::try_from(number).ok()
 }
 
-fn probe_json(probe: &ManifestProbe) -> Value {
+pub(crate) fn probe_json(probe: &ManifestProbe) -> Value {
     let mut value = json!({
         "path": probe.path,
         "kind": match probe.kind {
