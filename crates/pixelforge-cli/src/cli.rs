@@ -81,6 +81,13 @@ Examples:
       --layout props:props:prop:sprite --output pixelforge.manifest.json
   pixelforge project show --manifest pixelforge.manifest.json
   pixelforge project validate --manifest pixelforge.manifest.json
+  pixelforge asset add --manifest pixelforge.manifest.json --id zombie --kind character --path zombie/zombie.json
+  pixelforge asset add --manifest pixelforge.manifest.json --id zombie.walk --kind clip --path zombie/zombie.json --owner zombie --depends-on zombie --tag walk_down
+  pixelforge asset list --manifest pixelforge.manifest.json --kind clip
+  pixelforge asset show --manifest pixelforge.manifest.json zombie.walk
+  pixelforge asset graph --manifest pixelforge.manifest.json zombie
+  pixelforge asset dependents --manifest pixelforge.manifest.json zombie
+  pixelforge asset validate --manifest pixelforge.manifest.json
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, visibility, opacity, palette hash, frame delays) and does not dump
@@ -559,13 +566,23 @@ pub enum Command {
     ///
     /// `init` writes conventions: canvas tiers, perspective, directory rules,
     /// the default palette path, a short note, and the asset root. `show` prints
-    /// them. `validate` checks those paths and that pixelforge-project files in
-    /// a sized directory match the named tier. It does not draw, and it does
-    /// not list every asset. There is no asset GUI, map GUI, chat, team auth,
-    /// or image generator here.
+    /// them. `validate` checks those paths, registered asset paths, and that
+    /// pixelforge-project files in a sized directory match the named tier.
+    /// It does not draw. Asset ids are `pixelforge asset`. There is no asset
+    /// GUI, map GUI, chat, team auth, or image generator here.
     Project {
         #[command(subcommand)]
         command: ProjectCmd,
+    },
+    /// Register assets on a pixelforge-manifest and query their relations.
+    ///
+    /// The registry is the `assets` array in that file. It does not paint, it
+    /// does not check a facing-by-action matrix, and it does not record a
+    /// delivery. `validate` reports missing paths, dangling ids, owner mistakes,
+    /// produces that are not dependencies, and cycles.
+    Asset {
+        #[command(subcommand)]
+        command: AssetCmd,
     },
     /// Print the Tool API tool names as JSON.
     Tools,
@@ -2389,6 +2406,142 @@ pub enum ProjectCmd {
     /// Exit 1 when it has an error. Exit 2 when the file cannot be read.
     /// A project file whose canvas does not match its layout tier is an error.
     /// Atlas JSON in the same directory is ignored.
+    Validate {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum AssetCmd {
+    /// Add one asset id. Refuses a repeated id. Does not draw.
+    ///
+    /// `kind` is character, group, gear, prop, tile, clip, or sheet.
+    /// `--depends-on`, `--produces`, and `--tag` may be repeated.
+    /// A forward reference is allowed; `asset validate` reports a dangling id.
+    Add {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Stable id, for example zombie.walk. Not a file path.
+        #[arg(long)]
+        id: String,
+        /// character, group, gear, prop, tile, clip, or sheet.
+        #[arg(long)]
+        kind: String,
+        /// File relative to the asset root.
+        #[arg(long)]
+        path: String,
+        /// Id of the character or group this asset belongs to.
+        #[arg(long)]
+        owner: Option<String>,
+        /// Asset id this record needs. Repeat for more than one.
+        #[arg(long, value_name = "ID")]
+        depends_on: Vec<String>,
+        /// Asset id this record is the source of. Repeat for more than one.
+        #[arg(long, value_name = "ID")]
+        produces: Vec<String>,
+        /// Label, such as an animation tag name stored on this record.
+        #[arg(long, value_name = "TAG")]
+        tag: Vec<String>,
+    },
+    /// Replace fields on an existing asset. The id does not change.
+    ///
+    /// Omitted flags stay as they are. `--clear-owner` removes `owner`.
+    /// `--clear-depends-on`, `--clear-produces`, and `--clear-tags` store an
+    /// empty list, which the file then omits.
+    Set {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Asset id to change.
+        #[arg(long)]
+        id: String,
+        /// Replacement kind.
+        #[arg(long)]
+        kind: Option<String>,
+        /// Replacement path, relative to the asset root.
+        #[arg(long)]
+        path: Option<String>,
+        /// Replacement owner id.
+        #[arg(long)]
+        owner: Option<String>,
+        /// Remove `owner`.
+        #[arg(long)]
+        clear_owner: bool,
+        /// Replacement dependsOn list. Repeat for each id.
+        #[arg(long, value_name = "ID")]
+        depends_on: Vec<String>,
+        /// Remove every dependsOn id.
+        #[arg(long)]
+        clear_depends_on: bool,
+        /// Replacement produces list. Repeat for each id.
+        #[arg(long, value_name = "ID")]
+        produces: Vec<String>,
+        /// Remove every produces id.
+        #[arg(long)]
+        clear_produces: bool,
+        /// Replacement tags. Repeat for each tag.
+        #[arg(long, value_name = "TAG")]
+        tag: Vec<String>,
+        /// Remove every tag.
+        #[arg(long)]
+        clear_tags: bool,
+    },
+    /// Remove one asset. Refuses when another record still names it.
+    Remove {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Asset id to remove.
+        #[arg(long)]
+        id: String,
+    },
+    /// List asset records. Filters are combined.
+    List {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Keep records of this kind.
+        #[arg(long)]
+        kind: Option<String>,
+        /// Keep records whose owner is this id.
+        #[arg(long)]
+        owner: Option<String>,
+        /// Keep records that include this tag.
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Print one asset, the ids it owns, and the ids that depend on it.
+    Show {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Asset id.
+        id: String,
+    },
+    /// One-hop relations for an id: owner, owns, dependsOn, produces, dependents.
+    Graph {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Asset id.
+        id: String,
+    },
+    /// List the records whose dependsOn includes this id.
+    Dependents {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Asset id.
+        id: String,
+    },
+    /// Check asset paths and relations. Does not edit the file.
+    ///
+    /// Exit 0 when the registry has no errors. Exit 1 when it has an error.
+    /// Exit 2 when the manifest cannot be read. An empty registry passes.
+    /// This does not open pixel files to look for a missing animation cell.
     Validate {
         /// pixelforge-manifest file.
         #[arg(long, value_name = "FILE")]

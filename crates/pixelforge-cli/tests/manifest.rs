@@ -315,4 +315,30 @@ fn game_pack_zombie_manifest_passes_validate() {
     assert_eq!(body["result"]["checks"]["layout"][0]["projects"], json!(1));
     assert_eq!(body["result"]["checks"]["layout"][1]["projects"], json!(1));
     assert!(stderr(&output).contains("project validate: ok"));
+    assert_eq!(body["result"]["checks"]["assets"], json!(10));
+
+    let assets = pixelforge(&[
+        "asset",
+        "validate",
+        "--manifest",
+        manifest.to_str().unwrap(),
+    ]);
+    assert_eq!(status(&assets), 0, "{}", stderr(&assets));
+    assert_eq!(json_line(&assets)["result"]["assets"], json!(10));
+    let walk = pixelforge(&[
+        "asset",
+        "show",
+        "--manifest",
+        manifest.to_str().unwrap(),
+        "zombie.walk",
+    ]);
+    assert_eq!(status(&walk), 0, "{}", stderr(&walk));
+    assert_eq!(
+        json_line(&walk)["result"]["asset"]["owner"],
+        json!("zombie")
+    );
+    assert_eq!(
+        json_line(&walk)["result"]["asset"]["tags"][0],
+        json!("walk_down")
+    );
 }

@@ -1673,22 +1673,30 @@ CLI：`tilemap new`、`tilemap inspect`、`tilemap get`、`tilemap set`、`tilem
 
 ## 项目清单 Project manifest
 
-项目清单是另一份文件，`format` 为 `pixelforge-manifest`，version 1。它记画布档位、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径。不存像素，不代替 `pixelforge-project`。字段、退出码和不做的事见 [project-manifest.md](project-manifest.md)。例子是 `examples/game-pack-zombie/pixelforge.manifest.json`。
+项目清单是另一份文件，`format` 为 `pixelforge-manifest`，version 1。它记画布档位、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径，以及可选的资产登记。不存像素，不代替 `pixelforge-project`。字段、退出码和不做的事见 [project-manifest.md](project-manifest.md)。例子是 `examples/game-pack-zombie/pixelforge.manifest.json`，里面登记了丧尸角色、idle/walk 帧段、图集，以及四个道具。
 
-*A project manifest is a separate `pixelforge-manifest` version 1 file. It stores canvas tiers, perspective, directory rules, the default palette path, a short note, and the asset root. It does not store pixels and it does not replace a `pixelforge-project`. Fields, exit codes, and the out-of-scope list are in [project-manifest.md](project-manifest.md). The example is `examples/game-pack-zombie/pixelforge.manifest.json`.*
+*A project manifest is a separate `pixelforge-manifest` version 1 file. It stores canvas tiers, perspective, directory rules, the default palette path, a short note, the asset root, and an optional asset registry. It does not store pixels and it does not replace a `pixelforge-project`. Fields, exit codes, and the out-of-scope list are in [project-manifest.md](project-manifest.md). The example is `examples/game-pack-zombie/pixelforge.manifest.json`: the zombie character, its idle and walk clips, the atlas, and the four props.*
 
 这些名字在 `pixelforge tools` 的 `manifestTools` 里。`ArtManifest::call_tool` 用同一份信封。文件没有撤销栈。`pixelforge call --project manifest.json` 发现这份 format 之后走清单工具，不走像素文档，也不走地图。`--checkpoint` 和 `--preview` 不能用。
 
 | tool | params | 作用 |
 | --- | --- | --- |
-| `inspectManifest` | 无 | 返回清单对象 |
-| `validateManifest` | `rootExists`，可选 `files` | 用调用方已经看到的磁盘对照约定。不自己读盘 |
+| `inspectManifest` | 无 | 返回清单对象。空登记不写 `assets` |
+| `validateManifest` | `rootExists`，可选 `files` | 用调用方已经看到的磁盘对照约定和登记。不自己读盘 |
+| `validateAssets` | `rootExists`，可选 `files` | 只查登记：缺失路径、悬空 id、owner、`produces` 对不上、环 |
+| `addAsset` | `id`，`kind`，`path`，可选 `owner`，`dependsOn`，`produces`，`tags` | 追加一条。重复 id 拒绝 |
+| `setAsset` | `id`，加上要改的字段 | 不改 id。`owner: null` 或列表 `[]` 表示清空 |
+| `removeAsset` | `id` | 仍被引用时拒绝 |
+| `listAssets` | 可选 `kind`，`owner`，`tag` | 过滤后的记录 |
+| `showAsset` | `id` | 记录，加上算出的 `owns` 和 `dependents` |
+| `graphAsset` | `id` | 一跳的 `nodes`、`edges`、`missing` |
+| `dependentsAsset` | `id` | `dependsOn` 含有这个 id 的记录 |
 
 `files` 的每一项是 `{ "path", "kind" }`，`kind` 为 `file`、`dir` 或 `missing`。文件还可以带 `format`、成对的 `width` / `height`，以及 `unreadable`。漏探针是 `probeMissing`。尺寸不符是 `canvasSize`。空目录是 warning `layoutEmpty`。`result.checks.layout[].projects` 是数量，不是文件名单。
 
-CLI：`project init`、`project show`、`project validate`。`validate` 在 `errorCount` 大于 0 时退出码 1。工具响应本身仍是 `ok: true`。文件打不开是退出码 2，`ManifestFile`。
+CLI：`project init`、`project show`、`project validate`，以及 `asset add`、`asset set`、`asset remove`、`asset list`、`asset show`、`asset graph`、`asset dependents`、`asset validate`。`validate` 在 `errorCount` 大于 0 时退出码 1。工具响应本身仍是 `ok: true`。文件打不开是退出码 2，`ManifestFile`。
 
-*Manifest tool names are `manifestTools` from `pixelforge tools`. `ArtManifest::call_tool` uses the same envelope. The file has no undo stack. `pixelforge call --project manifest.json` dispatches these tools when the format is `pixelforge-manifest`, not the pixel document and not the tilemap. `--checkpoint` and `--preview` are refused. `validateManifest` compares the caller's disk snapshot and does not read the disk itself. A missing probe is `probeMissing`. A canvas miss is `canvasSize`. An empty directory is a `layoutEmpty` warning. `projects` is a count, not a file list. `project validate` exits 1 when `errorCount` is greater than 0. The tool response stays `ok: true`. An unreadable file exits 2 with `ManifestFile`.*
+*Manifest tool names are `manifestTools` from `pixelforge tools`. `ArtManifest::call_tool` uses the same envelope. The file has no undo stack. `pixelforge call --project manifest.json` dispatches these tools when the format is `pixelforge-manifest`, not the pixel document and not the tilemap. `--checkpoint` and `--preview` are refused. `validateManifest` and `validateAssets` compare the caller's disk snapshot and do not read the disk themselves. A missing probe is `probeMissing`. A canvas miss is `canvasSize`. An empty directory is a `layoutEmpty` warning. `projects` is a count, not a file list. `checks.assets` is the registry count. A missing asset file is `assetMissing`. A dangling id is `assetRef` or `assetOwner`. A `produces` edge that is not mirrored by `dependsOn` is `assetProduces`. A `dependsOn` loop is `assetCycle`. `project validate` and `asset validate` exit 1 when `errorCount` is greater than 0. The tool response stays `ok: true`. An unreadable file exits 2 with `ManifestFile`. `addAsset` writes when the caller saves. The registry does not paint.*
 
 ## 不变量 Invariants
 

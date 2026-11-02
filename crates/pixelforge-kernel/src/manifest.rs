@@ -1,29 +1,61 @@
-//! Game-art project manifest. Not a canvas and not an asset registry.
+//! Game-art project manifest. Not a canvas.
 //!
 //! A `pixelforge-manifest` file records production conventions an agent can
 //! read back: canvas tiers, perspective, directory rules, the default palette
-//! path, a short note, and the asset root. Pixels stay in `pixelforge-project`
-//! files. This module does not list individual assets, animation matrices, or
-//! export revisions, and it does not draw.
+//! path, a short note, and the asset root. The optional `assets` array is the
+//! registry of stable ids and the relations between those files. Pixels stay
+//! in `pixelforge-project` files. This module does not draw, does not check a
+//! facing-by-action matrix, and does not record a delivery revision.
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
 use crate::project::PROJECT_FORMAT;
+use crate::tag::normalize_tag_name;
 use crate::MAX_CANVAS_EDGE;
+use crate::MAX_TAG_NAME_CHARS;
 use crate::TOOL_API_VERSION;
 
 /// `format` of a project-manifest file.
 pub const MANIFEST_FORMAT: &str = "pixelforge-manifest";
 
 /// Tool names [`ArtManifest::call_tool`] accepts. They are not pixel tools.
-pub const MANIFEST_TOOL_NAMES: &[&str] = &["inspectManifest", "validateManifest"];
+pub const MANIFEST_TOOL_NAMES: &[&str] = &[
+    "inspectManifest",
+    "validateManifest",
+    "addAsset",
+    "setAsset",
+    "removeAsset",
+    "listAssets",
+    "showAsset",
+    "graphAsset",
+    "dependentsAsset",
+    "validateAssets",
+];
 
 /// Closed set for `perspective`.
 pub const PERSPECTIVES: &[&str] = &["top", "side", "front", "oblique"];
 
 /// Closed set for a layout rule's `kind`. A kind is a directory role, not an asset id.
 pub const LAYOUT_KINDS: &[&str] = &["character", "prop", "tile", "portrait", "ui", "effect"];
+
+/// Closed set for an asset record's `kind`.
+///
+/// `character`, `gear`, `prop`, and `tile` are the production types.
+/// `group` is a file that owns several of those records (the props project).
+/// `clip` is a named frame span inside a project. `sheet` is the exported atlas.
+pub const ASSET_KINDS: &[&str] = &[
+    "character",
+    "group",
+    "gear",
+    "prop",
+    "tile",
+    "clip",
+    "sheet",
+];
+
+/// `owner` may point at one of these kinds. A clip or a sheet is not an owner.
+pub const ASSET_OWNER_KINDS: &[&str] = &["character", "group"];
 
 const MANIFEST_VERSION: u64 = 1;
 const MAX_NAME_CHARS: usize = 64;
@@ -32,6 +64,8 @@ const MAX_PATH_CHARS: usize = 256;
 const MAX_CANVAS_TIERS: usize = 32;
 const MAX_LAYOUT_RULES: usize = 64;
 const MAX_PROBES: usize = 1024;
+const MAX_ASSETS: usize = 256;
+const MAX_ASSET_LINKS: usize = 32;
 
 /// Why a manifest file could not be read. The checklist did not run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +114,20 @@ pub struct LayoutRule {
     pub canvas: Option<String>,
 }
 
+/// One registered file or frame span. Relations point at other asset ids.
+///
+/// Empty `owner`, `depends_on`, `produces`, and `tags` are omitted from the file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetRecord {
+    pub id: String,
+    pub kind: String,
+    pub path: String,
+    pub owner: Option<String>,
+    pub depends_on: Vec<String>,
+    pub produces: Vec<String>,
+    pub tags: Vec<String>,
+}
+
 /// Fields [`ArtManifest::new`] checks before it writes a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManifestDraft {
@@ -91,6 +139,7 @@ pub struct ManifestDraft {
     pub palette_ref: Option<String>,
     pub canvases: Vec<CanvasTier>,
     pub layout: Vec<LayoutRule>,
+    pub assets: Vec<AssetRecord>,
 }
 
 /// What the CLI observed on disk. Paths are relative to the asset root and use `/`.
@@ -142,6 +191,8 @@ pub struct ManifestChecks {
     pub palette: String,
     pub canvases: Vec<CanvasCheck>,
     pub layout: Vec<LayoutCheck>,
+    /// How many asset ids the file registers. Zero is an empty registry.
+    pub assets: u32,
 }
 
 /// A canvas tier, echoed so a caller can see the gate without re-reading the file.
@@ -165,7 +216,9 @@ pub struct LayoutCheck {
 
 /// Checklist for one manifest. Errors fail the gate. Warnings do not.
 ///
-/// `projects` counts files. It does not list them. This report is not an asset index.
+/// `projects` counts project files in a layout directory. It does not list
+/// them. `assets` is the registry count. Asset findings cover registered ids,
+/// not a scan of every file on disk.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestReport {
@@ -174,6 +227,15 @@ pub struct ManifestReport {
     pub error_count: usize,
     pub warning_count: usize,
     pub checks: ManifestChecks,
+}
+
+/// Registry checklist. No warnings: a relation or a path either holds or it does not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetReport {
+    pub errors: Vec<ManifestFinding>,
+    pub error_count: usize,
+    pub assets: usize,
 }
 
 /// Project memory: conventions for a game-art directory. No pixels and no undo stack.
@@ -187,6 +249,7 @@ pub struct ArtManifest {
     palette_ref: Option<String>,
     canvases: Vec<CanvasTier>,
     layout: Vec<LayoutRule>,
+    assets: Vec<AssetRecord>,
 }
 
 impl ArtManifest {
@@ -215,6 +278,7 @@ impl ArtManifest {
                 "palette",
                 "canvases",
                 "layout",
+                "assets",
             ],
             "manifest",
         )?;
@@ -241,6 +305,7 @@ impl ArtManifest {
         };
         let canvases = parse_canvases(map.get("canvases"))?;
         let layout = parse_layout(map.get("layout"))?;
+        let assets = parse_assets(map.get("assets"))?;
         build(ManifestDraft {
             name: require_string(map, "name", "manifest name")?,
             note: require_string(map, "note", "manifest note")?,
@@ -250,6 +315,7 @@ impl ArtManifest {
             palette_ref,
             canvases,
             layout,
+            assets,
         })
     }
 
@@ -292,6 +358,10 @@ impl ArtManifest {
         &self.layout
     }
 
+    pub fn assets(&self) -> &[AssetRecord] {
+        &self.assets
+    }
+
     /// The manifest object `inspectManifest` returns.
     pub fn snapshot(&self) -> Value {
         let mut palette = Map::new();
@@ -324,7 +394,7 @@ impl ArtManifest {
                 Value::Object(item)
             })
             .collect::<Vec<_>>();
-        json!({
+        let mut value = json!({
             "format": MANIFEST_FORMAT,
             "version": MANIFEST_VERSION,
             "name": self.name,
@@ -334,7 +404,11 @@ impl ArtManifest {
             "palette": palette,
             "canvases": canvases,
             "layout": layout,
-        })
+        });
+        if !self.assets.is_empty() {
+            value["assets"] = Value::Array(self.assets.iter().map(asset_value).collect());
+        }
+        value
     }
 
     /// Compare declared conventions with a disk snapshot the caller already took.
@@ -368,7 +442,9 @@ impl ArtManifest {
             for (index, rule) in self.layout.iter().enumerate() {
                 layout_counts[index] = self.check_layout(rule, files, &mut errors, &mut warnings);
             }
+            errors.extend(self.asset_path_findings(files));
         }
+        errors.extend(self.asset_relation_findings());
 
         let checks = ManifestChecks {
             perspective: self.perspective.clone(),
@@ -395,6 +471,7 @@ impl ArtManifest {
                     projects,
                 })
                 .collect(),
+            assets: u32::try_from(self.assets.len()).unwrap_or(u32::MAX),
         };
         let error_count = errors.len();
         let warning_count = warnings.len();
@@ -407,12 +484,50 @@ impl ArtManifest {
         }
     }
 
+    /// Registry checklist. Does not read the disk.
+    ///
+    /// An empty registry passes. Relation findings do not need probes. Path
+    /// findings need `rootExists` and a probe for every asset path. A missing
+    /// root with a non-empty registry is `assetRoot`, and the child paths are
+    /// not also reported.
+    pub fn asset_report(&self, root_exists: bool, files: &[ManifestProbe]) -> AssetReport {
+        let mut errors = Vec::new();
+        if let Some(path) = duplicate_probe(files) {
+            push_finding(
+                &mut errors,
+                "probeConflict",
+                format!("probe path {path} is repeated"),
+                Some(path),
+            );
+        } else if !root_exists {
+            if !self.assets.is_empty() {
+                push_finding(
+                    &mut errors,
+                    "assetRoot",
+                    format!("asset root {} is not a directory", self.asset_root),
+                    Some(&self.asset_root),
+                );
+            }
+        } else {
+            errors.extend(self.asset_path_findings(files));
+        }
+        errors.extend(self.asset_relation_findings());
+        let error_count = errors.len();
+        AssetReport {
+            errors,
+            error_count,
+            assets: self.assets.len(),
+        }
+    }
+
     /// Runs one manifest Tool API request. The envelope matches `Document::call_tool`.
     ///
-    /// The file has no undo stack. `validateManifest` does not read the disk; pass
-    /// `rootExists` and `files` from the caller.
+    /// The file has no undo stack. `validateManifest` and `validateAssets` do not
+    /// read the disk; pass `rootExists` and `files` from the caller. `addAsset`,
+    /// `setAsset`, and `removeAsset` change the registry in this value. The caller
+    /// writes `save` when the text changed.
     #[must_use = "tool errors are reported in the JSON body"]
-    pub fn call_tool(&self, request: &str) -> String {
+    pub fn call_tool(&mut self, request: &str) -> String {
         let request = request.strip_prefix('\u{feff}').unwrap_or(request);
         let (id, outcome) = match parse_request(request) {
             Ok(call) => {
@@ -596,6 +711,137 @@ impl ArtManifest {
         }
         projects
     }
+
+    fn asset_path_findings(&self, files: &[ManifestProbe]) -> Vec<ManifestFinding> {
+        let mut errors = Vec::new();
+        for asset in &self.assets {
+            let Some(probe) = files.iter().find(|probe| probe.path == asset.path) else {
+                push_finding(
+                    &mut errors,
+                    "probeMissing",
+                    format!("no probe for asset {} path {}", asset.id, asset.path),
+                    Some(&asset.path),
+                );
+                continue;
+            };
+            match probe.kind {
+                ProbeKind::Missing => push_finding(
+                    &mut errors,
+                    "assetMissing",
+                    format!("asset {} path {} is missing", asset.id, asset.path),
+                    Some(&asset.path),
+                ),
+                ProbeKind::Dir => push_finding(
+                    &mut errors,
+                    "assetPath",
+                    format!(
+                        "asset {} path {} is a directory, expected a file",
+                        asset.id, asset.path
+                    ),
+                    Some(&asset.path),
+                ),
+                ProbeKind::File => {}
+            }
+        }
+        errors
+    }
+
+    fn asset_relation_findings(&self) -> Vec<ManifestFinding> {
+        let mut errors = Vec::new();
+        let index = asset_index(&self.assets);
+        for asset in &self.assets {
+            if let Some(owner) = &asset.owner {
+                if owner == &asset.id {
+                    push_finding(
+                        &mut errors,
+                        "assetOwner",
+                        format!("asset {} owner cannot be itself", asset.id),
+                        Some(&asset.path),
+                    );
+                } else {
+                    match index.get(owner.as_str()) {
+                        None => push_finding(
+                            &mut errors,
+                            "assetOwner",
+                            format!("asset {} owner {owner} is not an asset", asset.id),
+                            Some(&asset.path),
+                        ),
+                        Some(slot) => {
+                            let kind = self.assets[*slot].kind.as_str();
+                            if !ASSET_OWNER_KINDS.contains(&kind) {
+                                push_finding(
+                                    &mut errors,
+                                    "assetOwner",
+                                    format!(
+                                        "asset {} owner {owner} kind is {kind}, expected {}",
+                                        asset.id,
+                                        ASSET_OWNER_KINDS.join(" or ")
+                                    ),
+                                    Some(&asset.path),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            for dep in &asset.depends_on {
+                if !index.contains_key(dep.as_str()) {
+                    push_finding(
+                        &mut errors,
+                        "assetRef",
+                        format!("asset {} dependsOn {dep} is not an asset", asset.id),
+                        Some(&asset.path),
+                    );
+                }
+            }
+            for product in &asset.produces {
+                match index.get(product.as_str()) {
+                    None => push_finding(
+                        &mut errors,
+                        "assetRef",
+                        format!("asset {} produces {product} is not an asset", asset.id),
+                        Some(&asset.path),
+                    ),
+                    Some(slot) => {
+                        if !self.assets[*slot]
+                            .depends_on
+                            .iter()
+                            .any(|id| id == &asset.id)
+                        {
+                            push_finding(
+                                &mut errors,
+                                "assetProduces",
+                                format!(
+                                    "asset {} produces {product}, but {product} does not depend on {}",
+                                    asset.id, asset.id
+                                ),
+                                Some(&asset.path),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for cycle in depends_cycles(&self.assets) {
+            let path = path_of_cycle_start(&self.assets, &cycle);
+            push_finding(
+                &mut errors,
+                "assetCycle",
+                format!("dependsOn cycle {cycle}"),
+                path.as_deref(),
+            );
+        }
+        for cycle in owner_cycles(&self.assets) {
+            let path = path_of_cycle_start(&self.assets, &cycle);
+            push_finding(
+                &mut errors,
+                "assetOwner",
+                format!("owner cycle {cycle}"),
+                path.as_deref(),
+            );
+        }
+        errors
+    }
 }
 
 fn build(draft: ManifestDraft) -> Result<ArtManifest, ManifestError> {
@@ -684,6 +930,7 @@ fn build(draft: ManifestDraft) -> Result<ArtManifest, ManifestError> {
             canvas,
         });
     }
+    let assets = vet_assets(draft.assets)?;
     Ok(ArtManifest {
         name,
         note,
@@ -693,6 +940,7 @@ fn build(draft: ManifestDraft) -> Result<ArtManifest, ManifestError> {
         palette_ref,
         canvases,
         layout,
+        assets,
     })
 }
 
@@ -754,6 +1002,298 @@ fn parse_layout(value: Option<&Value>) -> Result<Vec<LayoutRule>, ManifestError>
         });
     }
     Ok(rules)
+}
+
+fn parse_assets(value: Option<&Value>) -> Result<Vec<AssetRecord>, ManifestError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let list = value
+        .as_array()
+        .ok_or_else(|| file_err("manifest assets must be an array"))?;
+    let mut assets = Vec::with_capacity(list.len());
+    for (index, item) in list.iter().enumerate() {
+        let map = item
+            .as_object()
+            .ok_or_else(|| file_err(format!("manifest assets[{index}] must be an object")))?;
+        reject_unknown(
+            map,
+            &[
+                "id",
+                "kind",
+                "path",
+                "owner",
+                "dependsOn",
+                "produces",
+                "tags",
+            ],
+            &format!("assets[{index}]"),
+        )?;
+        assets.push(AssetRecord {
+            id: require_string(map, "id", &format!("assets[{index}] id"))?,
+            kind: require_string(map, "kind", &format!("assets[{index}] kind"))?,
+            path: require_string(map, "path", &format!("assets[{index}] path"))?,
+            owner: optional_id(map.get("owner"), &format!("assets[{index}] owner"))?,
+            depends_on: optional_id_list(
+                map.get("dependsOn"),
+                &format!("assets[{index}] dependsOn"),
+            )?,
+            produces: optional_id_list(map.get("produces"), &format!("assets[{index}] produces"))?,
+            tags: optional_id_list(map.get("tags"), &format!("assets[{index}] tags"))?,
+        });
+    }
+    Ok(assets)
+}
+
+fn optional_id(value: Option<&Value>, what: &str) -> Result<Option<String>, ManifestError> {
+    match value {
+        None => Ok(None),
+        Some(Value::Null) => Ok(None),
+        Some(value) => Ok(Some(parse_string(value, what)?)),
+    }
+}
+
+fn optional_id_list(value: Option<&Value>, what: &str) -> Result<Vec<String>, ManifestError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let list = value
+        .as_array()
+        .ok_or_else(|| file_err(format!("{what} must be an array")))?;
+    let mut ids = Vec::with_capacity(list.len());
+    for (index, item) in list.iter().enumerate() {
+        ids.push(parse_string(item, &format!("{what}[{index}]"))?);
+    }
+    Ok(ids)
+}
+
+fn vet_assets(assets: Vec<AssetRecord>) -> Result<Vec<AssetRecord>, ManifestError> {
+    if assets.len() > MAX_ASSETS {
+        return Err(file_err(format!(
+            "manifest assets must be at most {MAX_ASSETS}"
+        )));
+    }
+    let mut seen = Vec::with_capacity(assets.len());
+    let mut checked = Vec::with_capacity(assets.len());
+    for asset in assets {
+        let id = check_asset_id(&asset.id, "asset id")?;
+        if seen.iter().any(|existing| existing == &id) {
+            return Err(file_err(format!("asset id {id} is repeated")));
+        }
+        let kind = check_token(&asset.kind, "asset kind", ASSET_KINDS)?;
+        let path = check_rel_path(&asset.path, "asset path")?;
+        let owner = match asset.owner {
+            None => None,
+            Some(owner) => Some(check_asset_id(&owner, "asset owner")?),
+        };
+        let depends_on = vet_id_list(asset.depends_on, "dependsOn")?;
+        let produces = vet_id_list(asset.produces, "produces")?;
+        let tags = vet_tag_list(asset.tags)?;
+        seen.push(id.clone());
+        checked.push(AssetRecord {
+            id,
+            kind,
+            path,
+            owner,
+            depends_on,
+            produces,
+            tags,
+        });
+    }
+    Ok(checked)
+}
+
+fn vet_id_list(ids: Vec<String>, what: &str) -> Result<Vec<String>, ManifestError> {
+    if ids.len() > MAX_ASSET_LINKS {
+        return Err(file_err(format!(
+            "asset {what} must be at most {MAX_ASSET_LINKS}"
+        )));
+    }
+    let mut checked = Vec::with_capacity(ids.len());
+    for id in ids {
+        let id = check_asset_id(&id, &format!("asset {what}"))?;
+        if checked.iter().any(|existing| existing == &id) {
+            return Err(file_err(format!("asset {what} id {id} is repeated")));
+        }
+        checked.push(id);
+    }
+    Ok(checked)
+}
+
+fn vet_tag_list(tags: Vec<String>) -> Result<Vec<String>, ManifestError> {
+    if tags.len() > MAX_ASSET_LINKS {
+        return Err(file_err(format!(
+            "asset tags must be at most {MAX_ASSET_LINKS}"
+        )));
+    }
+    let mut checked = Vec::with_capacity(tags.len());
+    for tag in tags {
+        let tag = check_asset_tag(&tag)?;
+        if checked.iter().any(|existing| existing == &tag) {
+            return Err(file_err(format!("asset tag {tag} is repeated")));
+        }
+        checked.push(tag);
+    }
+    Ok(checked)
+}
+
+/// Same rule as an animation tag from `tag add`: trim, then 1..=64 characters
+/// with no control character. Spaces, non-ASCII, and a leading digit stay.
+fn check_asset_tag(text: &str) -> Result<String, ManifestError> {
+    normalize_tag_name(text).map_err(|_| {
+        file_err(format!(
+            "asset tag must be 1 to {MAX_TAG_NAME_CHARS} characters without control characters"
+        ))
+    })
+}
+
+fn path_of_cycle_start(assets: &[AssetRecord], cycle: &str) -> Option<String> {
+    let id = cycle.split(" -> ").next()?;
+    assets
+        .iter()
+        .find(|asset| asset.id == id)
+        .map(|asset| asset.path.clone())
+}
+
+fn check_asset_id(text: &str, what: &str) -> Result<String, ManifestError> {
+    if text != text.trim()
+        || text.is_empty()
+        || text.chars().count() > MAX_NAME_CHARS
+        || !text.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        || !text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+        || text.split('.').any(str::is_empty)
+    {
+        return Err(file_err(format!(
+            "{what} must be 1 to {MAX_NAME_CHARS} characters, start with a letter, and use letters, digits, '.', '_', or '-'"
+        )));
+    }
+    Ok(text.to_string())
+}
+
+fn asset_value(asset: &AssetRecord) -> Value {
+    let mut item = Map::new();
+    if !asset.depends_on.is_empty() {
+        item.insert("dependsOn".to_string(), json!(asset.depends_on));
+    }
+    item.insert("id".to_string(), json!(asset.id));
+    item.insert("kind".to_string(), json!(asset.kind));
+    if let Some(owner) = &asset.owner {
+        item.insert("owner".to_string(), json!(owner));
+    }
+    item.insert("path".to_string(), json!(asset.path));
+    if !asset.produces.is_empty() {
+        item.insert("produces".to_string(), json!(asset.produces));
+    }
+    if !asset.tags.is_empty() {
+        item.insert("tags".to_string(), json!(asset.tags));
+    }
+    Value::Object(item)
+}
+
+fn asset_index(assets: &[AssetRecord]) -> std::collections::HashMap<&str, usize> {
+    assets
+        .iter()
+        .enumerate()
+        .map(|(index, asset)| (asset.id.as_str(), index))
+        .collect()
+}
+
+fn depends_cycles(assets: &[AssetRecord]) -> Vec<String> {
+    let index = asset_index(assets);
+    let mut color = vec![0u8; assets.len()];
+    let mut stack = Vec::new();
+    let mut cycles = Vec::new();
+    for start in 0..assets.len() {
+        if color[start] == 0 {
+            walk_depends(assets, &index, start, &mut color, &mut stack, &mut cycles);
+        }
+    }
+    cycles
+}
+
+fn walk_depends(
+    assets: &[AssetRecord],
+    index: &std::collections::HashMap<&str, usize>,
+    node: usize,
+    color: &mut [u8],
+    stack: &mut Vec<usize>,
+    cycles: &mut Vec<String>,
+) {
+    color[node] = 1;
+    stack.push(node);
+    for dep in &assets[node].depends_on {
+        let Some(&next) = index.get(dep.as_str()) else {
+            continue;
+        };
+        if color[next] == 1 {
+            let start = stack.iter().position(|slot| *slot == next).unwrap_or(0);
+            let mut names: Vec<&str> = stack[start..]
+                .iter()
+                .map(|slot| assets[*slot].id.as_str())
+                .collect();
+            names.push(assets[next].id.as_str());
+            cycles.push(names.join(" -> "));
+        } else if color[next] == 0 {
+            walk_depends(assets, index, next, color, stack, cycles);
+        }
+    }
+    stack.pop();
+    color[node] = 2;
+}
+
+fn owner_cycles(assets: &[AssetRecord]) -> Vec<String> {
+    let index = asset_index(assets);
+    let mut color = vec![0u8; assets.len()];
+    let mut cycles = Vec::new();
+    for start in 0..assets.len() {
+        if color[start] != 0 {
+            continue;
+        }
+        let mut path: Vec<usize> = Vec::new();
+        let mut node = start;
+        loop {
+            if color[node] == 2 {
+                break;
+            }
+            if let Some(at) = path.iter().position(|slot| *slot == node) {
+                let mut names: Vec<&str> = path[at..]
+                    .iter()
+                    .map(|slot| assets[*slot].id.as_str())
+                    .collect();
+                names.push(assets[node].id.as_str());
+                if names.len() > 2 {
+                    cycles.push(names.join(" -> "));
+                }
+                for slot in &path {
+                    color[*slot] = 2;
+                }
+                break;
+            }
+            path.push(node);
+            let Some(owner) = assets[node].owner.as_deref() else {
+                for slot in &path {
+                    color[*slot] = 2;
+                }
+                break;
+            };
+            if owner == assets[node].id {
+                for slot in &path {
+                    color[*slot] = 2;
+                }
+                break;
+            }
+            let Some(&next) = index.get(owner) else {
+                for slot in &path {
+                    color[*slot] = 2;
+                }
+                break;
+            };
+            node = next;
+        }
+    }
+    cycles
 }
 
 fn check_name(text: &str, what: &str) -> Result<String, ManifestError> {
@@ -970,7 +1510,7 @@ impl ToolFail {
     }
 }
 
-fn dispatch(manifest: &ArtManifest, call: &ToolCall) -> Result<Value, ToolFail> {
+fn dispatch(manifest: &mut ArtManifest, call: &ToolCall) -> Result<Value, ToolFail> {
     match call.tool.as_str() {
         "inspectManifest" => {
             if let Err(failure) = reject_params(&call.params, &[]) {
@@ -979,17 +1519,432 @@ fn dispatch(manifest: &ArtManifest, call: &ToolCall) -> Result<Value, ToolFail> 
             Ok(manifest.snapshot())
         }
         "validateManifest" => {
-            let (root_exists, files) = parse_validate_params(&call.params)?;
+            let (root_exists, files) = parse_validate_params("validateManifest", &call.params)?;
             Ok(serde_json::to_value(manifest.validate(root_exists, &files))
                 .expect("manifest report is JSON"))
         }
+        "validateAssets" => {
+            let (root_exists, files) = parse_validate_params("validateAssets", &call.params)?;
+            Ok(
+                serde_json::to_value(manifest.asset_report(root_exists, &files))
+                    .expect("asset report is JSON"),
+            )
+        }
+        "listAssets" => list_assets(manifest, &call.params),
+        "showAsset" => show_asset(manifest, &call.params),
+        "graphAsset" => graph_asset(manifest, &call.params),
+        "dependentsAsset" => dependents_asset(manifest, &call.params),
+        "addAsset" => add_asset(manifest, &call.params),
+        "setAsset" => set_asset(manifest, &call.params),
+        "removeAsset" => remove_asset(manifest, &call.params),
         other => Err(ToolFail::UnknownTool {
             name: other.to_string(),
         }),
     }
 }
 
+fn list_assets(manifest: &ArtManifest, params: &Map<String, Value>) -> Result<Value, ToolFail> {
+    reject_params(params, &["kind", "owner", "tag"])
+        .map_err(|failure| prefix_params("listAssets", failure))?;
+    let kind = optional_kind(params, "listAssets")?;
+    let owner = optional_filter_id(params, "owner", "listAssets")?;
+    let tag = optional_filter_tag(params, "listAssets")?;
+    let assets = manifest
+        .assets()
+        .iter()
+        .filter(|asset| kind.as_ref().is_none_or(|kind| &asset.kind == kind))
+        .filter(|asset| {
+            owner
+                .as_ref()
+                .is_none_or(|owner| asset.owner.as_ref() == Some(owner))
+        })
+        .filter(|asset| {
+            tag.as_ref()
+                .is_none_or(|tag| asset.tags.iter().any(|item| item == tag))
+        })
+        .map(asset_value)
+        .collect::<Vec<_>>();
+    Ok(json!({ "assets": assets }))
+}
+
+fn show_asset(manifest: &ArtManifest, params: &Map<String, Value>) -> Result<Value, ToolFail> {
+    let asset = require_known_asset(manifest, params, "showAsset")?;
+    Ok(json!({
+        "asset": asset_value(asset),
+        "owns": owned_ids(manifest, &asset.id),
+        "dependents": dependent_ids(manifest, &asset.id),
+    }))
+}
+
+fn graph_asset(manifest: &ArtManifest, params: &Map<String, Value>) -> Result<Value, ToolFail> {
+    let asset = require_known_asset(manifest, params, "graphAsset")?;
+    let id = asset.id.clone();
+    let mut keep: Vec<String> = vec![id.clone()];
+    let mut missing = Vec::new();
+    remember_ref(manifest, asset.owner.as_deref(), &mut keep, &mut missing);
+    for dep in &asset.depends_on {
+        remember_ref(manifest, Some(dep), &mut keep, &mut missing);
+    }
+    for product in &asset.produces {
+        remember_ref(manifest, Some(product), &mut keep, &mut missing);
+    }
+    for other in manifest.assets() {
+        if other.owner.as_deref() == Some(id.as_str())
+            || other.depends_on.iter().any(|item| item == &id)
+            || other.produces.iter().any(|item| item == &id)
+        {
+            remember_id(&mut keep, &other.id);
+        }
+    }
+    let nodes = manifest
+        .assets()
+        .iter()
+        .filter(|item| keep.iter().any(|id| id == &item.id))
+        .map(asset_value)
+        .collect::<Vec<_>>();
+    let mut edges = Vec::new();
+    push_out_edges(&mut edges, asset);
+    for other in manifest.assets() {
+        if other.id == id {
+            continue;
+        }
+        if other.owner.as_deref() == Some(id.as_str()) {
+            edges.push(json!({"from": other.id, "to": id, "rel": "owner"}));
+        }
+        if other.depends_on.iter().any(|item| item == &id) {
+            edges.push(json!({"from": other.id, "to": id, "rel": "dependsOn"}));
+        }
+        if other.produces.iter().any(|item| item == &id) {
+            edges.push(json!({"from": other.id, "to": id, "rel": "produces"}));
+        }
+    }
+    Ok(json!({
+        "id": id,
+        "nodes": nodes,
+        "edges": edges,
+        "missing": missing,
+    }))
+}
+
+fn dependents_asset(
+    manifest: &ArtManifest,
+    params: &Map<String, Value>,
+) -> Result<Value, ToolFail> {
+    let asset = require_known_asset(manifest, params, "dependentsAsset")?;
+    let id = &asset.id;
+    let dependents = manifest
+        .assets()
+        .iter()
+        .filter(|item| item.depends_on.iter().any(|dep| dep == id))
+        .map(asset_value)
+        .collect::<Vec<_>>();
+    Ok(json!({ "id": id, "dependents": dependents }))
+}
+
+fn add_asset(manifest: &mut ArtManifest, params: &Map<String, Value>) -> Result<Value, ToolFail> {
+    reject_params(
+        params,
+        &[
+            "id",
+            "kind",
+            "path",
+            "owner",
+            "dependsOn",
+            "produces",
+            "tags",
+        ],
+    )
+    .map_err(|failure| prefix_params("addAsset", failure))?;
+    let record = AssetRecord {
+        id: required_param_string(params, "id", "addAsset")?,
+        kind: required_param_string(params, "kind", "addAsset")?,
+        path: required_param_string(params, "path", "addAsset")?,
+        owner: match params.get("owner") {
+            None => None,
+            Some(Value::String(text)) => Some(text.clone()),
+            Some(_) => {
+                return Err(ToolFail::InvalidParams {
+                    message: "addAsset: owner must be a string".to_string(),
+                })
+            }
+        },
+        depends_on: param_id_list(params, "dependsOn", "addAsset")?,
+        produces: param_id_list(params, "produces", "addAsset")?,
+        tags: param_id_list(params, "tags", "addAsset")?,
+    };
+    let mut assets = manifest.assets().to_vec();
+    assets.push(record);
+    let assets = vet_assets(assets).map_err(|error| ToolFail::InvalidParams {
+        message: format!("addAsset: {}", error.message()),
+    })?;
+    let added = asset_value(assets.last().expect("asset was inserted"));
+    manifest.assets = assets;
+    Ok(added)
+}
+
+fn set_asset(manifest: &mut ArtManifest, params: &Map<String, Value>) -> Result<Value, ToolFail> {
+    reject_params(
+        params,
+        &[
+            "id",
+            "kind",
+            "path",
+            "owner",
+            "dependsOn",
+            "produces",
+            "tags",
+        ],
+    )
+    .map_err(|failure| prefix_params("setAsset", failure))?;
+    let id = required_param_string(params, "id", "setAsset")?;
+    if params.len() < 2 {
+        return Err(ToolFail::InvalidParams {
+            message: "setAsset: needs a field to change".to_string(),
+        });
+    }
+    let Some(slot) = manifest.assets().iter().position(|asset| asset.id == id) else {
+        return Err(ToolFail::InvalidParams {
+            message: format!("setAsset: asset {id} is not registered"),
+        });
+    };
+    let mut record = manifest.assets()[slot].clone();
+    if let Some(kind) = params.get("kind") {
+        record.kind = param_string(kind, "setAsset: kind")?;
+    }
+    if let Some(path) = params.get("path") {
+        record.path = param_string(path, "setAsset: path")?;
+    }
+    if params.contains_key("owner") {
+        record.owner = match params.get("owner") {
+            Some(Value::Null) => None,
+            Some(Value::String(text)) => Some(text.clone()),
+            _ => {
+                return Err(ToolFail::InvalidParams {
+                    message: "setAsset: owner must be a string or null".to_string(),
+                })
+            }
+        };
+    }
+    if let Some(value) = params.get("dependsOn") {
+        record.depends_on = id_list_value(value, "setAsset: dependsOn")?;
+    }
+    if let Some(value) = params.get("produces") {
+        record.produces = id_list_value(value, "setAsset: produces")?;
+    }
+    if let Some(value) = params.get("tags") {
+        record.tags = id_list_value(value, "setAsset: tags")?;
+    }
+    let mut assets = manifest.assets().to_vec();
+    assets[slot] = record;
+    let assets = vet_assets(assets).map_err(|error| ToolFail::InvalidParams {
+        message: format!("setAsset: {}", error.message()),
+    })?;
+    let updated = asset_value(&assets[slot]);
+    manifest.assets = assets;
+    Ok(updated)
+}
+
+fn remove_asset(
+    manifest: &mut ArtManifest,
+    params: &Map<String, Value>,
+) -> Result<Value, ToolFail> {
+    reject_params(params, &["id"]).map_err(|failure| prefix_params("removeAsset", failure))?;
+    let id = required_param_string(params, "id", "removeAsset")?;
+    if manifest.assets().iter().all(|asset| asset.id != id) {
+        return Err(ToolFail::InvalidParams {
+            message: format!("removeAsset: asset {id} is not registered"),
+        });
+    }
+    let mut users = Vec::new();
+    for asset in manifest.assets() {
+        if asset.id == id {
+            continue;
+        }
+        if asset.owner.as_deref() == Some(id.as_str())
+            || asset.depends_on.iter().any(|item| item == &id)
+            || asset.produces.iter().any(|item| item == &id)
+        {
+            users.push(asset.id.as_str());
+        }
+    }
+    if !users.is_empty() {
+        return Err(ToolFail::InvalidParams {
+            message: format!("removeAsset: {id} is still used by {}", users.join(", ")),
+        });
+    }
+    manifest.assets.retain(|asset| asset.id != id);
+    Ok(json!({ "id": id, "removed": true }))
+}
+
+fn require_known_asset<'a>(
+    manifest: &'a ArtManifest,
+    params: &Map<String, Value>,
+    tool: &str,
+) -> Result<&'a AssetRecord, ToolFail> {
+    reject_params(params, &["id"]).map_err(|failure| prefix_params(tool, failure))?;
+    let id = required_param_string(params, "id", tool)?;
+    manifest
+        .assets()
+        .iter()
+        .find(|asset| asset.id == id)
+        .ok_or_else(|| ToolFail::InvalidParams {
+            message: format!("{tool}: asset {id} is not registered"),
+        })
+}
+
+fn optional_kind(params: &Map<String, Value>, tool: &str) -> Result<Option<String>, ToolFail> {
+    match params.get("kind") {
+        None => Ok(None),
+        Some(Value::String(text)) if ASSET_KINDS.contains(&text.as_str()) => Ok(Some(text.clone())),
+        Some(Value::String(text)) => Err(ToolFail::InvalidParams {
+            message: format!(
+                "{tool}: kind must be {}, got {text}",
+                ASSET_KINDS.join(", ")
+            ),
+        }),
+        Some(_) => Err(ToolFail::InvalidParams {
+            message: format!("{tool}: kind must be a string"),
+        }),
+    }
+}
+
+fn optional_filter_tag(
+    params: &Map<String, Value>,
+    tool: &str,
+) -> Result<Option<String>, ToolFail> {
+    match params.get("tag") {
+        None => Ok(None),
+        Some(Value::String(text)) => {
+            check_asset_tag(text)
+                .map(Some)
+                .map_err(|error| ToolFail::InvalidParams {
+                    message: format!("{tool}: {}", error.message()),
+                })
+        }
+        Some(_) => Err(ToolFail::InvalidParams {
+            message: format!("{tool}: tag must be a string"),
+        }),
+    }
+}
+
+fn optional_filter_id(
+    params: &Map<String, Value>,
+    key: &str,
+    tool: &str,
+) -> Result<Option<String>, ToolFail> {
+    match params.get(key) {
+        None => Ok(None),
+        Some(Value::String(text)) => check_asset_id(text, &format!("{tool} {key}"))
+            .map(Some)
+            .map_err(|error| ToolFail::InvalidParams {
+                message: error.message().to_string(),
+            }),
+        Some(_) => Err(ToolFail::InvalidParams {
+            message: format!("{tool}: {key} must be a string"),
+        }),
+    }
+}
+
+fn required_param_string(
+    params: &Map<String, Value>,
+    key: &str,
+    tool: &str,
+) -> Result<String, ToolFail> {
+    match params.get(key) {
+        Some(value) => param_string(value, &format!("{tool}: {key}")),
+        None => Err(ToolFail::InvalidParams {
+            message: format!("{tool}: {key} is required"),
+        }),
+    }
+}
+
+fn param_string(value: &Value, what: &str) -> Result<String, ToolFail> {
+    match value.as_str() {
+        Some(text) => Ok(text.to_string()),
+        None => Err(ToolFail::InvalidParams {
+            message: format!("{what} must be a string"),
+        }),
+    }
+}
+
+fn param_id_list(
+    params: &Map<String, Value>,
+    key: &str,
+    tool: &str,
+) -> Result<Vec<String>, ToolFail> {
+    match params.get(key) {
+        None => Ok(Vec::new()),
+        Some(value) => id_list_value(value, &format!("{tool}: {key}")),
+    }
+}
+
+fn id_list_value(value: &Value, what: &str) -> Result<Vec<String>, ToolFail> {
+    let Some(list) = value.as_array() else {
+        return Err(ToolFail::InvalidParams {
+            message: format!("{what} must be an array"),
+        });
+    };
+    let mut ids = Vec::with_capacity(list.len());
+    for (index, item) in list.iter().enumerate() {
+        ids.push(param_string(item, &format!("{what}[{index}]"))?);
+    }
+    Ok(ids)
+}
+
+fn owned_ids(manifest: &ArtManifest, id: &str) -> Vec<String> {
+    manifest
+        .assets()
+        .iter()
+        .filter(|asset| asset.owner.as_deref() == Some(id))
+        .map(|asset| asset.id.clone())
+        .collect()
+}
+
+fn dependent_ids(manifest: &ArtManifest, id: &str) -> Vec<String> {
+    manifest
+        .assets()
+        .iter()
+        .filter(|asset| asset.depends_on.iter().any(|dep| dep == id))
+        .map(|asset| asset.id.clone())
+        .collect()
+}
+
+fn remember_id(keep: &mut Vec<String>, id: &str) {
+    if !keep.iter().any(|item| item == id) {
+        keep.push(id.to_string());
+    }
+}
+
+fn remember_ref(
+    manifest: &ArtManifest,
+    id: Option<&str>,
+    keep: &mut Vec<String>,
+    missing: &mut Vec<String>,
+) {
+    let Some(id) = id else {
+        return;
+    };
+    if manifest.assets().iter().any(|asset| asset.id == id) {
+        remember_id(keep, id);
+    } else if !missing.iter().any(|item| item == id) {
+        missing.push(id.to_string());
+    }
+}
+
+fn push_out_edges(edges: &mut Vec<Value>, asset: &AssetRecord) {
+    if let Some(owner) = &asset.owner {
+        edges.push(json!({"from": asset.id, "to": owner, "rel": "owner"}));
+    }
+    for dep in &asset.depends_on {
+        edges.push(json!({"from": asset.id, "to": dep, "rel": "dependsOn"}));
+    }
+    for product in &asset.produces {
+        edges.push(json!({"from": asset.id, "to": product, "rel": "produces"}));
+    }
+}
+
 fn parse_validate_params(
+    tool: &str,
     params: &Map<String, Value>,
 ) -> Result<(bool, Vec<ManifestProbe>), ToolFail> {
     reject_params(params, &["rootExists", "files"])?;
@@ -997,12 +1952,12 @@ fn parse_validate_params(
         Some(Value::Bool(value)) => *value,
         Some(_) => {
             return Err(ToolFail::InvalidParams {
-                message: "validateManifest: rootExists must be a boolean".to_string(),
+                message: format!("{tool}: rootExists must be a boolean"),
             })
         }
         None => {
             return Err(ToolFail::InvalidParams {
-                message: "validateManifest: rootExists is required".to_string(),
+                message: format!("{tool}: rootExists is required"),
             })
         }
     };
@@ -1011,40 +1966,40 @@ fn parse_validate_params(
         Some(Value::Array(items)) => {
             if items.len() > MAX_PROBES {
                 return Err(ToolFail::InvalidParams {
-                    message: format!("validateManifest: files must be at most {MAX_PROBES}"),
+                    message: format!("{tool}: files must be at most {MAX_PROBES}"),
                 });
             }
             let mut probes = Vec::with_capacity(items.len());
             for (index, item) in items.iter().enumerate() {
-                probes.push(parse_probe(item, index)?);
+                probes.push(parse_probe(tool, item, index)?);
             }
             probes
         }
         Some(_) => {
             return Err(ToolFail::InvalidParams {
-                message: "validateManifest: files must be an array".to_string(),
+                message: format!("{tool}: files must be an array"),
             })
         }
     };
     Ok((root_exists, files))
 }
 
-fn parse_probe(value: &Value, index: usize) -> Result<ManifestProbe, ToolFail> {
+fn parse_probe(tool: &str, value: &Value, index: usize) -> Result<ManifestProbe, ToolFail> {
     let Some(map) = value.as_object() else {
         return Err(ToolFail::InvalidParams {
-            message: format!("validateManifest: files[{index}] must be an object"),
+            message: format!("{tool}: files[{index}] must be an object"),
         });
     };
     reject_params(
         map,
         &["path", "kind", "format", "width", "height", "unreadable"],
     )
-    .map_err(|failure| prefix_params(&format!("validateManifest: files[{index}]"), failure))?;
+    .map_err(|failure| prefix_params(&format!("{tool}: files[{index}]"), failure))?;
     let path = match map.get("path").and_then(Value::as_str) {
         Some(path) => path.to_string(),
         _ => {
             return Err(ToolFail::InvalidParams {
-                message: format!("validateManifest: files[{index}].path must be a string"),
+                message: format!("{tool}: files[{index}].path must be a string"),
             })
         }
     };
@@ -1056,9 +2011,7 @@ fn parse_probe(value: &Value, index: usize) -> Result<ManifestProbe, ToolFail> {
         Some(kind) => kind,
         _ => {
             return Err(ToolFail::InvalidParams {
-                message: format!(
-                    "validateManifest: files[{index}].kind must be file, dir, or missing"
-                ),
+                message: format!("{tool}: files[{index}].kind must be file, dir, or missing"),
             })
         }
     };
@@ -1067,15 +2020,15 @@ fn parse_probe(value: &Value, index: usize) -> Result<ManifestProbe, ToolFail> {
         Some(Value::String(text)) => Some(text.clone()),
         Some(_) => {
             return Err(ToolFail::InvalidParams {
-                message: format!("validateManifest: files[{index}].format must be a string"),
+                message: format!("{tool}: files[{index}].format must be a string"),
             })
         }
     };
-    let width = optional_u16(map, "width", index)?;
-    let height = optional_u16(map, "height", index)?;
+    let width = optional_u16(tool, map, "width", index)?;
+    let height = optional_u16(tool, map, "height", index)?;
     if width.is_some() != height.is_some() {
         return Err(ToolFail::InvalidParams {
-            message: format!("validateManifest: files[{index}] width and height are a pair"),
+            message: format!("{tool}: files[{index}] width and height are a pair"),
         });
     }
     let unreadable = match map.get("unreadable") {
@@ -1083,14 +2036,14 @@ fn parse_probe(value: &Value, index: usize) -> Result<ManifestProbe, ToolFail> {
         Some(Value::Bool(value)) => *value,
         Some(_) => {
             return Err(ToolFail::InvalidParams {
-                message: format!("validateManifest: files[{index}].unreadable must be a boolean"),
+                message: format!("{tool}: files[{index}].unreadable must be a boolean"),
             })
         }
     };
     if kind != ProbeKind::File && (format.is_some() || width.is_some() || unreadable) {
         return Err(ToolFail::InvalidParams {
             message: format!(
-                "validateManifest: files[{index}] format, size, and unreadable belong on a file"
+                "{tool}: files[{index}] format, size, and unreadable belong on a file"
             ),
         });
     }
@@ -1105,6 +2058,7 @@ fn parse_probe(value: &Value, index: usize) -> Result<ManifestProbe, ToolFail> {
 }
 
 fn optional_u16(
+    tool: &str,
     map: &Map<String, Value>,
     key: &str,
     index: usize,
@@ -1114,13 +2068,13 @@ fn optional_u16(
         Some(value) => {
             let Some(number) = value.as_u64() else {
                 return Err(ToolFail::InvalidParams {
-                    message: format!("validateManifest: files[{index}].{key} must be an integer"),
+                    message: format!("{tool}: files[{index}].{key} must be an integer"),
                 });
             };
             u16::try_from(number)
                 .map(Some)
                 .map_err(|_| ToolFail::InvalidParams {
-                    message: format!("validateManifest: files[{index}].{key} is out of range"),
+                    message: format!("{tool}: files[{index}].{key} is out of range"),
                 })
         }
     }

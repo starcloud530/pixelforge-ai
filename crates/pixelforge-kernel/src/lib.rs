@@ -31,8 +31,9 @@
 //! A tileset is this same document with a 16 or 32 tile size and one tile per
 //! frame. A tilemap, 4-neighbor autotile rules, and Tiled `.tmj` export live in
 //! [`tiles`] and do not add a second pixel buffer.
-//! A game-art manifest ([`manifest`]) records canvas tiers, perspective, and
-//! directory rules. It is not a canvas and it does not store pixels.
+//! A game-art manifest ([`manifest`]) records canvas tiers, perspective,
+//! directory rules, and an optional asset registry. It is not a canvas and it
+//! does not store pixels.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
 //! as onion skin; it is not part of the document. [`Document::call_tool`] is
 //! the stable Tool API: named JSON tools that dispatch onto this document and
@@ -89,8 +90,9 @@ pub use error::{KernelError, ProjectFileError};
 pub use export::{sprite_sheet_layout, FlattenCompare, SpriteSheetLayout};
 pub use frame::Frame;
 pub use manifest::{
-    ArtManifest, CanvasTier, LayoutRule, ManifestDraft, ManifestError, ManifestProbe, ProbeKind,
-    LAYOUT_KINDS, MANIFEST_FORMAT, MANIFEST_TOOL_NAMES, PERSPECTIVES,
+    ArtManifest, AssetRecord, AssetReport, CanvasTier, LayoutRule, ManifestDraft, ManifestError,
+    ManifestProbe, ProbeKind, ASSET_KINDS, ASSET_OWNER_KINDS, LAYOUT_KINDS, MANIFEST_FORMAT,
+    MANIFEST_TOOL_NAMES, PERSPECTIVES,
 };
 pub use palette::{IndexPolicy, Palette};
 pub use palette_file::PaletteImportMode;
