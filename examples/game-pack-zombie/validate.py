@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Re-run validate-atlas --strict, direction validate, and project validate.
+"""Re-run validate-atlas --strict, direction validate, project/asset validate,
+and character check.
 
 Exit 0 only when the zombie sheet and the prop sheet both have no atlas
 errors, the zombie project passes direction validate (4-direction
-idle/walk), and pixelforge.manifest.json passes project validate and
-asset validate. A broken PNG, atlas, rules file, direction layout, or
-manifest fails this script. `cargo test -p pixelforge-cli game_pack_zombie`
+idle/walk), pixelforge.manifest.json passes project validate and
+asset validate, and `character check zombie` reports no matrix gaps.
+A broken PNG, atlas, rules file, direction layout, manifest, or missing
+idle/walk cell fails this script. `cargo test -p pixelforge-cli game_pack_zombie`
 calls the atlas check; `game_pack_zombie_directions` calls the direction
-gate; `game_pack_zombie_manifest` calls the manifest gate.
+gate; `game_pack_zombie_manifest` calls the manifest gate;
+`game_pack_zombie_character_matrix` calls the matrix gate.
 """
 
 from __future__ import annotations
@@ -153,6 +156,39 @@ def validate_manifest(binary: str, manifest: Path) -> None:
         raise SystemExit(shown.stdout)
 
 
+def validate_character_matrix(binary: str, manifest: Path) -> None:
+    proc = subprocess.run(
+        [
+            binary,
+            "character",
+            "check",
+            "--manifest",
+            str(manifest),
+            "zombie",
+        ],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    print(proc.stderr.strip())
+    if proc.returncode != 0:
+        raise SystemExit(proc.stdout or proc.stderr)
+    body = json.loads(proc.stdout)
+    result = body["result"]
+    if (
+        not body.get("ok")
+        or result["errorCount"] != 0
+        or result["id"] != "zombie"
+        or result["actions"] != ["idle", "walk"]
+        or result["directions"] != ["down", "left", "right", "up"]
+        or result["gaps"] != []
+        or len(result["cells"]) != 8
+        or any(cell["status"] != "present" for cell in result["cells"])
+    ):
+        raise SystemExit(proc.stdout)
+
+
 def main() -> None:
     binary = find_binary()
     validate(
@@ -171,6 +207,7 @@ def main() -> None:
     )
     validate_directions(binary, ROOT / "zombie" / "zombie.json")
     validate_manifest(binary, ROOT / "pixelforge.manifest.json")
+    validate_character_matrix(binary, ROOT / "pixelforge.manifest.json")
 
 
 if __name__ == "__main__":

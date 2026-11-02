@@ -6,6 +6,7 @@
 //! write a second pixel buffer.
 
 mod asset_cmd;
+mod character_cmd;
 mod checkpoint;
 mod cli;
 mod export_files;
@@ -148,6 +149,7 @@ fn execute(cli: Cli) -> i32 {
         Command::ValidateAtlas(args) => validate_atlas::run(args),
         Command::Project { command } => manifest_cmd::run(command),
         Command::Asset { command } => asset_cmd::run(command),
+        Command::Character { command } => character_cmd::run(command),
         Command::Tools => cmd_tools(),
     }
 }

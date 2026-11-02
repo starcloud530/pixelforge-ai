@@ -1,6 +1,6 @@
 # 丧尸 / 据点道具包（#18）
 
-64×64 索引像素，给自家丧尸经营原型用的两张表。像素文件仍不是游戏工程。`pixelforge.manifest.json` 记这套包的尺寸、顶视、目录约定，以及资产 id。它不存像素。`zombie` 是角色工程，`zombie.idle` 和 `zombie.walk` 是同一份工程里的帧段，`zombie.sheet` 是图集 JSON。`props` 是道具工程，四个道具和 `props.sheet` 挂在它下面。道具调色板和丧尸不是同一份，所以道具不依赖 `zombie`。登记不画像素，也不查四向缺格。见 [docs/project-manifest.md](../../docs/project-manifest.md)。导入约定和工具侧门槛在 [docs/export.md](../../docs/export.md) 的「对接校验」和 Godot / Unity 两节。做这套表时记下的失败模式在 [FAILURES.md](FAILURES.md)。
+64×64 索引像素，给自家丧尸经营原型用的两张表。像素文件仍不是游戏工程。`pixelforge.manifest.json` 记这套包的尺寸、顶视、目录约定，以及资产 id。它不存像素。`zombie` 是角色工程，`zombie.idle` 和 `zombie.walk` 是同一份工程里的帧段，`zombie.sheet` 是图集 JSON。`props` 是道具工程，四个道具和 `props.sheet` 挂在它下面。道具调色板和丧尸不是同一份，所以道具不依赖 `zombie`。登记不画像素。朝向 × 动作缺格用 `pixelforge character check --manifest … zombie`（对照 `directionLayout` 与 clip `tags`）。见 [docs/project-manifest.md](../../docs/project-manifest.md)。导入约定和工具侧门槛在 [docs/export.md](../../docs/export.md) 的「对接校验」和 Godot / Unity 两节。做这套表时记下的失败模式在 [FAILURES.md](FAILURES.md)。
 
 画布是游戏默认档 64，不是立绘。丧尸走到细节阶段：剪影、色块、眼睛和破口都在，走路是三帧挪四肢。道具是路障、木箱、发电机、医疗箱。
 
@@ -63,6 +63,6 @@ pixelforge validate-atlas \
 python3 examples/game-pack-zombie/validate.py
 ```
 
-`cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查，并对丧尸工程跑 `direction validate`。`game_pack_zombie_manifest` 再跑 `project validate` 和 `asset validate`。表坏了、四向 idle/walk 帧段缺了、清单和 64×64 对不上，或 `zombie.walk` 的登记断了，这些测试失败。`direction validate` 通过只说明朝向和帧段齐，不是自然步态，也不是审美通过。`project validate` 和 `asset validate` 通过只说明约定和已登记的关系还在，不是画面验收，也不是缺格矩阵。
+`cargo test -p pixelforge-cli game_pack_zombie` 对已提交的 PNG 和 atlas 做同一组 strict 检查，并对丧尸工程跑 `direction validate`。`game_pack_zombie_manifest` 再跑 `project validate` 和 `asset validate`。`game_pack_zombie_character_matrix` 跑 `character check zombie`。表坏了、四向 idle/walk 帧段缺了、清单和 64×64 对不上、`zombie.walk` 的登记断了，或矩阵缺格，这些测试失败。`direction validate` 通过只说明朝向和帧段齐，不是自然步态，也不是审美通过。`project validate` 和 `asset validate` 通过只说明约定和已登记的关系还在，不是画面验收。`character check` 通过只说明期望的朝向 × 动作格子有标签和墨水；占位 warning 仍可能在，矩阵绿 ≠ 观感/步态合格。
 
 右朝向是左朝向 `hflip` 之后把高光画回画面左上。不要整帧重画。槽位已经占死后用 `copyRect`，不要 `duplicateFrame` 插进一行中间。`direction fill --from left --mode mirror` 只做这一步水平翻转，不修高光，也不是新的走路。不要对已提交的 `zombie.json` 加 `--overwrite`，否则画回去的高光会被镜像盖掉。只画一侧再填满基本朝向的小例子是 `examples/direction-fill/`。八向对角不在这条命令里。
