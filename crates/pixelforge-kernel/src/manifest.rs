@@ -4,14 +4,20 @@
 //! read back: canvas tiers, perspective, directory rules, the default palette
 //! path, a short note, and the asset root. The optional `assets` array is the
 //! registry of stable ids and the relations between those files. Pixels stay
-//! in `pixelforge-project` files. This module does not draw, does not check a
-//! facing-by-action matrix, and does not record a delivery revision.
+//! in `pixelforge-project` files. This module does not draw and does not
+//! record a delivery revision. `characterMatrix` reports facing × action gaps
+//! from registry tags plus a project probe the caller supplies;
+//! `validateAssets` still does not open pixels.
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
+use crate::character_matrix::{
+    character_matrix, CharacterFrameProbe, CharacterProjectProbe, CharacterTagProbe,
+};
+use crate::direction::DirectionLayout;
 use crate::project::PROJECT_FORMAT;
-use crate::tag::normalize_tag_name;
+use crate::tag::{normalize_tag_name, LoopMode};
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_TAG_NAME_CHARS;
 use crate::TOOL_API_VERSION;
@@ -31,6 +37,7 @@ pub const MANIFEST_TOOL_NAMES: &[&str] = &[
     "graphAsset",
     "dependentsAsset",
     "validateAssets",
+    "characterMatrix",
 ];
 
 /// Closed set for `perspective`.
@@ -523,9 +530,11 @@ impl ArtManifest {
     /// Runs one manifest Tool API request. The envelope matches `Document::call_tool`.
     ///
     /// The file has no undo stack. `validateManifest` and `validateAssets` do not
-    /// read the disk; pass `rootExists` and `files` from the caller. `addAsset`,
-    /// `setAsset`, and `removeAsset` change the registry in this value. The caller
-    /// writes `save` when the text changed.
+    /// read the disk; pass `rootExists` and `files` from the caller.
+    /// `characterMatrix` also takes a project probe (tags, layout, frame ink) so
+    /// the caller opens the pixel file. `addAsset`, `setAsset`, and `removeAsset`
+    /// change the registry in this value. The caller writes `save` when the text
+    /// changed.
     #[must_use = "tool errors are reported in the JSON body"]
     pub fn call_tool(&mut self, request: &str) -> String {
         let request = request.strip_prefix('\u{feff}').unwrap_or(request);
@@ -1530,6 +1539,7 @@ fn dispatch(manifest: &mut ArtManifest, call: &ToolCall) -> Result<Value, ToolFa
                     .expect("asset report is JSON"),
             )
         }
+        "characterMatrix" => character_matrix_tool(manifest, &call.params),
         "listAssets" => list_assets(manifest, &call.params),
         "showAsset" => show_asset(manifest, &call.params),
         "graphAsset" => graph_asset(manifest, &call.params),
@@ -1539,6 +1549,223 @@ fn dispatch(manifest: &mut ArtManifest, call: &ToolCall) -> Result<Value, ToolFa
         "removeAsset" => remove_asset(manifest, &call.params),
         other => Err(ToolFail::UnknownTool {
             name: other.to_string(),
+        }),
+    }
+}
+
+fn character_matrix_tool(
+    manifest: &ArtManifest,
+    params: &Map<String, Value>,
+) -> Result<Value, ToolFail> {
+    reject_params(params, &["id", "project", "missingPaths"])
+        .map_err(|failure| prefix_params("characterMatrix", failure))?;
+    let id = required_param_string(params, "id", "characterMatrix")?;
+    let project = parse_character_project(params.get("project"))?;
+    let missing_paths = param_id_list(params, "missingPaths", "characterMatrix")?;
+    let report = character_matrix(manifest, &id, &project, &missing_paths).map_err(|error| {
+        ToolFail::InvalidParams {
+            message: error.message().to_string(),
+        }
+    })?;
+    Ok(serde_json::to_value(report).expect("character matrix is JSON"))
+}
+
+fn parse_character_project(value: Option<&Value>) -> Result<CharacterProjectProbe, ToolFail> {
+    let Some(Value::Object(map)) = value else {
+        return Err(ToolFail::InvalidParams {
+            message: "characterMatrix: project is required and must be an object".to_string(),
+        });
+    };
+    reject_params(map, &["frameCount", "directionLayout", "tags", "frames"])
+        .map_err(|failure| prefix_params("characterMatrix.project", failure))?;
+    let frame_count = match map.get("frameCount") {
+        Some(Value::Number(number)) => number.as_u64().ok_or_else(|| ToolFail::InvalidParams {
+            message: "characterMatrix: project.frameCount must be a non-negative integer"
+                .to_string(),
+        })? as usize,
+        Some(_) => {
+            return Err(ToolFail::InvalidParams {
+                message: "characterMatrix: project.frameCount must be a number".to_string(),
+            })
+        }
+        None => {
+            return Err(ToolFail::InvalidParams {
+                message: "characterMatrix: project.frameCount is required".to_string(),
+            })
+        }
+    };
+    let direction_layout = match map.get("directionLayout") {
+        None | Some(Value::Null) => None,
+        Some(Value::Object(layout)) => {
+            reject_params(layout, &["count", "columns"])
+                .map_err(|failure| prefix_params("characterMatrix.project.directionLayout", failure))?;
+            let count = required_u32(layout, "count", "characterMatrix.project.directionLayout")?;
+            let columns =
+                required_u32(layout, "columns", "characterMatrix.project.directionLayout")?;
+            let count = u8::try_from(count).map_err(|_| ToolFail::InvalidParams {
+                message: "characterMatrix: project.directionLayout.count must fit in u8"
+                    .to_string(),
+            })?;
+            Some(
+                DirectionLayout::new(count, columns).map_err(|_| ToolFail::InvalidParams {
+                    message: "characterMatrix: project.directionLayout is invalid".to_string(),
+                })?,
+            )
+        }
+        Some(_) => {
+            return Err(ToolFail::InvalidParams {
+                message: "characterMatrix: project.directionLayout must be an object or null"
+                    .to_string(),
+            })
+        }
+    };
+    let tags = parse_character_tags(map.get("tags"))?;
+    let frames = parse_character_frames(map.get("frames"), frame_count)?;
+    Ok(CharacterProjectProbe {
+        frame_count,
+        direction_layout,
+        tags,
+        frames,
+    })
+}
+
+fn required_u32(map: &Map<String, Value>, key: &str, what: &str) -> Result<u32, ToolFail> {
+    match map.get(key) {
+        Some(Value::Number(number)) => number.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(
+            || ToolFail::InvalidParams {
+                message: format!("{what}.{key} must be a non-negative integer"),
+            },
+        ),
+        Some(_) => Err(ToolFail::InvalidParams {
+            message: format!("{what}.{key} must be a number"),
+        }),
+        None => Err(ToolFail::InvalidParams {
+            message: format!("{what}.{key} is required"),
+        }),
+    }
+}
+
+fn parse_character_tags(value: Option<&Value>) -> Result<Vec<CharacterTagProbe>, ToolFail> {
+    let Some(Value::Array(list)) = value else {
+        return Err(ToolFail::InvalidParams {
+            message: "characterMatrix: project.tags must be an array".to_string(),
+        });
+    };
+    let mut tags = Vec::with_capacity(list.len());
+    for (index, item) in list.iter().enumerate() {
+        let Value::Object(map) = item else {
+            return Err(ToolFail::InvalidParams {
+                message: format!("characterMatrix: project.tags[{index}] must be an object"),
+            });
+        };
+        reject_params(map, &["name", "from", "to", "loop"])
+            .map_err(|failure| prefix_params(&format!("characterMatrix.project.tags[{index}]"), failure))?;
+        let name = required_param_string(map, "name", &format!("characterMatrix.project.tags[{index}]"))?;
+        let from = required_u32(map, "from", &format!("characterMatrix.project.tags[{index}]"))?;
+        let to = required_u32(map, "to", &format!("characterMatrix.project.tags[{index}]"))?;
+        let loop_mode = match map.get("loop") {
+            None => LoopMode::Forward,
+            Some(Value::String(text)) => LoopMode::parse(text).ok_or_else(|| ToolFail::InvalidParams {
+                message: format!(
+                    "characterMatrix: project.tags[{index}].loop must be forward, reverse, pingpong, or once"
+                ),
+            })?,
+            Some(_) => {
+                return Err(ToolFail::InvalidParams {
+                    message: format!("characterMatrix: project.tags[{index}].loop must be a string"),
+                })
+            }
+        };
+        tags.push(CharacterTagProbe {
+            name,
+            from,
+            to,
+            loop_mode,
+        });
+    }
+    Ok(tags)
+}
+
+fn parse_character_frames(
+    value: Option<&Value>,
+    frame_count: usize,
+) -> Result<Vec<CharacterFrameProbe>, ToolFail> {
+    let Some(Value::Array(list)) = value else {
+        return Err(ToolFail::InvalidParams {
+            message: "characterMatrix: project.frames must be an array".to_string(),
+        });
+    };
+    if list.len() != frame_count {
+        return Err(ToolFail::InvalidParams {
+            message: format!(
+                "characterMatrix: project.frames has {} entries; frameCount is {frame_count}",
+                list.len()
+            ),
+        });
+    }
+    let mut frames = Vec::with_capacity(list.len());
+    for (index, item) in list.iter().enumerate() {
+        let Value::Object(map) = item else {
+            return Err(ToolFail::InvalidParams {
+                message: format!("characterMatrix: project.frames[{index}] must be an object"),
+            });
+        };
+        reject_params(map, &["hasContent", "hash", "hashHflip"])
+            .map_err(|failure| {
+                prefix_params(&format!("characterMatrix.project.frames[{index}]"), failure)
+            })?;
+        let has_content = match map.get("hasContent") {
+            Some(Value::Bool(value)) => *value,
+            Some(_) => {
+                return Err(ToolFail::InvalidParams {
+                    message: format!(
+                        "characterMatrix: project.frames[{index}].hasContent must be a boolean"
+                    ),
+                })
+            }
+            None => {
+                return Err(ToolFail::InvalidParams {
+                    message: format!(
+                        "characterMatrix: project.frames[{index}].hasContent is required"
+                    ),
+                })
+            }
+        };
+        let hash = required_u64(map, "hash", &format!("characterMatrix.project.frames[{index}]"))?;
+        let hash_hflip =
+            required_u64(map, "hashHflip", &format!("characterMatrix.project.frames[{index}]"))?;
+        frames.push(CharacterFrameProbe {
+            has_content,
+            hash,
+            hash_hflip,
+        });
+    }
+    Ok(frames)
+}
+
+fn required_u64(map: &Map<String, Value>, key: &str, what: &str) -> Result<u64, ToolFail> {
+    match map.get(key) {
+        Some(Value::Number(number)) => number.as_u64().ok_or_else(|| ToolFail::InvalidParams {
+            message: format!("{what}.{key} must be a non-negative integer"),
+        }),
+        // JSON numbers above 2^53 lose precision; accept a hex string too so
+        // CLI probes stay exact.
+        Some(Value::String(text)) => {
+            if let Some(hex) = text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
+                u64::from_str_radix(hex, 16).map_err(|_| ToolFail::InvalidParams {
+                    message: format!("{what}.{key} must be a u64 or 0x-hex string"),
+                })
+            } else {
+                text.parse::<u64>().map_err(|_| ToolFail::InvalidParams {
+                    message: format!("{what}.{key} must be a u64 or 0x-hex string"),
+                })
+            }
+        }
+        Some(_) => Err(ToolFail::InvalidParams {
+            message: format!("{what}.{key} must be a number or string"),
+        }),
+        None => Err(ToolFail::InvalidParams {
+            message: format!("{what}.{key} is required"),
         }),
     }
 }

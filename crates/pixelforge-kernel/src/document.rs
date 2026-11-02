@@ -3244,7 +3244,7 @@ impl Document {
     }
 
     /// A frame already holds ink or an explicit erase on some layer.
-    fn frame_has_content(&self, frame: usize) -> bool {
+    pub fn frame_has_content(&self, frame: usize) -> bool {
         let frame = &self.frames[frame];
         frame
             .layers()
@@ -3254,6 +3254,37 @@ impl Document {
                 .erasures()
                 .iter()
                 .any(|marks| marks.iter().any(|mark| *mark != 0))
+    }
+
+    /// FNV-1a 64 over every layer's indices and erase marks.
+    ///
+    /// `hflip` hashes `x` as `width - 1 - x` so a mirrored copy matches the
+    /// upright source. Used by the character matrix placeholder check.
+    pub fn frame_content_hash(&self, frame: usize, hflip: bool) -> u64 {
+        const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+        let frame = &self.frames[frame];
+        let width = usize::from(self.width);
+        let height = usize::from(self.height);
+        let mut hash = FNV_OFFSET;
+        let mut feed = |byte: u8| {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(FNV_PRIME);
+        };
+        for layer in 0..frame.layer_count() {
+            let pixels = frame.layer_pixels(layer);
+            let erase = frame.layer_erase(layer);
+            for y in 0..height {
+                let row = y * width;
+                for x in 0..width {
+                    let src_x = if hflip { width - 1 - x } else { x };
+                    let offset = row + src_x;
+                    feed(pixels[offset]);
+                    feed(erase[offset]);
+                }
+            }
+        }
+        hash
     }
 
     /// Copies every layer of `source` onto `dest`. `hflip` maps `x` to

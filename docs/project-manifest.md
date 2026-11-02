@@ -2,11 +2,11 @@
 
 `pixelforge-manifest` 是游戏美术的项目记忆。它记下画布档位、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径。可选的 `assets` 数组是资产登记：稳定 id，以及这些文件之间的关系。Agent 用 `pixelforge project show` / `project validate` 和 `pixelforge asset` 读回来。
 
-它不是画布。像素仍在 `pixelforge-project` 里，画笔、图层、帧、导出都不读这份文件。登记层只保存生产上下文：它不画像素，不扫描目录来发明新 id，不查角色动画缺哪一格，也不做导出版本清单。
+它不是画布。像素仍在 `pixelforge-project` 里，画笔、图层、帧、导出都不读这份文件。登记层只保存生产上下文：它不画像素，不扫描目录来发明新 id，也不做导出版本清单。朝向 × 动作缺格是另一条命令：`pixelforge character matrix` / `character check`（Tool API `characterMatrix`）。`asset validate` 仍不打开像素。
 
 *A `pixelforge-manifest` is project memory for game art. It stores canvas tiers, perspective, directory rules, the default palette path, a short note, and the asset root with its relative paths. The optional `assets` array is the registry: stable ids and the relations between those files. An agent reads it back with `pixelforge project show`, `project validate`, and `pixelforge asset`.*
 
-*It is not a canvas. Pixels stay in `pixelforge-project` files. Paint, layers, frames, and export do not read the manifest. The registry stores production context. It does not paint, it does not scan a directory into new ids, it does not look for a missing animation cell, and it does not version a delivery.*
+*It is not a canvas. Pixels stay in `pixelforge-project` files. Paint, layers, frames, and export do not read the manifest. The registry stores production context. It does not paint, it does not scan a directory into new ids, and it does not version a delivery. Facing × action gaps are `pixelforge character matrix` / `character check` (`characterMatrix`). `asset validate` still does not open pixels.*
 
 ## 不在这里 Out of scope
 
@@ -15,13 +15,13 @@
 - 嵌在应用里的聊天
 - 团队账号与权限
 - 自动 AI 生图
-- 角色动画矩阵、缺帧报告。`tags` 只记下这个资产上已经有的帧标签名，`asset validate` 不打开像素文件去对朝向 × 动作
+- 把动画矩阵字段写进这份清单。`tags` 只记下这个资产上已经有的帧标签名；矩阵由 `character check` 对照工程标签和墨水，不在本文件里另开一套动作 DSL
 - 草稿 / 待审 / 已导出这类状态。没有命令读它。交付快照是另一条，不写进这条登记
 - 带版本的导出或交付清单
 
 灯塔试用（`examples/lighthouse-outpost/`）是 32×64 的单体，地图在另一个目录 `examples/base-tiles/`。这份格式拒绝 `..`，所以不把这两处收成同一个资产根。丧尸包才是下面的例子。
 
-*Out of this file: a visual asset manager or any asset GUI, a map GUI, an embedded chat, team accounts and permissions, automatic image generation, a character animation matrix or a missing-frame report (`tags` names frame tags that are already on the asset; `asset validate` does not open the pixel file), a draft / review / exported status (no command reads one; a delivery snapshot is a different record), and a versioned export or delivery list.*
+*Out of this file: a visual asset manager or any asset GUI, a map GUI, an embedded chat, team accounts and permissions, automatic image generation, animation-matrix fields on this file (`tags` names frame tags already on the asset; `character check` compares project tags and ink and does not invent an action DSL here), a draft / review / exported status (no command reads one; a delivery snapshot is a different record), and a versioned export or delivery list.*
 
 *The lighthouse trial (`examples/lighthouse-outpost/`) is one 32×64 sprite, and its map lives in `examples/base-tiles/`. This format refuses `..`, so those two directories are not one asset root. The zombie pack below is the checked-in example.*
 
@@ -153,6 +153,8 @@ pixelforge asset show --manifest pixelforge.manifest.json zombie
 pixelforge asset graph --manifest pixelforge.manifest.json zombie
 pixelforge asset dependents --manifest pixelforge.manifest.json zombie
 pixelforge asset validate --manifest pixelforge.manifest.json
+pixelforge character matrix --manifest pixelforge.manifest.json zombie
+pixelforge character check --manifest pixelforge.manifest.json zombie
 ```
 
 `init` 不覆盖已有文件，也不创建像素工程，也不把色板抄进清单。`--canvas` 是 `name:WxH`，可重复。`--layout` 是 `name:dir:kind` 或 `name:dir:kind:canvas`，可重复。`--asset-root` 缺省 `.`。
@@ -177,11 +179,11 @@ stdout 仍是一行 JSON。检查跑完时 `ok` 为 true，`result.errorCount` �
 
 `asset add` 不覆盖已有 id。目标 id 可以先写在 `produces` 里，后补上那条记录；补齐之前 `asset validate` 报 `assetRef`。`asset set` 改 `kind`、`path`、`owner`、`dependsOn`、`produces`、`tags`，不改 id。`--clear-owner` 去掉拥有者。`--clear-depends-on`、`--clear-produces`、`--clear-tags` 清空列表。`asset list` 可按 `--kind`、`--owner`、`--tag` 过滤，三个条件同时成立才留下。`asset show` 返回存着的记录，加上算出来的 `owns` 和 `dependents`（id 列表，不是文件字段）。`asset graph` 是这个 id 的一跳：节点、`owner` / `dependsOn` / `produces` 边，以及这条记录自己指到、但还没登记的 id（`missing`）。`asset dependents` 返回 `dependsOn` 里含有这个 id 的整条记录。
 
-`asset validate` 不改文件。退出码和 `project validate` 一样：打不开是 2，有 error 是 1，没有 error 是 0。空登记通过。它不读像素，所以绿色不表示朝向或动作齐。
+`asset validate` 不改文件。退出码和 `project validate` 一样：打不开是 2，有 error 是 1，没有 error 是 0。空登记通过。它不读像素，所以绿色不表示朝向或动作齐。朝向 × 动作用 `character matrix` / `character check`：打开角色工程，对照 `directionLayout`、owned clip 的 `tags` 和工程里的 `{action}_{facing}`，报告 present / missing / empty / placeholder。`matrix` 工具跑完就退出 0；`check` 在 `errorCount` 大于 0 时退出 1。占位（copy / mirror 相同墨水）是 warning。绿色矩阵仍不是步态或审美通过。登记了 `gear` 且挂在该角色下时才会核对装备路径。
 
 *`asset add` refuses a repeated id. A `produces` id may be registered later; until then `asset validate` reports `assetRef`. `asset set` changes `kind`, `path`, `owner`, `dependsOn`, `produces`, and `tags`. It does not change the id. `--clear-owner` drops the owner. `--clear-depends-on`, `--clear-produces`, and `--clear-tags` empty those lists. `asset list` filters with `--kind`, `--owner`, and `--tag` together. `asset show` returns the stored record plus computed `owns` and `dependents` (id lists, not file fields). `asset graph` is one hop: nodes, `owner` / `dependsOn` / `produces` edges, and ids this record names that are not registered (`missing`). `asset dependents` returns the full records whose `dependsOn` includes this id.*
 
-*`asset validate` does not edit the file. Exit 2 means the file did not open, exit 1 means an error, exit 0 means no errors. An empty registry passes. It does not read pixels, so a pass does not mean the facings or actions are complete.*
+*`asset validate` does not edit the file. Exit 2 means the file did not open, exit 1 means an error, exit 0 means no errors. An empty registry passes. It does not read pixels, so a pass does not mean the facings or actions are complete. Facing × action gaps are `character matrix` / `character check`: open the character project, compare `directionLayout`, owned clip `tags`, and project `{action}_{facing}` tags, and report present / missing / empty / placeholder. `matrix` exits 0 when the tool ran; `check` exits 1 when `errorCount` is not 0. Copy/mirror placeholders are warnings. A green matrix is still not a gait or an aesthetic pass. Gear paths are checked only when `gear` records are owned by that character.*
 
 核对规则：
 
@@ -205,6 +207,7 @@ stdout 仍是一行 JSON。检查跑完时 `ok` 为 true，`result.errorCount` �
 | `inspectManifest` | 无参数。`result` 就是清单对象。没有登记时不含 `assets` |
 | `validateManifest` | 不读磁盘。调用方传入已经看到的文件。关系问题和路径问题都在 `errors` 里 |
 | `validateAssets` | 同一份探针，只返回登记检查：`errors`、`errorCount`、`assets` |
+| `characterMatrix` | `id` 加调用方打开的工程探针 `project`（`frameCount`、`directionLayout`、`tags`、`frames`），可选 `missingPaths`。返回朝向 × 动作矩阵；不改文件 |
 | `addAsset` | `id`、`kind`、`path`，可选 `owner`、`dependsOn`、`produces`、`tags`。重复 id 是 `InvalidParams` |
 | `setAsset` | `id` 加上要改的字段。`owner: null` 去掉拥有者。列表字段给 `[]` 就是清空。至少改一个字段 |
 | `removeAsset` | `id`。仍被引用时是 `InvalidParams`，文件不动 |
@@ -233,6 +236,6 @@ stdout 仍是一行 JSON。检查跑完时 `ok` 为 true，`result.errorCount` �
 
 `kind` 是 `file`、`dir` 或 `missing`。`width` 和 `height` 要成对，并且只放在文件上。漏了某条路径的探针是 `probeMissing`，所以空的 `files` 不会被当成通过。`project validate` 会自己收集这些探针。直接 `call` 时要自己传。
 
-*The names are `manifestTools` from `pixelforge tools`, not the pixel-document `tools` list. `pixelforge call --project pixelforge.manifest.json` dispatches them when the format matches. `--checkpoint` and `--preview` are refused. `inspectManifest` takes no params and returns the manifest object, omitting `assets` when the registry is empty. `validateManifest` and `validateAssets` do not read the disk; the caller passes `rootExists` and `files`. `kind` on a probe is `file`, `dir`, or `missing`. `width` and `height` are a pair and belong on a file. A path with no probe is `probeMissing`, so an empty `files` array does not pass a manifest that names paths. `project validate` and `asset validate` collect the probes. A raw `call` has to pass them. `addAsset`, `setAsset`, and `removeAsset` change this value; the caller writes the file when `save` changed. There is no undo stack.*
+*The names are `manifestTools` from `pixelforge tools`, not the pixel-document `tools` list. `pixelforge call --project pixelforge.manifest.json` dispatches them when the format matches. `--checkpoint` and `--preview` are refused. `inspectManifest` takes no params and returns the manifest object, omitting `assets` when the registry is empty. `validateManifest` and `validateAssets` do not read the disk; the caller passes `rootExists` and `files`. `characterMatrix` takes a project probe the caller fills after opening the pixel file. `kind` on a disk probe is `file`, `dir`, or `missing`. `width` and `height` are a pair and belong on a file. A path with no probe is `probeMissing`, so an empty `files` array does not pass a manifest that names paths. `project validate` and `asset validate` collect the probes. A raw `call` has to pass them. `addAsset`, `setAsset`, and `removeAsset` change this value; the caller writes the file when `save` changed. There is no undo stack.*
 
 错误：文件本身是 `ManifestFile`。请求信封是 `InvalidRequest`、`InvalidParams`、`UnknownTool`、`UnsupportedVersion`。`paint` 打到这份文件上是 `UnknownTool`。

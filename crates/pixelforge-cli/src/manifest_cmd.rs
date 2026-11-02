@@ -417,6 +417,10 @@ pub(crate) fn probe_json(probe: &ManifestProbe) -> Value {
     value
 }
 
+pub(crate) fn asset_root_path(manifest_path: &Path, asset_root: &str) -> PathBuf {
+    resolve_root(manifest_path, asset_root)
+}
+
 fn resolve_root(manifest_path: &Path, asset_root: &str) -> PathBuf {
     let parent = match manifest_path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),

@@ -274,6 +274,7 @@ fn tokens_match_the_closed_sets() {
             "graphAsset",
             "dependentsAsset",
             "validateAssets",
+            "characterMatrix",
         ]
     );
 }
