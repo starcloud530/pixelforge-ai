@@ -289,6 +289,7 @@ fn call_dispatches_manifest_tools_and_refuses_pixels() {
     let names = json_line(&tools)["result"]["manifestTools"].to_string();
     assert!(names.contains("inspectManifest"));
     assert!(names.contains("validateManifest"));
+    assert!(names.contains("characterMatrix"));
     assert!(!json_line(&tools)["result"]["tools"]
         .to_string()
         .contains("inspectManifest"));
@@ -341,4 +342,73 @@ fn game_pack_zombie_manifest_passes_validate() {
         json_line(&walk)["result"]["asset"]["tags"][0],
         json!("walk_down")
     );
+}
+
+#[test]
+fn game_pack_zombie_character_matrix_passes_and_a_missing_tag_fails_check() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-pack-zombie");
+    let manifest = root.join("pixelforge.manifest.json");
+    let passed = pixelforge(&[
+        "character",
+        "check",
+        "--manifest",
+        manifest.to_str().unwrap(),
+        "zombie",
+    ]);
+    assert_eq!(status(&passed), 0, "{}", stderr(&passed));
+    let body = json_line(&passed);
+    assert_eq!(body["ok"], json!(true));
+    assert_eq!(body["result"]["errorCount"], json!(0));
+    assert_eq!(body["result"]["id"], json!("zombie"));
+    assert_eq!(body["result"]["actions"], json!(["idle", "walk"]));
+    assert_eq!(
+        body["result"]["directions"],
+        json!(["down", "left", "right", "up"])
+    );
+    assert_eq!(body["result"]["gaps"], json!([]));
+    assert_eq!(body["result"]["cells"].as_array().unwrap().len(), 8);
+    assert!(stderr(&passed).contains("character check: ok"));
+
+    let via_clip = pixelforge(&[
+        "character",
+        "matrix",
+        "--manifest",
+        manifest.to_str().unwrap(),
+        "zombie.walk",
+    ]);
+    assert_eq!(status(&via_clip), 0, "{}", stderr(&via_clip));
+    assert_eq!(json_line(&via_clip)["result"]["id"], json!("zombie"));
+
+    let scratch = Scratch::new();
+    let copy_manifest = scratch.child("pixelforge.manifest.json");
+    let copy_zombie = scratch.child("zombie");
+    fs::create_dir_all(&copy_zombie).unwrap();
+    fs::copy(&manifest, &copy_manifest).unwrap();
+    fs::copy(root.join("zombie/zombie.json"), copy_zombie.join("zombie.json")).unwrap();
+    // Rewrite assetRoot-relative paths stay the same under scratch.
+    let text = fs::read_to_string(copy_zombie.join("zombie.json")).unwrap();
+    let mut project: Value = serde_json::from_str(&text).unwrap();
+    let tags = project["tags"].as_array_mut().unwrap();
+    tags.retain(|tag| tag["name"] != "walk_up");
+    fs::write(
+        copy_zombie.join("zombie.json"),
+        serde_json::to_string(&project).unwrap(),
+    )
+    .unwrap();
+
+    let failed = pixelforge(&[
+        "character",
+        "check",
+        "--manifest",
+        copy_manifest.to_str().unwrap(),
+        "zombie",
+    ]);
+    assert_eq!(status(&failed), 1, "{}", stderr(&failed));
+    let failed_body = json_line(&failed);
+    assert!(failed_body["result"]["errorCount"].as_u64().unwrap() > 0);
+    assert!(failed_body["result"]["gaps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|gap| gap["action"] == "walk" && gap["facing"] == "up"));
 }

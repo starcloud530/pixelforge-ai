@@ -33,7 +33,8 @@
 //! [`tiles`] and do not add a second pixel buffer.
 //! A game-art manifest ([`manifest`]) records canvas tiers, perspective,
 //! directory rules, and an optional asset registry. It is not a canvas and it
-//! does not store pixels.
+//! does not store pixels. [`character_matrix`] reports a character's facing ×
+//! action gaps from that registry plus a project probe; it does not paint.
 //! [`Document::frame_rgba`] returns that same buffer for view compositing such
 //! as onion skin; it is not part of the document. [`Document::call_tool`] is
 //! the stable Tool API: named JSON tools that dispatch onto this document and
@@ -45,6 +46,7 @@
 mod apng;
 mod aseprite;
 mod atlas;
+mod character_matrix;
 mod color;
 mod constraint;
 mod curve;
@@ -73,6 +75,11 @@ pub use aseprite::AsepriteReport;
 pub use atlas::{
     decode_sheet_png, validate_atlas, AtlasChecks, AtlasFinding, AtlasInputError, AtlasMode,
     AtlasReport, AtlasRules, FourDirection, Pivot, SheetImage, TagPolicy, FORMAL_FRAME_EDGES,
+};
+pub use character_matrix::{
+    character_matrix, owned_clips, tags_to_probes, CharacterFinding, CharacterFrameProbe,
+    CharacterGearStatus, CharacterMatrixCell, CharacterMatrixError, CharacterMatrixGap,
+    CharacterMatrixReport, CharacterProjectProbe, CharacterTagProbe,
 };
 pub use color::Rgba;
 pub use constraint::{Constraint, ConstraintKind, Contact, SolveReport};

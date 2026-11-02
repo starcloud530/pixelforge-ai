@@ -576,13 +576,24 @@ pub enum Command {
     },
     /// Register assets on a pixelforge-manifest and query their relations.
     ///
-    /// The registry is the `assets` array in that file. It does not paint, it
-    /// does not check a facing-by-action matrix, and it does not record a
-    /// delivery. `validate` reports missing paths, dangling ids, owner mistakes,
-    /// produces that are not dependencies, and cycles.
+    /// The registry is the `assets` array in that file. It does not paint and
+    /// it does not record a delivery. `validate` reports missing paths,
+    /// dangling ids, owner mistakes, produces that are not dependencies, and
+    /// cycles. Facing × action gaps are `pixelforge character check`.
     Asset {
         #[command(subcommand)]
         command: AssetCmd,
+    },
+    /// Facing × action matrix for a registered character.
+    ///
+    /// Opens the character's pixelforge-project. Expected actions come from
+    /// owned clip asset tags and project `{action}_{facing}` tags. Facings
+    /// come from `directionLayout`. Reports present / missing / empty /
+    /// placeholder cells. Does not paint. A green check is not a gait or art
+    /// pass.
+    Character {
+        #[command(subcommand)]
+        command: CharacterCmd,
     },
     /// Print the Tool API tool names as JSON.
     Tools,
@@ -2541,11 +2552,38 @@ pub enum AssetCmd {
     ///
     /// Exit 0 when the registry has no errors. Exit 1 when it has an error.
     /// Exit 2 when the manifest cannot be read. An empty registry passes.
-    /// This does not open pixel files to look for a missing animation cell.
+    /// This does not open pixel files. Facing × action gaps are
+    /// `pixelforge character check`.
     Validate {
         /// pixelforge-manifest file.
         #[arg(long, value_name = "FILE")]
         manifest: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CharacterCmd {
+    /// Print the facing × action matrix. Always exit 0 when the tool ran.
+    ///
+    /// Gaps and placeholders are in the JSON. Use `character check` to fail
+    /// on missing or empty cells.
+    Matrix {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Character id, or an owned asset id (resolves through `owner`).
+        id: String,
+    },
+    /// Same report as `matrix`, exit 1 when `errorCount` is not zero.
+    ///
+    /// Missing and empty cells are errors. Copy/mirror placeholders are
+    /// warnings. Aligns with `direction validate` for layout and spans.
+    Check {
+        /// pixelforge-manifest file.
+        #[arg(long, value_name = "FILE")]
+        manifest: PathBuf,
+        /// Character id, or an owned asset id (resolves through `owner`).
+        id: String,
     },
 }
 
