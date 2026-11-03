@@ -66,11 +66,13 @@
 
 ```bash
 pixelforge inspect --project output/hero.json
-pixelforge diff --project output/hero.json --frame 0 --with 0 --scale 4
+pixelforge preview --project output/hero.json --scale 4
 pixelforge validate-atlas --atlas output/hero-sheet.json --sheet output/hero-sheet.png
 pixelforge direction validate --project output/hero.json
 pixelforge project validate --manifest output/pixelforge.manifest.json
 ```
+
+保护区是否被改：对照 `start/` 与 `output/` 的对应工程（由 `check.py` 逐格比较，或评审人工核对）；`pixelforge diff` 只比较**同一工程**里的两帧（`--frame` / `--with`），不能直接对两个文件做保护区机判。
 
 （删掉与本题无关的命令；参数换成题面真实路径。）
 
