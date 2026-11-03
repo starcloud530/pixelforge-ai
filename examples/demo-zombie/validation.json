@@ -1,0 +1,110 @@
+{
+  "atlasChecks": [
+    {
+      "checks": {
+        "anySize": false,
+        "emptyTags": "error",
+        "fourDirection": true,
+        "mode": "strict",
+        "pivot": "skipped",
+        "sizes": [
+          64,
+          96,
+          128
+        ]
+      },
+      "errorCount": 0,
+      "errors": [],
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "checks": {
+        "anySize": false,
+        "emptyTags": "error",
+        "fourDirection": true,
+        "mode": "strict",
+        "pivot": "skipped",
+        "sizes": [
+          64,
+          96,
+          128
+        ]
+      },
+      "errorCount": 0,
+      "errors": [],
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "checks": {
+        "anySize": false,
+        "emptyTags": "error",
+        "fourDirection": false,
+        "mode": "strict",
+        "pivot": "skipped",
+        "sizes": [
+          64,
+          96,
+          128
+        ]
+      },
+      "errorCount": 0,
+      "errors": [],
+      "warningCount": 0,
+      "warnings": []
+    },
+    {
+      "checks": {
+        "anySize": false,
+        "emptyTags": "error",
+        "fourDirection": false,
+        "mode": "strict",
+        "pivot": "skipped",
+        "sizes": [
+          64,
+          96,
+          128
+        ]
+      },
+      "errorCount": 0,
+      "errors": [],
+      "warningCount": 0,
+      "warnings": []
+    }
+  ],
+  "directionsValid": true,
+  "baseLayersUnchangedOnOutfit": true,
+  "paletteShared": true,
+  "uniqueWalkPosesPerDirection": [
+    4,
+    4,
+    4,
+    4
+  ],
+  "groundRows": [
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58,
+    58
+  ],
+  "faceUnchangedAcrossLocalEdits": true,
+  "footFixExactlyRestoresOriginal": true,
+  "aestheticApproval": false
+}

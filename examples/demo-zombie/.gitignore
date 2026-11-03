@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.png
+!a/keeper-sheet.png
+!b/keeper-storm-sheet.png
+!c/harbor-props-sheet.png
+!d/iteration-sheet.png
+*.gif
+*.apng
+*.mp4
+/storyboard/
+/videos/
+/a/frames/
+/b/frames/
+/c/frames/
+/d/frames/
+/d/0*.pxf.json

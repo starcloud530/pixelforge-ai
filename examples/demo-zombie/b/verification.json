@@ -1,0 +1,27 @@
+{
+  "baseLayersExactlyUnchanged": true,
+  "paletteExactlyUnchanged": true,
+  "newLayer": "storm-cape",
+  "newInkPerFrame": [
+    240,
+    240,
+    240,
+    240,
+    240,
+    251,
+    251,
+    251,
+    251,
+    251,
+    251,
+    251,
+    251,
+    251,
+    251,
+    545,
+    545,
+    545,
+    545,
+    545
+  ]
+}

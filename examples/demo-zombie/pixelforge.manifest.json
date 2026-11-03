@@ -1,0 +1,164 @@
+{
+  "format": "pixelforge-manifest",
+  "version": 1,
+  "name": "port-keeper-demo",
+  "assetRoot": ".",
+  "perspective": "top",
+  "canvases": [
+    {
+      "name": "sprite",
+      "width": 64,
+      "height": 64
+    }
+  ],
+  "layout": [
+    {
+      "name": "keeper",
+      "dir": "a",
+      "kind": "character",
+      "canvas": "sprite"
+    },
+    {
+      "name": "storm",
+      "dir": "b",
+      "kind": "character",
+      "canvas": "sprite"
+    },
+    {
+      "name": "props",
+      "dir": "c",
+      "kind": "prop",
+      "canvas": "sprite"
+    }
+  ],
+  "palette": {
+    "path": "a/keeper.pxf.json",
+    "ref": "keeper"
+  },
+  "note": "64x64港口守灯人。A四向各idle+4walk；B装备层变体；C同色板4道具；D3步局部迭代。",
+  "assets": [
+    {
+      "id": "keeper",
+      "kind": "character",
+      "path": "a/keeper.pxf.json",
+      "produces": [
+        "keeper.idle",
+        "keeper.walk",
+        "keeper.sheet",
+        "keeper.storm"
+      ]
+    },
+    {
+      "id": "keeper.idle",
+      "kind": "clip",
+      "path": "a/keeper.pxf.json",
+      "owner": "keeper",
+      "dependsOn": [
+        "keeper"
+      ],
+      "tags": [
+        "idle_down",
+        "idle_left",
+        "idle_right",
+        "idle_up"
+      ]
+    },
+    {
+      "id": "keeper.walk",
+      "kind": "clip",
+      "path": "a/keeper.pxf.json",
+      "owner": "keeper",
+      "dependsOn": [
+        "keeper"
+      ],
+      "tags": [
+        "walk_down",
+        "walk_left",
+        "walk_right",
+        "walk_up"
+      ]
+    },
+    {
+      "id": "keeper.sheet",
+      "kind": "sheet",
+      "path": "a/keeper-sheet.atlas.json",
+      "owner": "keeper",
+      "dependsOn": [
+        "keeper"
+      ]
+    },
+    {
+      "id": "keeper.storm",
+      "kind": "character",
+      "path": "b/keeper-storm-cape.pxf.json",
+      "dependsOn": [
+        "keeper"
+      ]
+    },
+    {
+      "id": "harborprops",
+      "kind": "group",
+      "path": "c/harbor-props.pxf.json"
+    },
+    {
+      "id": "local-iterations",
+      "kind": "group",
+      "path": "d/local-iterations.pxf.json",
+      "dependsOn": [
+        "keeper"
+      ]
+    },
+    {
+      "id": "harborprops.bag",
+      "kind": "prop",
+      "path": "c/harbor-props.pxf.json",
+      "owner": "harborprops",
+      "dependsOn": [
+        "harborprops",
+        "keeper"
+      ],
+      "tags": [
+        "bag"
+      ]
+    },
+    {
+      "id": "harborprops.lantern",
+      "kind": "prop",
+      "path": "c/harbor-props.pxf.json",
+      "owner": "harborprops",
+      "dependsOn": [
+        "harborprops",
+        "keeper"
+      ],
+      "tags": [
+        "lantern"
+      ]
+    },
+    {
+      "id": "harborprops.crate",
+      "kind": "prop",
+      "path": "c/harbor-props.pxf.json",
+      "owner": "harborprops",
+      "dependsOn": [
+        "harborprops",
+        "keeper"
+      ],
+      "tags": [
+        "crate"
+      ]
+    },
+    {
+      "id": "harborprops.buoy",
+      "kind": "prop",
+      "path": "c/harbor-props.pxf.json",
+      "owner": "harborprops",
+      "dependsOn": [
+        "harborprops",
+        "keeper"
+      ],
+      "tags": [
+        "buoy"
+      ]
+    }
+  ]
+}

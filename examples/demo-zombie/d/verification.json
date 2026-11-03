@@ -1,0 +1,11 @@
+{
+  "bodyIdenticalAcrossAllSteps": true,
+  "shieldStepBaseLayersUnchanged": true,
+  "correctedLegsEqualOriginalAContact": true,
+  "fixture": "Deliberately shifted support boot +2px; not a historical spontaneous defect.",
+  "changedPixels": [
+    75,
+    222,
+    40
+  ]
+}

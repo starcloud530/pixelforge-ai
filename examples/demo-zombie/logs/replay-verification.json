@@ -1,0 +1,11 @@
+{
+  "cleanReplay": true,
+  "independentBuildsCompared": 2,
+  "polishRevision": 1,
+  "sheetHashes": {
+    "a/keeper-sheet.png": "217e9d5f556dfe6b1fff7f7bbe76a0ad34bced41138f9463bebc15dd10fb9e47",
+    "b/keeper-storm-sheet.png": "a67b8db85ed743d21897c6810dd7ec889c0ac892bd016b946b0ec06343914066",
+    "c/harbor-props-sheet.png": "bf956411ce5a29a4bf5f8ce86fb8172a46eb4e9a1127a058fffbaa4feed59990",
+    "d/iteration-sheet.png": "5746686ffe4b26c2b8051c67ddbc723302968f3ce0fdb14e2ba4af2efb6020f8"
+  }
+}

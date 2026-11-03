@@ -1,0 +1,21 @@
+{
+  "sourceCommit": "38b5066aa2751db3be52c935aed78516269fa792",
+  "canonicalKernelRequests": 1023,
+  "modelCalls": 0,
+  "sourceArt": "NativeCLI geometry, no image generator and no PNG import",
+  "stages": 7,
+  "localEditSteps": 3,
+  "videoDurationsSeconds": [
+    40,
+    60
+  ],
+  "binaryNote": "Final export and validation use reviewed binary90ab6f0 whose git tree equals main38b5066. All four exported PNG hashes equal the earlier binary output.",
+  "polishRevision": 1,
+  "polishDate": "2026-11-03",
+  "aestheticApproval": false,
+  "historicalInitialSession": {
+    "actualKernelRequestsIncludingReplays": 1594,
+    "estimatedSessionMinutes": 10.5
+  },
+  "engineeringSyncBase": "6a448ad"
+}

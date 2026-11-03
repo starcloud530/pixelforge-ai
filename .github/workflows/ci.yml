@@ -55,3 +55,8 @@ jobs:
 
       - name: Lighthouse outpost trial (111)
         run: python3 examples/lighthouse-outpost/validate.py
+
+      - name: Port keeper demo source and replay
+        run: |
+          python3 examples/demo-zombie/validate.py
+          python3 examples/demo-zombie/replay.py
