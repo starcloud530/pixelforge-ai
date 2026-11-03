@@ -149,7 +149,7 @@ Pull request 上只跑 `dist plan`，把计划上传为 Actions artifact `artifa
 | macOS Apple silicon | `aarch64-apple-darwin` | `macos-15`（不用即将停用的 `macos-14`） |
 | Linux x64 | `x86_64-unknown-linux-gnu` | `ubuntu-22.04`（glibc 2.35；更老的发行版用源码构建） |
 
-Release 上的文件：上表四个压缩包、每个压缩包的 `.sha256`、汇总 `sha256.sum`、`pixelforge-cli-installer.sh`、`pixelforge-cli-installer.ps1`，以及一份源码 `source.tar.gz`。Windows zip 的根目录是 `pixelforge.exe`。Unix tar.gz 解压后有一层同名目录，里面是 `pixelforge`。压缩包带 `LICENSE` 和 `README.md`。Windows 二进制静态链接 C 运行库。安装脚本把命令放进 `~/.pixelforge/bin`。
+Release 上的文件：上表四个压缩包、每个压缩包的 `.sha256`、汇总 `sha256.sum`、`pixelforge-cli-installer.sh`、`pixelforge-cli-installer.ps1`，以及一份源码 `source.tar.gz`。Windows zip 的根目录是 `pixelforge.exe`。Unix tar.gz 解压后有一层同名目录，里面是 `pixelforge`。压缩包带 `LICENSE`、`LICENSE-MIT`、`LICENSE-APACHE` 和 `README.md`（cargo-dist 按 `LICENSE*` 自动收录工作区根目录许可文件；crate 的 `license = "MIT OR Apache-2.0"` 由 workspace 继承）。Windows 二进制静态链接 C 运行库。安装脚本把命令放进 `~/.pixelforge/bin`。
 
 仓库还是私有时，附件在 Releases 页面下载（需登录），或 `gh release download <tag> --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'`。安装脚本用的直链在私有仓库上会 404。这是 [cargo-dist 的已知限制](https://github.com/axodotdev/cargo-dist/issues/2248)，不是工作流没有上传。仓库公开后不用改工作流，直链和安装脚本会生效。预发布不是 GitHub 的 `latest`。在打出不带预发布后缀的正式版之前，安装脚本的 URL 要写具体标签，例如 `.../releases/download/v0.1.0-rc.1/pixelforge-cli-installer.sh`。
 
@@ -180,7 +180,7 @@ git push origin v0.1.0-rc.1
 
 *A tag push publishes. The tag is `v` plus `[workspace.package].version` in the root `Cargo.toml`. Every crate sets `version.workspace = true`, so that field is the only edit. `pixelforge --version` prints the same string. A tag that does not match the workspace version does not publish a CLI package. The runner table above is what `dist plan` selects. The Windows image already has MSVC and the Windows SDK, which is why the link does not miss `kernel32.lib`. The Linux binary needs glibc 2.35 or newer.*
 
-*The Release contains the four archives, a `.sha256` next to each, `sha256.sum`, `pixelforge-cli-installer.sh`, `pixelforge-cli-installer.ps1`, and `source.tar.gz`. The Windows zip has `pixelforge.exe` at its root. A Unix tarball has one top directory and `pixelforge` inside it. Archives include `LICENSE` and `README.md`. The Windows binary links the C runtime statically. The installer scripts place the command in `~/.pixelforge/bin`.*
+*The Release contains the four archives, a `.sha256` next to each, `sha256.sum`, `pixelforge-cli-installer.sh`, `pixelforge-cli-installer.ps1`, and `source.tar.gz`. The Windows zip has `pixelforge.exe` at its root. A Unix tarball has one top directory and `pixelforge` inside it. Archives include `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`, and `README.md` (cargo-dist auto-includes workspace-root `LICENSE*` files; crate `license = "MIT OR Apache-2.0"` is inherited from the workspace). The Windows binary links the C runtime statically. The installer scripts place the command in `~/.pixelforge/bin`.*
 
 *While the repository is private, download from the Releases page or `gh release download`. The installer script's direct URL returns 404 on a private repository ([cargo-dist#2248](https://github.com/axodotdev/cargo-dist/issues/2248)). Making the repository public does not require a workflow change. A prerelease is not GitHub `latest`; until a stable tag exists, the installer URL must name the tag, for example `.../releases/download/v0.1.0-rc.1/pixelforge-cli-installer.sh`.*
 

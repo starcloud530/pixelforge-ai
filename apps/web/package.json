@@ -2,6 +2,7 @@
   "name": "@pixelforge/web",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
   "type": "module",
   "scripts": {
     "predev": "pnpm --dir ../.. run build:wasm",

@@ -1,14 +1,14 @@
 # 依赖许可证 Dependency licenses
 
-本仓库自身以 MIT 许可证发布，全文在根目录 [`LICENSE`](../LICENSE)。版权所有 © 2026 starcloud530。
+本仓库代码以 **MIT OR Apache-2.0** 双许可发布，全文在 [`LICENSE-MIT`](../LICENSE-MIT) 与 [`LICENSE-APACHE`](../LICENSE-APACHE)，说明见 [`LICENSE`](../LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。`examples/` 下示例美术素材另见 [`examples/LICENSE-ASSETS.md`](../examples/LICENSE-ASSETS.md)（CC BY 4.0，AI 辅助生成）。
 
-*This repository is MIT-licensed. The text is [`LICENSE`](../LICENSE). Copyright © 2026 starcloud530.*
+*This repository’s code is dual-licensed MIT OR Apache-2.0. Texts: [`LICENSE-MIT`](../LICENSE-MIT), [`LICENSE-APACHE`](../LICENSE-APACHE); see [`LICENSE`](../LICENSE). Copyright © 2026 PixelForge contributors / starcloud530. Example art under `examples/` is covered by [`examples/LICENSE-ASSETS.md`](../examples/LICENSE-ASSETS.md) (CC BY 4.0, AI-assisted).*
 
 ## 结论
 
-没有与 MIT 再分发冲突的依赖。核对范围内没有 GPL、AGPL、LGPL、MPL、SSPL 或其它 copyleft。出现过的许可证都是宽松许可：MIT、Apache-2.0、二者择一、0BSD、BSD-3-Clause、ISC、BlueOak-1.0.0、Zlib、Unlicense，以及下面单独点名的 Unicode-3.0 和 CC-BY-4.0。这些都不要求把本仓库改成 copyleft。
+没有与 MIT OR Apache-2.0 再分发冲突的依赖。核对范围内没有 GPL、AGPL、LGPL、MPL、SSPL 或其它 copyleft。出现过的许可证都是宽松许可：MIT、Apache-2.0、二者择一、0BSD、BSD-3-Clause、ISC、BlueOak-1.0.0、Zlib、Unlicense，以及下面单独点名的 Unicode-3.0 和 CC-BY-4.0。这些都不要求把本仓库改成 copyleft。
 
-*No dependency in the checked set conflicts with MIT redistribution. There is no GPL, AGPL, LGPL, MPL, SSPL, or other copyleft. Every license found is permissive.*
+*No dependency in the checked set conflicts with MIT OR Apache-2.0 redistribution. There is no GPL, AGPL, LGPL, MPL, SSPL, or other copyleft. Every license found is permissive.*
 
 核对日期：2026-10-27。版本取自当时的 `Cargo.lock` 与 `pnpm-lock.yaml`。Rust crate 的许可证字符串来自 crates.io 上该版本的 `license` 字段。npm 包来自 registry 上该版本的 `license` 字段。工作区自己的 crate（`pixelforge-kernel`、`pixelforge-kernel-wasm`、`pixelforge-cli`）不计入第三方。
 
