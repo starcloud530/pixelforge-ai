@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.2-blue" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
-  <a href="https://starcloud530.github.io/pixelforge-ai/docs/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
   <a href="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
@@ -54,28 +54,28 @@ pixelforge new --width 16 --height 16 --output hero.json
 pixelforge preview --project hero.json --scale 4
 ```
 
-Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/docs/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
+Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
 
 ## Site & documentation
 
-Marketing landing (GitHub Pages root):
+Marketing landing:
+
+**https://starcloud530.github.io/pixelforge-demos/**
+
+Product docs (MkDocs Material on this repo’s Pages):
 
 **https://starcloud530.github.io/pixelforge-ai/**
 
-Official docs (MkDocs Material under `/docs/`):
-
-**https://starcloud530.github.io/pixelforge-ai/docs/**
-
 | Topic | Link |
 | --- | --- |
-| Install & quick start | [install](https://starcloud530.github.io/pixelforge-ai/docs/install/) |
-| Agent skill / CLI recipes | [agent-skill](https://starcloud530.github.io/pixelforge-ai/docs/agent-skill/) |
-| Tool API catalog | [tool-api](https://starcloud530.github.io/pixelforge-ai/docs/tool-api/) |
-| Export & engine import | [export](https://starcloud530.github.io/pixelforge-ai/docs/export/) |
-| Project manifest | [project-manifest](https://starcloud530.github.io/pixelforge-ai/docs/project-manifest/) |
-| Tech stack | [tech-stack](https://starcloud530.github.io/pixelforge-ai/docs/tech-stack/) |
-| Known limits | [known-limits](https://starcloud530.github.io/pixelforge-ai/docs/known-limits/) |
-| Licensing | [licensing](https://starcloud530.github.io/pixelforge-ai/docs/licensing/) |
+| Install & quick start | [install](https://starcloud530.github.io/pixelforge-ai/install/) |
+| Agent skill / CLI recipes | [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/) |
+| Tool API catalog | [tool-api](https://starcloud530.github.io/pixelforge-ai/tool-api/) |
+| Export & engine import | [export](https://starcloud530.github.io/pixelforge-ai/export/) |
+| Project manifest | [project-manifest](https://starcloud530.github.io/pixelforge-ai/project-manifest/) |
+| Tech stack | [tech-stack](https://starcloud530.github.io/pixelforge-ai/tech-stack/) |
+| Known limits | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
+| Licensing | [licensing](https://starcloud530.github.io/pixelforge-ai/licensing/) |
 
 Markdown sources live under [`docs/`](docs/). Local preview:
 
@@ -88,7 +88,7 @@ If the docs URL 404s after merge to `main`, enable Pages once: **Settings → Pa
 
 ## Agent skills
 
-Cursor loads `.cursor/skills/<name>/SKILL.md` by `description`. Creative skills follow the `pixelforge` index-color invariants first. Command reference: [agent-skill](https://starcloud530.github.io/pixelforge-ai/docs/agent-skill/).
+Cursor loads `.cursor/skills/<name>/SKILL.md` by `description`. Creative skills follow the `pixelforge` index-color invariants first. Command reference: [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/).
 
 | Skill | Role |
 | --- | --- |
@@ -107,11 +107,11 @@ CDN (do not commit large media into git):
 - [Seven-stage timeline](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
 - [Sheet assembly video](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
 
-Replayable demos / eval packs live in the companion repo [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (private for now). Do **not** add an `examples/` tree to this repository.
+Marketing site: [pixelforge-demos Pages](https://starcloud530.github.io/pixelforge-demos/). Replayable demos / curated runs: [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). Do **not** add an `examples/` tree to this repository.
 
 ## Development
 
-Prebuilt users can skip this. Source / web shell / CI: [dev-setup](https://starcloud530.github.io/pixelforge-ai/docs/dev-setup/).
+Prebuilt users can skip this. Source / web shell / CI: [dev-setup](https://starcloud530.github.io/pixelforge-ai/dev-setup/).
 
 ```bash
 cargo test -p pixelforge-kernel
