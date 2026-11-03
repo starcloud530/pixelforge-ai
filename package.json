@@ -6,8 +6,11 @@
     "build:wasm": "rustup target add wasm32-unknown-unknown && wasm-pack build crates/pixelforge-kernel-wasm --target web --out-dir pkg",
     "build:wasm:node": "rustup target add wasm32-unknown-unknown && wasm-pack build crates/pixelforge-kernel-wasm --target nodejs --out-dir pkg-node",
     "dev": "pnpm --filter @pixelforge/web dev",
+    "dev:landing": "pnpm --filter @pixelforge/landing dev",
     "build": "pnpm --filter @pixelforge/web build",
+    "build:landing": "pnpm --filter @pixelforge/landing build",
     "typecheck": "pnpm --filter @pixelforge/web typecheck",
+    "typecheck:landing": "pnpm --filter @pixelforge/landing typecheck",
     "test": "pnpm run build:wasm:node && pnpm --filter @pixelforge/web test"
   },
   "devDependencies": {

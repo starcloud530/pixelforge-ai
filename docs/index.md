@@ -38,8 +38,11 @@ Early / WIP. Current prebuilt CLI: **[v0.1.0-rc.2](https://github.com/starcloud5
 | [Known limits](known-limits.md) | Honest capability bounds |
 | [Repository](https://github.com/starcloud530/pixelforge-ai) | Source, issues, examples |
 
-Docs site URL (after GitHub Pages is enabled):  
+Marketing landing (Pages root):  
 **https://starcloud530.github.io/pixelforge-ai/**
+
+Docs site (this MkDocs tree under `/docs/`):  
+**https://starcloud530.github.io/pixelforge-ai/docs/**
 
 ## License / 许可证
 

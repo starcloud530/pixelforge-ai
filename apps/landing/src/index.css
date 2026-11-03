@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0e1419;
+  --color-ink-elevated: #161e26;
+  --color-ink-panel: #1c2630;
+  --color-cream: #fdfcf0;
+  --color-cream-muted: #c8c4b4;
+  --color-cream-dim: #8a8680;
+  --color-accent: #fb923c;
+  --color-accent-soft: #f4a259;
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1200px 600px at 12% -10%, rgba(251, 146, 60, 0.08), transparent 55%),
+      radial-gradient(900px 500px at 88% 8%, rgba(74, 140, 196, 0.07), transparent 50%),
+      var(--color-ink);
+    color: var(--color-cream);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+    color: var(--color-cream);
+  }
+
+  img,
+  video {
+    image-rendering: auto;
+  }
+
+  .pixelated {
+    image-rendering: pixelated;
+  }
+}
+
+@layer utilities {
+  @media (prefers-reduced-motion: reduce) {
+    .motion-safe-only {
+      display: none !important;
+    }
+
+    .motion-reduce-only {
+      display: block !important;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .motion-reduce-only {
+      display: none !important;
+    }
+  }
+}
