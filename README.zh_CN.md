@@ -11,7 +11,8 @@
 
 <p align="center">
   <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.2-blue" /></a>
-  <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-GitHub%20Pages-teal" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-ai/docs/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
   <a href="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml/badge.svg" /></a>
 </p>
@@ -53,24 +54,28 @@ pixelforge new --width 16 --height 16 --output hero.json
 pixelforge preview --project hero.json --scale 4
 ```
 
-手动压缩包、平台说明与源码构建：**[安装文档](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
+手动压缩包、平台说明与源码构建：**[安装文档](https://starcloud530.github.io/pixelforge-ai/docs/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
 
-## 文档
+## 站点与文档
 
-官方文档站（MkDocs Material → GitHub Pages）：
+营销落地页（GitHub Pages 根路径）：
 
 **https://starcloud530.github.io/pixelforge-ai/**
 
+官方文档（MkDocs Material，位于 `/docs/`）：
+
+**https://starcloud530.github.io/pixelforge-ai/docs/**
+
 | 主题 | 链接 |
 | --- | --- |
-| 安装与快速开始 | [install](https://starcloud530.github.io/pixelforge-ai/install/) |
-| Agent skill / CLI 配方 | [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/) |
-| Tool API 目录 | [tool-api](https://starcloud530.github.io/pixelforge-ai/tool-api/) |
-| 导出与引擎导入 | [export](https://starcloud530.github.io/pixelforge-ai/export/) |
-| 项目清单 | [project-manifest](https://starcloud530.github.io/pixelforge-ai/project-manifest/) |
-| 技术栈 | [tech-stack](https://starcloud530.github.io/pixelforge-ai/tech-stack/) |
-| 已知限制 | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
-| 许可证 | [licensing](https://starcloud530.github.io/pixelforge-ai/licensing/) |
+| 安装与快速开始 | [install](https://starcloud530.github.io/pixelforge-ai/docs/install/) |
+| Agent skill / CLI 配方 | [agent-skill](https://starcloud530.github.io/pixelforge-ai/docs/agent-skill/) |
+| Tool API 目录 | [tool-api](https://starcloud530.github.io/pixelforge-ai/docs/tool-api/) |
+| 导出与引擎导入 | [export](https://starcloud530.github.io/pixelforge-ai/docs/export/) |
+| 项目清单 | [project-manifest](https://starcloud530.github.io/pixelforge-ai/docs/project-manifest/) |
+| 技术栈 | [tech-stack](https://starcloud530.github.io/pixelforge-ai/docs/tech-stack/) |
+| 已知限制 | [known-limits](https://starcloud530.github.io/pixelforge-ai/docs/known-limits/) |
+| 许可证 | [licensing](https://starcloud530.github.io/pixelforge-ai/docs/licensing/) |
 
 正文源文件在 [`docs/`](docs/)。本地预览：
 
@@ -83,7 +88,7 @@ mkdocs serve
 
 ## Agent 技能
 
-Cursor 按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。命令速查：[agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/)。
+Cursor 按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。命令速查：[agent-skill](https://starcloud530.github.io/pixelforge-ai/docs/agent-skill/)。
 
 | Skill | 作用 |
 | --- | --- |
@@ -107,7 +112,7 @@ CDN（大媒体不要提交进 git）：
 
 ## 开发
 
-只用预编译的人可跳过。源码 / 网页外壳 / CI：[dev-setup](https://starcloud530.github.io/pixelforge-ai/dev-setup/)。
+只用预编译的人可跳过。源码 / 网页外壳 / CI：[dev-setup](https://starcloud530.github.io/pixelforge-ai/docs/dev-setup/)。
 
 ```bash
 cargo test -p pixelforge-kernel

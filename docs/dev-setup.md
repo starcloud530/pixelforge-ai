@@ -33,19 +33,20 @@
 ```text
 Cargo.toml                 Cargo workspace（version 与发布标签对齐）
 dist-workspace.toml        预编译 CLI 的 cargo-dist 配置（生成 release.yml）
-mkdocs.yml                 GitHub Pages 文档站（MkDocs Material）
+mkdocs.yml                 GitHub Pages 文档站（MkDocs Material，部署在 /docs/）
 requirements-docs.txt      文档站 Python 依赖
 .github/workflows/ci.yml   PR 与 main 上的测试和导出门禁（不部署）
-.github/workflows/docs.yml main 上构建并部署文档站到 GitHub Pages
+.github/workflows/pages.yml main 上构建营销落地页 + 文档站并部署到 GitHub Pages
 .github/workflows/release.yml
                            版本标签上的多平台 pixelforge 包（不部署服务）
 crates/pixelforge-kernel   索引像素、调色板、帧、画笔/橡皮、撤销栈、工程文件
 crates/pixelforge-kernel-wasm
                            wasm-bindgen 桥，生成的 pkg/ 不入库
 crates/pixelforge-cli      本地 pixelforge 命令：打开工程，调用 Tool API
-package.json               pnpm 脚本，含 build:wasm
+package.json               pnpm 脚本，含 build:wasm / build:landing
 pnpm-workspace.yaml
-apps/web                   Vite + React 外壳
+apps/web                   Vite + React 外壳（工作室 GUI）
+apps/landing               Vite + React 营销落地页（Pages 根路径）
 .cursor/skills/            外部 Agent 技能：pixelforge、pixelforge-draw、
                            pixelforge-sprite-4dir、pixelforge-layers、pixelforge-critique
 docs/index.md              文档站首页

@@ -1,4 +1,5 @@
-# Docs site only (MkDocs Material → GitHub Pages).
+# Docs site (MkDocs Material → GitHub Pages under /docs/).
+# Marketing landing is apps/landing; Pages workflow assembles both.
 # Install: pip install -r requirements-docs.txt
 # Serve:   mkdocs serve
 # Build:   mkdocs build --strict

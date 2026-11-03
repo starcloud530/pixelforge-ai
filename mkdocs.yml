@@ -1,10 +1,11 @@
-# PixelForge docs — MkDocs Material → GitHub Pages
+# PixelForge docs — MkDocs Material → GitHub Pages under /docs/
+# Marketing landing owns the site root (apps/landing → Pages artifact root).
 # Local: pip install -r requirements-docs.txt && mkdocs serve
-# Site URL after Pages is enabled: https://starcloud530.github.io/pixelforge-ai/
+# Docs URL: https://starcloud530.github.io/pixelforge-ai/docs/
 
 site_name: PixelForge
 site_description: AI-native true-pixel CLI and studio. Agents drive the local pixelforge CLI on a real indexed grid.
-site_url: https://starcloud530.github.io/pixelforge-ai/
+site_url: https://starcloud530.github.io/pixelforge-ai/docs/
 site_author: PixelForge contributors
 
 repo_name: starcloud530/pixelforge-ai

@@ -75,5 +75,7 @@ pip install -r requirements-docs.txt
 mkdocs serve
 ```
 
-Production deploy is GitHub Actions → Pages from `main`. Expected URL: https://starcloud530.github.io/pixelforge-ai/  
+Production deploy is GitHub Actions → Pages from `main` (workflow `pages.yml`): marketing landing at the site root, this MkDocs tree under `/docs/`.  
+Expected docs URL: https://starcloud530.github.io/pixelforge-ai/docs/  
+Marketing: https://starcloud530.github.io/pixelforge-ai/  
 If the site 404s after merge, enable **Settings → Pages → Build and deployment → Source = GitHub Actions** once.

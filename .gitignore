@@ -2,6 +2,7 @@
 **/node_modules
 **/dist
 /site
+/_pages
 .cache/
 crates/pixelforge-kernel-wasm/pkg
 crates/pixelforge-kernel-wasm/pkg-node

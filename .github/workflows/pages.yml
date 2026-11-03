@@ -1,8 +1,9 @@
-# Build MkDocs Material and deploy to GitHub Pages.
-# Expected URL: https://starcloud530.github.io/pixelforge-ai/
+# Build marketing landing + MkDocs, deploy to GitHub Pages.
+# Root URL:  https://starcloud530.github.io/pixelforge-ai/
+# Docs URL:  https://starcloud530.github.io/pixelforge-ai/docs/
 # One-time: Settings → Pages → Build and deployment → Source = GitHub Actions
 
-name: Docs
+name: Pages
 
 on:
   push:
@@ -10,10 +11,14 @@ on:
       - main
   pull_request:
     paths:
+      - "apps/landing/**"
       - "docs/**"
       - "mkdocs.yml"
       - "requirements-docs.txt"
-      - ".github/workflows/docs.yml"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -27,11 +32,28 @@ concurrency:
 
 jobs:
   build:
-    name: build docs
+    name: build landing and docs
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Build landing
+        run: pnpm --filter @pixelforge/landing build
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -43,14 +65,25 @@ jobs:
       - name: Install MkDocs
         run: pip install -r requirements-docs.txt
 
-      - name: Build
+      - name: Build docs
         run: mkdocs build --strict
+
+      - name: Assemble Pages artifact
+        run: |
+          set -euo pipefail
+          rm -rf _pages
+          mkdir -p _pages/docs
+          cp -a apps/landing/dist/. _pages/
+          cp -a site/. _pages/docs/
+          # Landing owns the site root; docs live under /docs/.
+          test -f _pages/index.html
+          test -f _pages/docs/index.html
 
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: _pages
 
   deploy:
     name: deploy Pages
