@@ -199,6 +199,14 @@ Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。�
 | `pixelforge-layers` | 身体、装备、四肢分层。合成预览、绘制 `--layer`、`layer hide` / `opacity`、`layer flatten`。 |
 | `pixelforge-critique` | 只读检查：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。必须列出缺陷，不能只说看起来不错。 |
 
+## 案例与评测 Demos & eval
+
+可重放案例、真实任务评测（`task.md` / `eval.md`）集中在关联仓 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)。本仓 `examples/` 只保留轻量样例（如 `game-pack-zombie`、`lighthouse-outpost`）。
+
+展示媒体（GIF / 短片 / hero）在 CDN：[resources.pixelforge.torzsi.com/demo-zombie/v1/](https://resources.pixelforge.torzsi.com/demo-zombie/v1/)。宣传演示页将挂在本仓 GitHub Pages（尚未启用）。
+
+*Replayable case packs and real-task eval live in the companion repo [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). This repo keeps only light `examples/`. Showcase media is on the CDN above; the marketing demo site will use this repo’s GitHub Pages.*
+
 ## 开发 Development
 
 预编译 CLI 不需要这一节的 Rust / Node 工具链，见上面的「预编译安装」。源码构建的 Windows MSVC 要求见「源码构建」。
