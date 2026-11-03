@@ -12,6 +12,7 @@ function applyDocumentMeta(lang: Lang): void {
     description.setAttribute("content", t.metaDescription);
   }
 
+  // Share cards stay on the EN OG art unless locale-specific art exists on CDN.
   const ogTitle = document.querySelector('meta[property="og:title"]');
   if (ogTitle) {
     ogTitle.setAttribute("content", `PixelForge — ${t.brandTagline}`);
@@ -75,10 +76,10 @@ export function App() {
       </header>
 
       <main id="main" className="flex flex-col gap-20">
-        <Hero t={t} />
-        <DemoStrip t={t} />
-        <Comparison t={t} />
-        <VideoBlock t={t} />
+        <Hero t={t} lang={lang} />
+        <DemoStrip t={t} lang={lang} />
+        <Comparison t={t} lang={lang} />
+        <VideoBlock t={t} lang={lang} />
         <Status t={t} />
       </main>
 
@@ -90,14 +91,14 @@ export function App() {
           <span>{t.footerAssets}</span>
           <span aria-hidden="true">·</span>
           <a className="text-cream underline-offset-4 hover:text-accent hover:underline" href={links.docs}>
-            Docs
+            {t.ctaDocs}
           </a>
           <span aria-hidden="true">·</span>
           <a
             className="text-cream underline-offset-4 hover:text-accent hover:underline"
             href={links.github}
           >
-            GitHub
+            {t.ctaGitHub}
           </a>
         </p>
       </footer>
@@ -130,7 +131,16 @@ function LangButton({
   );
 }
 
-function Hero({ t }: { t: Copy }) {
+/**
+ * Hero visual is always pixel-only walk media next to localized DOM copy.
+ * `hero-en-*` composites bake English slogans — never use them beside ZH DOM text.
+ * TODO(cdn): when `hero-zh-*` lands under marketing/v1/, prefer those for `lang === "zh"`.
+ */
+function Hero({ t, lang }: { t: Copy; lang: Lang }) {
+  // TODO(cdn): when marketing/v1/hero-zh-* exists, prefer those for zh.
+  // Never use hero-en-* for zh — they bake English slogans into the frame.
+  const unlabeled = lang === "zh";
+
   return (
     <section
       className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12"
@@ -141,24 +151,11 @@ function Hero({ t }: { t: Copy }) {
           {t.heroEyebrow}
         </p>
         <div className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3 sm:p-4">
-          <div className="relative aspect-[5/4] overflow-hidden rounded-xl bg-ink sm:aspect-[4/3]">
-            <picture>
-              <source
-                srcSet={assets.heroStatic}
-                media="(prefers-reduced-motion: reduce)"
-              />
-              <img
-                src={assets.heroAnimated}
-                alt={t.heroVisualAlt}
-                width={1600}
-                height={820}
-                className="absolute inset-0 h-full w-[200%] max-w-none object-cover object-left"
-                decoding="async"
-              />
-            </picture>
+          <div className="flex aspect-[5/4] items-center justify-center overflow-hidden rounded-xl bg-ink px-2 sm:aspect-[4/3]">
+            <WalkStrip alt={t.heroVisualAlt} unlabeled={unlabeled} className="w-full max-w-md" />
           </div>
           <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.16em] text-accent">
-            64 × 64 / four directions
+            {t.heroMeta}
           </p>
         </div>
       </div>
@@ -212,7 +209,9 @@ function Hero({ t }: { t: Copy }) {
   );
 }
 
-function DemoStrip({ t }: { t: Copy }) {
+function DemoStrip({ t, lang }: { t: Copy; lang: Lang }) {
+  const textHeavyEnMedia = lang === "en";
+
   return (
     <section aria-labelledby="demo-heading" className="space-y-6">
       <div className="max-w-3xl">
@@ -224,59 +223,153 @@ function DemoStrip({ t }: { t: Copy }) {
 
       <div className="grid gap-4 md:grid-cols-3">
         <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3">
-          <img
-            src={assets.walkFourDirections}
+          <WalkStrip
             alt={t.walkAlt}
-            width={420}
-            height={420}
-            className="pixelated mx-auto h-auto w-full max-w-[280px]"
+            unlabeled={lang === "zh"}
+            className="mx-auto w-full max-w-[320px]"
             loading="lazy"
-            decoding="async"
           />
         </figure>
-        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3 md:col-span-2">
-          <img
-            src={assets.propsPreview}
-            alt={t.propsAlt}
-            width={1200}
-            height={430}
-            className="h-auto w-full"
-            loading="lazy"
-            decoding="async"
-          />
-        </figure>
-      </div>
 
-      <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3">
-        <div className="grid gap-3 md:grid-cols-[1.4fr_1fr] md:items-center">
-          <img
-            src={assets.localEditingStrip}
-            alt={t.localEditAlt}
-            width={1400}
-            height={510}
-            className="h-auto w-full"
-            loading="lazy"
-            decoding="async"
-          />
-          <div>
+        {textHeavyEnMedia ? (
+          <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3 md:col-span-2">
             <img
-              src={assets.localEditingPreview}
-              alt={t.localEditAlt}
-              width={640}
-              height={520}
-              className="motion-safe-only mx-auto h-auto w-full max-w-xs"
+              src={assets.propsPreview}
+              alt={t.propsAlt}
+              width={1200}
+              height={430}
+              className="h-auto w-full"
               loading="lazy"
               decoding="async"
             />
-            <p className="mt-3 text-sm leading-relaxed text-cream-muted">{t.localEditCaption}</p>
+          </figure>
+        ) : (
+          <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-4 md:col-span-2">
+            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-accent">
+              {t.propsHeading}
+            </p>
+            <p className="mt-2 text-sm text-cream-muted">{t.propsSub}</p>
+            <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {t.propLabels.map((label) => (
+                <li
+                  key={label}
+                  className="rounded-lg border border-white/8 bg-ink px-3 py-4 text-center text-sm text-cream"
+                >
+                  {label}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-xs text-cream-dim">{t.propsAlt}</p>
+          </figure>
+        )}
+      </div>
+
+      {textHeavyEnMedia ? (
+        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3">
+          <div className="grid gap-3 md:grid-cols-[1.4fr_1fr] md:items-center">
+            <img
+              src={assets.localEditingStrip}
+              alt={t.localEditAlt}
+              width={1400}
+              height={510}
+              className="h-auto w-full"
+              loading="lazy"
+              decoding="async"
+            />
+            <div>
+              <CroppedLocalPreview alt={t.localEditAlt} />
+              <p className="mt-3 text-sm leading-relaxed text-cream-muted">{t.localEditCaption}</p>
+            </div>
           </div>
-        </div>
-      </figure>
+        </figure>
+      ) : (
+        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-4">
+          <div className="grid gap-6 md:grid-cols-[minmax(0,280px)_1fr] md:items-center">
+            <CroppedLocalPreview alt={t.localEditAlt} />
+            <div>
+              <ol className="grid gap-2 sm:grid-cols-2">
+                {t.localEditSteps.map((step, index) => (
+                  <li key={step} className="text-sm text-cream-muted">
+                    <span className="font-mono text-[11px] text-accent">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>{" "}
+                    {step}
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-4 text-sm leading-relaxed text-cream-muted">{t.localEditCaption}</p>
+              <p className="mt-2 text-xs leading-relaxed text-cream-dim">{t.localEditNote}</p>
+            </div>
+          </div>
+        </figure>
+      )}
     </section>
   );
 }
 
-function Comparison({ t }: { t: Copy }) {
+/**
+ * Walk GIF is 1024×352 with English title + SOUTH/WEST/EAST/NORTH labels.
+ * Crop to the sprite band (~y 63–274) when unlabeled media is required (ZH).
+ */
+function WalkStrip({
+  alt,
+  unlabeled,
+  className = "",
+  loading,
+}: {
+  alt: string;
+  unlabeled: boolean;
+  className?: string;
+  loading?: "lazy" | "eager";
+}) {
+  if (!unlabeled) {
+    return (
+      <img
+        src={assets.walkFourDirections}
+        alt={alt}
+        width={1024}
+        height={352}
+        className={`pixelated h-auto w-full ${className}`}
+        loading={loading}
+        decoding="async"
+      />
+    );
+  }
+
+  return (
+    <div className={`relative w-full overflow-hidden ${className}`} style={{ aspectRatio: "1024 / 211" }}>
+      <img
+        src={assets.walkFourDirections}
+        alt={alt}
+        width={1024}
+        height={352}
+        className="pixelated absolute left-0 w-full max-w-none"
+        style={{ top: "-29.86%" }}
+        loading={loading}
+        decoding="async"
+      />
+    </div>
+  );
+}
+
+/** Hide the baked “BASE / FIXTURE” label in the top-left of the GIF. */
+function CroppedLocalPreview({ alt }: { alt: string }) {
+  return (
+    <div className="mx-auto aspect-[640/520] w-full max-w-xs overflow-hidden rounded-xl bg-ink">
+      <img
+        src={assets.localEditingPreview}
+        alt={alt}
+        width={640}
+        height={520}
+        className="h-[118%] w-[118%] max-w-none -translate-x-[6%] -translate-y-[10%] object-cover"
+        loading="lazy"
+        decoding="async"
+      />
+    </div>
+  );
+}
+
+function Comparison({ t, lang }: { t: Copy; lang: Lang }) {
   return (
     <section aria-labelledby="comparison-heading" className="space-y-5">
       <div className="max-w-3xl">
@@ -288,23 +381,56 @@ function Comparison({ t }: { t: Copy }) {
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-cream-dim sm:text-base">{t.comparisonDisclaimer}</p>
       </div>
-      <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-2 sm:p-3">
-        <img
-          src={assets.gridComparison}
-          alt={t.comparisonAlt}
-          width={1400}
-          height={640}
-          className="h-auto w-full"
-          loading="lazy"
-          decoding="async"
-        />
-        <figcaption className="sr-only">{t.comparisonDisclaimer}</figcaption>
-      </figure>
+
+      {lang === "en" ? (
+        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-2 sm:p-3">
+          <img
+            src={assets.gridComparison}
+            alt={t.comparisonAlt}
+            width={1400}
+            height={640}
+            className="h-auto w-full"
+            loading="lazy"
+            decoding="async"
+          />
+          <figcaption className="sr-only">{t.comparisonDisclaimer}</figcaption>
+        </figure>
+      ) : (
+        <IllustrativeCompare t={t} />
+      )}
     </section>
   );
 }
 
-function VideoBlock({ t }: { t: Copy }) {
+/** Locale-safe soft vs nearest demo built in the DOM — not a model/conversion benchmark. */
+function IllustrativeCompare({ t }: { t: Copy }) {
+  return (
+    <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-4 sm:p-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="rounded-xl border border-white/8 bg-ink p-4">
+          <div className="overflow-hidden rounded-lg" style={{ filter: "blur(1.6px)" }}>
+            <WalkStrip alt="" unlabeled className="w-full" loading="lazy" />
+          </div>
+          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-cream-dim">
+            {t.softLabel}
+          </p>
+        </div>
+        <div className="rounded-xl border border-white/8 bg-ink p-4">
+          <WalkStrip alt="" unlabeled className="w-full" loading="lazy" />
+          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-accent">
+            {t.nearestLabel}
+          </p>
+        </div>
+      </div>
+      <figcaption className="mt-4 text-sm text-cream-muted">{t.comparisonAlt}</figcaption>
+    </figure>
+  );
+}
+
+function VideoBlock({ t, lang }: { t: Copy; lang: Lang }) {
+  // EN poster bakes English marketing copy; ZH plays without that poster.
+  const poster = lang === "en" ? assets.localEditingPoster : undefined;
+
   return (
     <section aria-labelledby="video-heading" className="space-y-5">
       <div className="max-w-3xl">
@@ -318,7 +444,7 @@ function VideoBlock({ t }: { t: Copy }) {
           className="aspect-video h-auto w-full rounded-xl bg-ink"
           controls
           preload="metadata"
-          poster={assets.localEditingPoster}
+          poster={poster}
           playsInline
         >
           <source src={assets.localEditingVideo} type="video/mp4" />

@@ -17,15 +17,23 @@ export type Copy = {
   ctaGitHub: string;
   heroVisualAlt: string;
   heroEyebrow: string;
+  heroMeta: string;
   demoHeading: string;
   demoCaption: string;
   localEditCaption: string;
+  localEditNote: string;
   walkAlt: string;
   propsAlt: string;
+  propsHeading: string;
+  propsSub: string;
+  propLabels: string[];
   localEditAlt: string;
+  localEditSteps: string[];
   comparisonHeading: string;
   comparisonDisclaimer: string;
   comparisonAlt: string;
+  softLabel: string;
+  nearestLabel: string;
   videoHeading: string;
   videoCaption: string;
   statusHeading: string;
@@ -69,19 +77,28 @@ export const copy: Record<Lang, Copy> = {
     heroVisualAlt:
       "Port keeper sprite shown in four directions, lantern lit, orange scarf on a blue coat",
     heroEyebrow: "Commands in. Editable pixels out.",
+    heroMeta: "64 × 64 / four directions",
     demoHeading: "One character. Local edits you can inspect.",
     demoCaption:
       "One port keeper. Four walking directions, a gear variant, matching props, and three local edits. Authored by an external agent through the local CLI, not built-in one-click generation.",
     localEditCaption:
       "Recolor the scarf. Add a shield. Fix the planted boot. Keep the character, inspect the changes.",
+    localEditNote:
+      "The initial boot offset is an intentional diagnostic fixture. Native diffs accompany every step.",
     walkAlt: "Four-direction walk cycle of the port keeper",
     propsAlt: "Matching props and gear variants on the shared palette",
+    propsHeading: "One palette. A whole harbor.",
+    propsSub: "Four props from the same editable demo project.",
+    propLabels: ["Bag", "Lantern", "Crate", "Buoy"],
     localEditAlt: "Three local edit steps: scarf recolor, shield, planted boot fix",
+    localEditSteps: ["Start", "Recolor scarf", "Add shield", "Fix boot position"],
     comparisonHeading: "A crisp grid is a deliberate choice.",
     comparisonDisclaimer:
       "Soft resampling / simulated vs nearest display / native project. An illustrative rendering comparison, not a generation or conversion benchmark.",
     comparisonAlt:
       "Side-by-side illustrative comparison: soft resampling on the left, nearest-neighbor native project display on the right",
+    softLabel: "Soft resampling / simulated",
+    nearestLabel: "Nearest display / native project",
     videoHeading: "Local editing in one short take",
     videoCaption: "Optional walkthrough of scarf, shield, and boot edits via the CLI.",
     statusHeading: "Honest status",
@@ -129,17 +146,25 @@ export const copy: Record<Lang, Copy> = {
     ctaGitHub: "查看 GitHub",
     heroVisualAlt: "港口守灯人四向立绘：蓝大衣、橙围巾、手提灯笼",
     heroEyebrow: "命令进，可编辑像素出。",
+    heroMeta: "64 × 64 / 四向",
     demoHeading: "同一角色。可检查的局部修改。",
     demoCaption:
       "一名港口守灯人，四向行走、装备换装、同色板道具与三步局部修改。示例为外部 Agent 通过本地 CLI 制作，不是内置一键生图。",
     localEditCaption: "改围巾，加盾牌，修落脚。保留同一角色，检查每一次变化。",
+    localEditNote: "起始落脚偏移是有意的诊断夹具。每一步都有原生 diff 可检查。",
     walkAlt: "港口守灯人四向行走循环",
     propsAlt: "同色板道具与装备换装预览",
+    propsHeading: "同一色板，整座港口。",
+    propsSub: "同一可编辑演示工程中的四件道具。",
+    propLabels: ["背包", "提灯", "木箱", "浮标"],
     localEditAlt: "三步局部修改：围巾换色、加盾、修落脚",
+    localEditSteps: ["起始", "围巾换色", "加盾牌", "修落脚"],
     comparisonHeading: "清晰的网格，是刻意的选择。",
     comparisonDisclaimer:
       "柔化缩放示意 / 原生像素网格的最近邻显示。仅比较显示方式，不是模型输出、扩散前后或转换算法基准。",
     comparisonAlt: "示意对比：左侧柔化缩放，右侧最近邻原生工程显示",
+    softLabel: "柔化缩放 / 示意",
+    nearestLabel: "最近邻显示 / 原生工程",
     videoHeading: "局部编辑短片",
     videoCaption: "围巾、盾牌与落脚修改的可选 CLI 操作短片。",
     statusHeading: "如实说明",
