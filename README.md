@@ -1,246 +1,122 @@
-# PixelForge AI
+<p align="center">
+  <strong>PixelForge</strong>
+</p>
 
-**AI 原生的真像素美术工作室。**  
-提示或参考 → 真像素 → 动画 → 引擎可导出，常规素材尽量少看管。
+<h3 align="center">AI-native true-pixel CLI &amp; studio</h3>
 
-*An AI-native true-pixel art studio.*  
-*Prompt or reference → true pixels → animation → engine-ready export, with minimal babysitting.*
+<p align="center">
+  Prompt or reference → true pixels → animation → engine-ready export.<br/>
+  Agents drive a local <code>pixelforge</code> CLI on a real indexed grid — not fake-pixel diffusion.
+</p>
 
-## 愿景 Vision
+<p align="center">
+  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.2-blue" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-GitHub%20Pages-teal" /></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
+  <a href="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml/badge.svg" /></a>
+</p>
 
-让任何有游戏想法的人，都能做出专业级的真像素美术与动画。AI 负责自动驾驶管线，创作者把精力放在品味与方向上。
+<p align="center">
+  <b>English</b> | <a href="README.zh_CN.md">中文</a>
+</p>
 
-Make professional true-pixel art and animation accessible to anyone with a game idea. AI handles the autopilot pipeline so creators focus on taste and direction.
+<p align="center">
+  <img alt="Four-direction zombie walk" src="https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif" width="420" />
+</p>
 
-## 使命 Mission
+## Why PixelForge
 
-做一个 AI 原生的像素工作室：在真实像素网格与调色板约束上，设计、动画并导出引擎可用的精灵；对常规素材达到 L4 级自主——端到端完成，少人工看管。
+- **True pixels** — indexed grid + palette, the same cells agents and humans edit
+- **Agent-first** — external agents (Cursor, Codex, Claude Code, …) call local `pixelforge`; the in-app one-turn panel is only a demo
+- **Engine-ready export** — PNG sequences, sprite sheets, atlas JSON, validation gates
+- **Not** a full Aseprite clone, **not** diffusion fake-pixel, **not** a full game engine
 
-Build an AI-native pixel studio that designs, animates, and exports engine-ready sprites with L4-level autonomy (end-to-end for routine assets), grounded in real pixel grids and palettes.
+Status: early / WIP. Prebuilt CLI **[v0.1.0-rc.2](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)** is a prerelease. Longer vision & L4 framing: [docs/vision.md](docs/vision.md). Honest bounds: [docs/known-limits.md](docs/known-limits.md).
 
-## 我们在做什么 What we build
+## Quick start
 
-PixelForge AI 走的是 Aseprite 这一类的像素工作流，目标是像素素材的 **L4 自动驾驶**：
-
-- **真像素设计** — 在真实像素网格和调色板约束里作画。
-- **动画** — 为精灵做动画。
-- **导出** — 产出引擎可直接使用的精灵资源。
-- **L4 自动驾驶** — 提示或参考进去，常规素材端到端走完：真像素、动画、引擎就绪导出，尽量少看管。
-
-技术方向（不是搭建说明）：自建像素工作室。TypeScript 做可视化界面和桌面/网页外壳，Rust 做核心内核（像素网格、调色板、帧与时间轴数据、导出）；需要桌面包一层时可选 Tauri。不自训模型。外部 Agent（Codex、Claude Code，或别的能跑命令的模型）通过本地 `pixelforge` CLI 调用 Tool API 驱动这些工具。网页里的一轮面板只是演示。边界与非目标见 [docs/tech-stack.md](docs/tech-stack.md)。像素是网格和调色板上的真像素，不是扩散模型叠出来的假像素。
-
-### 定位
-
-Google Playground 与 Unity Spark 瞄准「文本 → 完整游戏」。我们瞄准更窄的一条：文本或参考 → 真像素精灵 → 动画 → 导出。信念相同——AI 会把创作交到更多人手里；切口更窄，也更能先交付。
-
-工作室是同时做游戏和工具的独立小团队。
-
-PixelForge AI follows an Aseprite-class pixel workflow, aimed at **L4 autopilot** for pixel assets:
-
-- **True-pixel design** on a real pixel grid and palette.
-- **Animation** for sprites.
-- **Export** of engine-ready sprite assets.
-- **L4 autopilot** — prompt or reference in; routine assets run end to end (true pixels, animation, engine-ready export) with minimal babysitting.
-
-Stack direction, not a build guide: a self-built pixel studio. TypeScript is the visualization UI and desktop/web shell; Rust is the core kernel (pixel grid, palette, frame and timeline data, export). Tauri is optional when a desktop shell should wrap that kernel. We do not train models. An external agent (Codex, Claude Code, or any model that can run a command) drives these tools through the local `pixelforge` CLI and the Tool API. The one-turn panel in the web shell is a demo. Boundaries and non-goals: [docs/tech-stack.md](docs/tech-stack.md). Pixels are real grid-and-palette pixels, not diffusion fake-pixel.
-
-Google Playground and Unity Spark aim at text → full games. We aim at text or reference → true-pixel sprites → animation → export. Same belief that AI puts creation in more hands; a narrower wedge we can ship. An indie / small team building games and tools.
-
-## 我们不是什么 What we are not
-
-- **不是** 和 Aseprite 比拼完整界面的克隆竞赛。
-- **不是** 只做「看起来像像素」的扩散图。
-- **不是** 完整游戏引擎，也不以一句话生成整款游戏为目标。
-
-- Not a race to clone the full Aseprite UI.
-- Not fake-pixel diffusion only.
-- Not a full game engine, and not text → a whole game.
-
-## 状态 Status
-
-早期，开发中（WIP）。M5 Tool API 已在 Rust 内核提供稳定的机器可读接口，目录见 [docs/tool-api.md](docs/tool-api.md)。产品路径是仓库外的 Agent 调用本地 `pixelforge` CLI，CLI 再把 Tool API JSON 交给内核。用法见 [docs/agent-skill.md](docs/agent-skill.md)。网页里的一轮 AI 面板是可选演示，见 [docs/ai-driver.md](docs/ai-driver.md)。嵌在应用里的多轮对话（[#14](https://github.com/starcloud530/pixelforge-ai/issues/14)）不是产品。
-
-Early / work in progress. The M5 Tool API is a stable machine-readable surface in the Rust kernel; the catalog is [docs/tool-api.md](docs/tool-api.md). The product path is an agent outside this repository calling the local `pixelforge` CLI, which forwards Tool API JSON to the kernel. Usage: [docs/agent-skill.md](docs/agent-skill.md). The one-turn AI panel in the web shell is an optional demo; see [docs/ai-driver.md](docs/ai-driver.md). An embedded multi-turn chat ([#14](https://github.com/starcloud530/pixelforge-ai/issues/14)) is not the product.
-
-## 预编译安装 Prebuilt install
-
-不需要安装 Rust。下载与系统对应的压缩包，解压得到 `pixelforge`（Windows 是 `pixelforge.exe`），然后创建工程并预览。版本号就是 `pixelforge --version`，也是根目录 `Cargo.toml` 里的 `[workspace.package].version`。标签 `v0.1.0` 对应版本 `0.1.0`。
-
-*No Rust toolchain. Download the archive for your system, unpack `pixelforge` (`pixelforge.exe` on Windows), then create a project and preview it. `pixelforge --version` is the `[workspace.package].version` in the root `Cargo.toml`. The tag `v0.1.0` is version `0.1.0`.*
-
-仓库还是私有时，用有权限的 GitHub 账号打开 [Releases](https://github.com/starcloud530/pixelforge-ai/releases) 下载，或：
+Installers put `pixelforge` in `~/.pixelforge/bin`. Use the **rc.2** tag (not `latest`) until a stable release ships.
 
 ```bash
-gh release download v0.1.0 --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'
-```
-
-把 `v0.1.0` 换成实际标签。`v0.1.0-rc.2` 这种预发布不是 GitHub 的 `latest`，不要用 `releases/latest`，直到打出不带预发布后缀的正式版。
-
-*While this repository is private, download from [Releases](https://github.com/starcloud530/pixelforge-ai/releases) while logged in, or use `gh release download` as above. A prerelease such as `v0.1.0-rc.2` is not GitHub `latest`.*
-
-| 系统 | 文件 |
-| --- | --- |
-| Windows x64 | `pixelforge-cli-x86_64-pc-windows-msvc.zip` |
-| macOS Intel | `pixelforge-cli-x86_64-apple-darwin.tar.gz` |
-| macOS Apple silicon | `pixelforge-cli-aarch64-apple-darwin.tar.gz` |
-| Linux x64 | `pixelforge-cli-x86_64-unknown-linux-gnu.tar.gz` |
-
-Windows 的 zip 根目录就是 `pixelforge.exe`，旁边有 `LICENSE`、`LICENSE-MIT`、`LICENSE-APACHE` 和 `README.md`。macOS / Linux 的 tar.gz 先有一层同名目录，二进制在里面。每个压缩包有同名 `.sha256`，Release 上还有一份汇总 `sha256.sum`。Linux 包在 GitHub `ubuntu-22.04` 上构建，需要 glibc 2.35 或更新（Ubuntu 22.04 这一代）。Windows 包静态链接了 C 运行库，不用装 Visual C++ Redistributable，也不用装 MSVC。
-
-*The Windows zip has `pixelforge.exe` at its root, plus `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`, and `README.md`. macOS and Linux tarballs nest the binary under one directory of the same name. Each archive has a `.sha256` sidecar, and the Release also has `sha256.sum`. The Linux build runs on GitHub `ubuntu-22.04` and needs glibc 2.35 or newer. The Windows build links the C runtime statically.*
-
-```powershell
-# Windows，在解压目录
-.\pixelforge.exe new --width 16 --height 16 --output hero.json
-.\pixelforge.exe preview --project hero.json --scale 4
-```
-
-```bash
-# macOS / Linux，在解压出来的目录里
-./pixelforge new --width 16 --height 16 --output hero.json
-./pixelforge preview --project hero.json --scale 4
-```
-
-要 PNG 序列而不是预览图：
-
-```bash
-./pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
-```
-
-要看一段动画循环：
-
-```bash
-./pixelforge export apng --project hero.json --output walk.apng --tag walk_down
-```
-
-这张 APNG 是预览，不是进游戏的 sprite sheet。
-
-*A PNG sequence is `export png`. A looping look at one tag is `export apng`. That APNG is a preview, not the sprite sheet a game imports.*
-
-仓库公开之后，可以用一行安装脚本，把 `pixelforge` 装进 `~/.pixelforge/bin` 并写进 PATH。正式版：
-
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/starcloud530/pixelforge-ai/releases/latest/download/pixelforge-cli-installer.sh | sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.2/pixelforge-cli-installer.sh | sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/latest/download/pixelforge-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c \
+  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.2/pixelforge-cli-installer.ps1 | iex"
 ```
-
-私有仓库上这条直链会 404。那是安装脚本的限制，不是 Release 没有附件。公开后同一条工作流不用改。预发布把 URL 里的 `latest` 换成标签，例如 `v0.1.0-rc.2`。
-
-*After the repository is public, the installer scripts above install `pixelforge` to `~/.pixelforge/bin`. On a private repository those direct download URLs return 404; use the archives from the Releases page instead. The workflow does not change when the repository becomes public. For a prerelease, replace `latest` with the tag.*
-
-发版步骤（改版本、打 `v*` 标签、Actions 上传到 Releases）在 [docs/dev-setup.md](docs/dev-setup.md) 的「预编译与发版」。
-
-*How to cut a tag and publish a Release: [docs/dev-setup.md](docs/dev-setup.md).*
-
-## 已知限制 Known limitations
-
-装好并跑通上面的 `new` / `preview` 之后，先看这七条。它们是当前 CLI 和内核的能力边界。测试通过、示例能跑、`validate-atlas`、`direction validate`、`project validate` 或游戏包校验退出码是 0，仍然落在这些边界里。
-
-*After `new` and `preview` above, read these seven bounds. They are the CLI and kernel as they ship. A green test, a working example, or exit code 0 from `validate-atlas`, `direction validate`, `project validate`, or the game-pack check stays inside them.*
-
-- **未绑定的精修仍钉在画布坐标。** 绑定到部件的 `polish` 层按部件局部坐标理解：本地 `(0, 0)` 是部件原点，或 `layer bind --anchor` 点名的锚点。`bake` 以及 `part translate` / `rotate` / `flip` 会把这一层的修正连同显式擦除一起搬走。没绑定的覆盖层仍是 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) 的行为：`bake` 不写它，格子留在画下的那一格。显式擦除是覆盖层上的透明格，和「这一格没改过」不是一回事；`erase-rect --unmodified`（Tool API `mode: pass`）才清回未修改。曲线或约束管着的生成层仍从源帧整层重建，修正不要画在那一层上。旋转补洞仍然有损，绑在部件上的精修跟着转时一样。一层只绑一个部件。见 [#99](https://github.com/starcloud530/pixelforge-ai/issues/99)。烘焙命令见 [docs/agent-skill.md](docs/agent-skill.md)。
-
-- **旋转补洞不是无损。** 非直角旋转在最近邻之后做覆盖补洞。缺口比只做正向映射少，质量有改进，仍然有损。`dropped` 不会因为补上格子变成 0。单像素细线仍可能断开（`breaks` 大于 0），靠近 45° 时还会变短。墨水数量回到源格数不等于修好。见 [#73](https://github.com/starcloud530/pixelforge-ai/issues/73)。旋转不能代替手修。
-
-- **IK 解的是关节位置。** 短链是 2 或 3 节，加上 `pin` 和 `plant` 把脚钉在接触点上。它不自动编写自然步态，也不从一条静止姿势生成走路循环。没有整棵 IK 树，没有步态生成器，也没有物理。见 [#68](https://github.com/starcloud530/pixelforge-ai/issues/68)。`examples/soldier-walk.py` 钉的是接触帧。走路帧仍要自己关键帧，或同姿复制后改差，再 `bake`。
-
-- **半透明压平收成最近索引。** 彩色 preview、`export png` 和 `frame_rgba` 仍是直通 alpha 的 RGB 混合，不改格子。ASCII 和 `diff` 在压平之前仍是盖住的索引。`layer flatten` 把这一张混合按 `apply-png` 的规则收成调色板索引：alpha 小于 128 写成索引 0，否则按平方 RGB 距离取最近的非 0 项，平局取较小索引。混合结果的 RGBA 已经等于盖住索引的调色板色时，留下那个索引。压平后的层可见且完全不透明，所以只靠层透明度产生的半透明不会留在格子里；alpha 不计入距离，一半不透明的单层会变成那一项的不透明色。没有 multiply / screen。不改工程的对照是 `preview --compare`：左是未量化 RGBA，右是 flatten 会写下的索引再按调色板着色，默认 `<stem>.compare.png`。要真的收成单层再用 `preview --output before.png`，然后 `layer flatten`，再 `preview --output after.png`。见 [#114](https://github.com/starcloud530/pixelforge-ai/issues/114)、[#110](https://github.com/starcloud530/pixelforge-ai/issues/110) 和 [#98](https://github.com/starcloud530/pixelforge-ai/issues/98)。
-
-- **方向自动命名和方向填充都不是自然步态，也不是审美通过。** `direction set` / `apply` 只按行写下已有的 idle/walk 标签区间，不画像素。`direction fill` 把一个基本朝向（N/E/S/W）里已经有的 `{动作}_{朝向}` 帧段拷到其余基本朝向，或把 left 与 right 水平镜像。目标帧已经有墨或显式擦除时默认跳过，`--overwrite` 才盖掉。八向的对角行这一版不填。镜像和拷贝都不是新画、不是自然步态、不修高光，也不是 PixelLab 那种自动画四向。`direction validate` 退出码 0 只说明四向（或可选的八向）帧段齐、没有缺方向或缺关键帧。它不生成走路，不检查脚滑，也不判断动作好不好看。像素仍要自己画，或同姿复制后改差。见 [#108](https://github.com/starcloud530/pixelforge-ai/issues/108) 和 [#116](https://github.com/starcloud530/pixelforge-ai/issues/116)。
-
-- **项目清单是项目记忆，不是画布。** `pixelforge project` 读写 `pixelforge-manifest`：尺寸档、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径。`assets` 只保存你登记的稳定 id 和关系。像素仍在 `pixelforge-project`。`project validate` 或 `asset validate` 退出码 0 只说明约定、已登记的路径和关系对得上。它不扫描目录来发明 id，也不做导出清单，也不画像素。朝向 × 动作缺格是 `character matrix` / `character check`：对照 `directionLayout`、clip `tags` 和工程标签，报告 present / missing / empty / placeholder。矩阵绿 ≠ 步态或观感合格。可视化素材管理、地图 GUI、内嵌聊天、团队权限、自动生图都不在这里。见 [docs/project-manifest.md](docs/project-manifest.md)。
-
-- **导出和校验通过，不是审美验收，也不是进游戏验收。** `export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。`export apng` 是可循环播放的预览，不是引擎用的 sprite sheet，`validate-atlas` 不读它。像素和 PNG 导出是同一份直通 RGBA，不把调色板收成 GIF 的索引色，也不抖动；调色板 alpha 和 1 到 254 的层透明度都留着。时长按毫秒写入（分母 1000），不收成百分之一秒。见 [docs/export.md](docs/export.md) 和 [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md)。
-
-*An unbound `polish` overlay stays on the canvas cell where it was painted. That is still the [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) behavior: `bake` does not write it. A polish layer bound to a part stores the correction in that part's local frame. Local `(0, 0)` is the part origin, or the anchor named by `layer bind --anchor`. `bake` and `part translate` / `rotate` / `flip` move those cells, including an explicit erase. An explicit erase is a transparent overlay cell, distinct from a cell that was never touched. `erase-rect --unmodified` (Tool API `mode: pass`) clears it back to pass-through. A layer a curve or constraint manages is still rebuilt from the source frame, so the fix does not belong on that generated layer. Rotation sealing stays lossy when the bound overlay turns with the part. One polish layer binds to one part. See [#99](https://github.com/starcloud530/pixelforge-ai/issues/99). Bake commands: [docs/agent-skill.md](docs/agent-skill.md).*
-
-*Rotation past a right angle is nearest-neighbor rasterization plus a coverage seal. The seal closes more notches than forward mapping alone. Quality is better, and it is still lossy. Sealing does not clear `dropped`. A one-pixel line can still break (`breaks` above 0) or shorten near 45°. Ink count matching the source is not a finished edge. See [#73](https://github.com/starcloud530/pixelforge-ai/issues/73). Rotation does not replace a hand pass.*
-
-*A translucent stack flattens to the nearest palette index. The color preview, `export png`, and `frame_rgba` stay the unquantized straight-alpha blend and do not write cells. ASCII and `diff` still show the covering index until flatten. `layer flatten` snaps that blend with the `apply-png` rule: alpha below 128 is index 0, otherwise the nearest opaque entry by squared RGB, and a tie keeps the lower index. A cell whose RGBA already equals the covering index keeps that index. The result layer is visible and fully opaque, so translucency that came only from layer opacity is not stored. Alpha is not part of the distance, and a lone layer at opacity 128 becomes that entry's opaque color. There is no multiply or screen. Compare without writing the project: `preview --compare` puts that blend on the left and the palette color of the indices flatten would write on the right (default `<stem>.compare.png`). To store the single layer, use `preview --output before.png`, then `layer flatten`, then `preview --output after.png`. See [#114](https://github.com/starcloud530/pixelforge-ai/issues/114), [#110](https://github.com/starcloud530/pixelforge-ai/issues/110), and [#98](https://github.com/starcloud530/pixelforge-ai/issues/98).*
-
-*Short-chain IK is two or three parts. `pin` and `plant` hold a foot on a contact. The solve places joints. It does not author a natural gait, and it does not turn one rest pose into a walk cycle. There is no full IK tree, no gait generator, and no physics. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). `examples/soldier-walk.py` plants contact frames. Walk frames are still keyed, or duplicated and edited, then baked.*
-
-*Direction auto-naming and direction fill are not a natural gait and not an aesthetic pass. `direction set` / `apply` only writes the idle/walk tag spans for the stored rows and does not paint. `direction fill` copies one cardinal facing's `{action}_{facing}` frames onto the other cardinals, or horizontally mirrors left and right. A target frame that already holds ink or an explicit erase is skipped unless `--overwrite` is set. Eight-direction diagonal rows are not filled. A mirror or a copy is not new art, not a natural gait, does not repair highlights, and is not a PixelLab four-direction draw. Exit 0 from `direction validate` means the four cardinal facings, or the optional eight with diagonals, have their frame spans and that none are missing. It does not generate a walk, it does not check foot slide, and it does not judge the motion. Paint the pixels, or duplicate a pose and edit the diff. See [#108](https://github.com/starcloud530/pixelforge-ai/issues/108) and [#116](https://github.com/starcloud530/pixelforge-ai/issues/116).*
-
-*A project manifest is project memory. `pixelforge project` reads and writes a `pixelforge-manifest`: canvas tiers, perspective, directory rules, the default palette path, a short note, and the asset root. `assets` stores only the stable ids and relations you register. Pixels stay in `pixelforge-project` files. Exit 0 from `project validate` or `asset validate` means those conventions, registered paths, and relations match. It does not scan a directory into new ids, it does not list an export, and it does not paint. Facing × action gaps are `character matrix` / `character check`. A green matrix is not a gait or an aesthetic pass. A visual asset manager, a map GUI, an embedded chat, team auth, and image generation are not this file. See [docs/project-manifest.md](docs/project-manifest.md).*
-
-*`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. `export apng` is a looping preview, not the engine sprite sheet, and `validate-atlas` does not read it. The pixels are the same straight RGBA as PNG export: no GIF palette quantization and no dither, so palette alpha and opacity 1..=254 stay. Delays are stored in milliseconds (denominator 1000), not centiseconds. See [docs/export.md](docs/export.md) and [examples/game-pack-zombie/FAILURES.md](examples/game-pack-zombie/FAILURES.md).*
-
-## 源码构建 Source build
-
-这是另一条路。预编译不够用、或要改内核时才走这里。需要 Rust stable（`cargo` 1.83 或更新）。
-
-*This is a separate path, for changing the kernel or not using a prebuilt binary. Rust stable (`cargo` 1.83 or newer).*
 
 ```bash
-cargo install --path crates/pixelforge-cli
+pixelforge --version
+pixelforge new --width 16 --height 16 --output hero.json
+pixelforge preview --project hero.json --scale 4
 ```
 
-Windows 上默认目标是 `x86_64-pc-windows-msvc`。除了 rustup，还要安装 Visual Studio Build Tools，勾选「使用 C++ 的桌面开发」，并包含 Windows 10/11 SDK。只装了 Rust、没有 SDK 时，链接器报找不到 `kernel32.lib`。这份工具链只用于源码构建。上面的 `pixelforge.exe` 不需要它。
+Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
 
-Linux 源码构建需要系统链接器（`build-essential` 或等价的 gcc）。macOS 需要 Xcode Command Line Tools。网页外壳和 wasm 另需 Node.js 与 pnpm，见 [docs/dev-setup.md](docs/dev-setup.md)。
+## Documentation
 
-*On Windows the default target is `x86_64-pc-windows-msvc`. Install Visual Studio Build Tools with the Desktop development with C++ workload and a Windows 10/11 SDK. Without the SDK the linker reports that it cannot find `kernel32.lib`. That toolchain is only for source builds. Linux source builds need a system linker. macOS source builds need the Xcode Command Line Tools. The web shell and wasm also need Node.js and pnpm: [docs/dev-setup.md](docs/dev-setup.md).*
+Official docs (MkDocs Material → GitHub Pages):
 
-## Agent Skills
+**https://starcloud530.github.io/pixelforge-ai/**
 
-Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。Skill 补观改流程，不代替专业画师的审美。命令速查在 [docs/agent-skill.md](docs/agent-skill.md)。本仓库不把同一份正文复制到 `.agents/skills/` 或 `.claude/skills/`；Codex 与 Claude Code 从 `AGENTS.md` / `CLAUDE.md` 打开这些文件。
-
-*Cursor matches `description` under `.cursor/skills/<name>/SKILL.md`. Creative skills follow the `pixelforge` invariants first. Skills add a look-then-revise loop; they do not replace a pixel artist's judgment. Command reference: [docs/agent-skill.md](docs/agent-skill.md). There is no second copy under `.agents/skills/` or `.claude/skills/`.*
-
-| Skill | 说明 |
+| Topic | Link |
 | --- | --- |
-| `pixelforge` | 核心。安装与运行、索引色不变量、退出码、`inspect` / `tools` / `call`。线段、椭圆、多边形、洪水填充和矩形轮廓。最少编辑路径：同姿复制后改差，合并相邻同色 `fillRect`，一次批量 `call` 仍按请求计数。其它创作 skill 先遵守这里。 |
-| `pixelforge-draw` | 从零画角色、立绘、剪影。剪影（单色）→ 色块 → 细节，每阶段 `preview --scale` 与 ASCII。禁止一像素刷屏，读图要查破洞、头身和体积断点。 |
-| `pixelforge-sprite-4dir` | 四向走 + 闲精灵表。行是朝向，列是 idle 加 walk。`export sheet --cols`、同姿列复制后改差、跨帧 `copy-rect`、`diff` 查脚滑、`hflip` 后修高光。 |
-| `pixelforge-layers` | 身体、装备、四肢分层。合成预览、绘制 `--layer`、`layer hide` / `opacity`、`layer flatten`。 |
-| `pixelforge-critique` | 只读检查：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。必须列出缺陷，不能只说看起来不错。 |
+| Install & quick start | [install](https://starcloud530.github.io/pixelforge-ai/install/) |
+| Agent skill / CLI recipes | [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/) |
+| Tool API catalog | [tool-api](https://starcloud530.github.io/pixelforge-ai/tool-api/) |
+| Export & engine import | [export](https://starcloud530.github.io/pixelforge-ai/export/) |
+| Project manifest | [project-manifest](https://starcloud530.github.io/pixelforge-ai/project-manifest/) |
+| Tech stack | [tech-stack](https://starcloud530.github.io/pixelforge-ai/tech-stack/) |
+| Known limits | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
+| Licensing | [licensing](https://starcloud530.github.io/pixelforge-ai/licensing/) |
 
-## 案例与评测 Demos & eval
+Markdown sources live under [`docs/`](docs/). Local preview:
 
-可重放案例、真实任务评测（`task.md` / `eval.md`）集中在关联仓 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)。本仓 `examples/` 只保留轻量样例（如 `game-pack-zombie`、`lighthouse-outpost`）。
+```bash
+pip install -r requirements-docs.txt
+mkdocs serve
+```
 
-展示媒体（GIF / 短片 / hero）在 CDN：[resources.pixelforge.torzsi.com/demo-zombie/v1/](https://resources.pixelforge.torzsi.com/demo-zombie/v1/)。宣传演示页将挂在本仓 GitHub Pages（尚未启用）。
+If the docs URL 404s after merge to `main`, enable Pages once: **Settings → Pages → Build and deployment → Source = GitHub Actions**.
 
-*Replayable case packs and real-task eval live in the companion repo [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). This repo keeps only light `examples/`. Showcase media is on the CDN above; the marketing demo site will use this repo’s GitHub Pages.*
+## Agent skills
 
-## 开发 Development
+Cursor loads `.cursor/skills/<name>/SKILL.md` by `description`. Creative skills follow the `pixelforge` index-color invariants first. Command reference: [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/).
 
-预编译 CLI 不需要这一节的 Rust / Node 工具链，见上面的「预编译安装」。源码构建的 Windows MSVC 要求见「源码构建」。
+| Skill | Role |
+| --- | --- |
+| `pixelforge` | Core CLI, Tool API, shortest edit path |
+| `pixelforge-draw` | Silhouette → flats → detail |
+| `pixelforge-sprite-4dir` | Four-direction idle + walk sheets |
+| `pixelforge-layers` | body / gear / limbs |
+| `pixelforge-critique` | Read-only defect list |
 
-*The prebuilt CLI does not need the Rust or Node toolchain in this section. See Prebuilt install. Windows MSVC requirements for a source build are in Source build.*
+## Showcase media
 
-本地骨架分成三层：Rust 内核在 `crates/pixelforge-kernel`（画布尺寸、索引像素、调色板、画笔/橡皮/矩形填充、矩形擦除、矩形复制与移动、帧的增删复制，以及记录这些操作的撤销栈），本地 Agent 入口是 `crates/pixelforge-cli` 的 `pixelforge` 命令，TypeScript 外壳在 `apps/web`（Vite + React，最近邻显示索引格子）。`crates/pixelforge-kernel-wasm` 用 wasm-bindgen 把这份内核编进浏览器。构建和运行见 [docs/dev-setup.md](docs/dev-setup.md)。CLI 的配方见 [docs/agent-skill.md](docs/agent-skill.md)。
+CDN (do not commit large media into git):
 
-外壳的画笔、橡皮、调色板编辑、帧列表（新增空白帧、复制当前帧、删除当前帧且至少留一帧）、帧时间轴（拖动选帧、每帧时长、循环播放）、撤销/重做、工程打开/保存，以及透明 PNG 序列和网格 sprite sheet 导出，都调用 wasm 里的同一份 Rust `Document`。画笔只写入调色板索引。色板可以锁定（写入工程文件），也可以从 GIMP 调色板（`.gpl`）或十六进制列表导入，替换或合并进当前色板，并记在撤销栈上。Agent 不走这些手势：首选是 `pixelforge` 命令，它打开磁盘上的工程文件并调用 `Document::call_tool`。网页里的 `callTool` 是同一入口。目录见 [docs/tool-api.md](docs/tool-api.md)。洋葱皮把前一帧和后一帧半透明叠在当前帧下面，方便补间；循环播放时先藏起，停下后再显示。它只存在于视图，不写入像素、工程文件或 PNG。导入 Godot / Unity 的约定见 [docs/export.md](docs/export.md)。格式说明见 [docs/dev-setup.md](docs/dev-setup.md)。
+- [Four-direction walk GIF](https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif)
+- [Hero before/after](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/hero-before-after.png)
+- [Seven-stage timeline](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
+- [Sheet assembly video](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
 
-Local skeleton: a Rust kernel in `crates/pixelforge-kernel` (canvas size, indexed pixels, palette, paint/erase/rectangle fill/rectangle erase/rectangle copy and move, frame add/delete/duplicate, per-frame delay, and an undo stack of those operations), the local agent entry `pixelforge` in `crates/pixelforge-cli`, and a TypeScript shell in `apps/web` (Vite + React, nearest-neighbor view of the indexed grid). `crates/pixelforge-kernel-wasm` compiles that kernel into the browser with wasm-bindgen. Build and run: [docs/dev-setup.md](docs/dev-setup.md). CLI recipes: [docs/agent-skill.md](docs/agent-skill.md).
+In-repo light examples: [`examples/game-pack-zombie/`](examples/game-pack-zombie/), [`examples/lighthouse-outpost/`](examples/lighthouse-outpost/).  
+Companion demos / eval packs: [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (may still be private — use when you have access).
 
-Paint, erase, palette edits, the frame list (add a blank frame, duplicate the current frame, delete the current frame but never below one), the frame timeline (scrub, per-frame delay, and loop playback), undo/redo, project open/save, and transparent PNG-sequence plus grid sprite-sheet export in the shell call the same Rust `Document` inside wasm. Paint writes palette indices. The palette can be locked (the flag is stored in the project file) and imported from a GIMP palette (`.gpl`) or a hex list, replacing or merging into the document palette as one undo step. An agent does not go through those gestures. The preferred entry is the `pixelforge` command: it opens the project file from disk and calls `Document::call_tool`. Wasm `callTool` is the same entry. Catalog: [docs/tool-api.md](docs/tool-api.md). Onion skin composites the previous and next frames under the current frame at partial opacity. Loop playback hides that overlay and shows it again when playback stops. The overlay is view-only: it is not written into pixels, the project file, or PNG export. Godot / Unity import conventions: [docs/export.md](docs/export.md). Palette file formats: [docs/dev-setup.md](docs/dev-setup.md).
+## Development
 
-## 检查 Checks
+Prebuilt users can skip this. Source / web shell / CI: [dev-setup](https://starcloud530.github.io/pixelforge-ai/dev-setup/).
 
-本地和 CI 跑同一套，见 [docs/dev-setup.md](docs/dev-setup.md) 的 CI 一节：`cargo test -p pixelforge-kernel`、`cargo test -p pixelforge-cli`、`python3 examples/game-pack-zombie/validate.py`（对已提交的表跑 `validate-atlas --strict`，并跑 `project validate`）、`python3 examples/base-tiles/validate.py`，以及 `python3 examples/lighthouse-outpost/validate.py`。新功能要收进这些测试或门槛再合入。这条工作流不部署服务。预编译包是另一条只在版本标签上跑的 Release 工作流，不替代这些测试。
+```bash
+cargo test -p pixelforge-kernel
+cargo test -p pixelforge-cli
+python3 examples/game-pack-zombie/validate.py
+```
 
-*Local commands match CI. See the CI section in [docs/dev-setup.md](docs/dev-setup.md): `cargo test -p pixelforge-kernel`, `cargo test -p pixelforge-cli`, `python3 examples/game-pack-zombie/validate.py` (`validate-atlas --strict` on the committed sheets, plus `project validate`), `python3 examples/base-tiles/validate.py`, and `python3 examples/lighthouse-outpost/validate.py`. A new feature needs a test or gate that this workflow runs. The workflow does not deploy a service. Prebuilt packages are a separate Release workflow on version tags. They do not replace these tests.*
+## License
 
-## 许可证 License
-
-代码以 **MIT OR Apache-2.0** 双许可发布，任选其一即可：全文见 [LICENSE-MIT](LICENSE-MIT) 与 [LICENSE-APACHE](LICENSE-APACHE)，说明见 [LICENSE](LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。
-
-`examples/` 下的示例美术素材采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)，且为 AI 辅助生成；详见 [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md)。
-
-除非另有声明，提交到本仓库的贡献按上述代码双许可（MIT OR Apache-2.0）授权。
-
-第三方依赖已核对，许可证与本仓库的双许可再分发兼容，没有 copyleft 冲突。记录见 [docs/licensing.md](docs/licensing.md)。
-
-*Code is dual-licensed under **MIT OR Apache-2.0**, at your option: [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE); see [LICENSE](LICENSE). Copyright © 2026 PixelForge contributors / starcloud530.*
-
-*Example art assets under `examples/` are [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and AI-assisted; see [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md).*
-
-*Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this repository is dual-licensed as above (MIT OR Apache-2.0), without additional terms.*
-
-*Third-party dependencies were checked. Their licenses are compatible with redistributing this repository under MIT OR Apache-2.0, and there is no copyleft conflict. Notes: [docs/licensing.md](docs/licensing.md).*
+Code: **MIT OR Apache-2.0** ([LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).  
+Example art under `examples/`: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md).  
+Dependency notes: [docs/licensing.md](docs/licensing.md).

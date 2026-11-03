@@ -1,0 +1,100 @@
+# PixelForge docs — MkDocs Material → GitHub Pages
+# Local: pip install -r requirements-docs.txt && mkdocs serve
+# Site URL after Pages is enabled: https://starcloud530.github.io/pixelforge-ai/
+
+site_name: PixelForge
+site_description: AI-native true-pixel CLI and studio. Agents drive the local pixelforge CLI on a real indexed grid.
+site_url: https://starcloud530.github.io/pixelforge-ai/
+site_author: PixelForge contributors
+
+repo_name: starcloud530/pixelforge-ai
+repo_url: https://github.com/starcloud530/pixelforge-ai
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/starcloud530/pixelforge-ai
+    - icon: fontawesome/solid/box-open
+      link: https://github.com/starcloud530/pixelforge-ai/releases
+
+# Existing docs link to repo paths outside docs/ (skills, examples, LICENSE).
+# Those stay valid on GitHub; Pages only ships docs/*.md.
+validation:
+  nav:
+    omitted_files: ignore
+    not_found: ignore
+    absolute_links: ignore
+  links:
+    not_found: ignore
+    absolute_links: ignore
+    unrecognized_links: ignore
+    anchors: ignore
+
+nav:
+  - Home: index.md
+  - Install & quick start: install.md
+  - Agent skill: agent-skill.md
+  - Tool API: tool-api.md
+  - Export: export.md
+  - Project manifest: project-manifest.md
+  - Tech stack: tech-stack.md
+  - Known limits: known-limits.md
+  - AI driver (web demo): ai-driver.md
+  - Dev setup: dev-setup.md
+  - Licensing: licensing.md
+  - Vision: vision.md
+  - Trials:
+      - Lighthouse tilemap: trials/111-lighthouse-tilemap.md
