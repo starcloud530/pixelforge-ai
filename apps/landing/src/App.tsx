@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { assets, links } from "./assets";
+import { assets, links, mediaFor } from "./assets";
 import { copy, type Copy, type Lang, readStoredLang, storeLang } from "./i18n";
 
 function applyDocumentMeta(lang: Lang): void {
   const t = copy[lang];
+  const media = mediaFor(lang);
   document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
   document.title = t.metaTitle;
 
@@ -12,7 +13,6 @@ function applyDocumentMeta(lang: Lang): void {
     description.setAttribute("content", t.metaDescription);
   }
 
-  // Share cards stay on the EN OG art unless locale-specific art exists on CDN.
   const ogTitle = document.querySelector('meta[property="og:title"]');
   if (ogTitle) {
     ogTitle.setAttribute("content", `PixelForge — ${t.brandTagline}`);
@@ -21,6 +21,11 @@ function applyDocumentMeta(lang: Lang): void {
   const ogDescription = document.querySelector('meta[property="og:description"]');
   if (ogDescription) {
     ogDescription.setAttribute("content", t.metaDescription);
+  }
+
+  const ogImage = document.querySelector('meta[property="og:image"]');
+  if (ogImage) {
+    ogImage.setAttribute("content", media.og);
   }
 
   const twitterTitle = document.querySelector('meta[name="twitter:title"]');
@@ -32,6 +37,11 @@ function applyDocumentMeta(lang: Lang): void {
   if (twitterDescription) {
     twitterDescription.setAttribute("content", t.metaDescription);
   }
+
+  const twitterImage = document.querySelector('meta[name="twitter:image"]');
+  if (twitterImage) {
+    twitterImage.setAttribute("content", media.og);
+  }
 }
 
 function initialLang(): Lang {
@@ -41,6 +51,7 @@ function initialLang(): Lang {
 export function App() {
   const [lang, setLang] = useState<Lang>(initialLang);
   const t = copy[lang];
+  const media = mediaFor(lang);
 
   useEffect(() => {
     applyDocumentMeta(lang);
@@ -76,10 +87,10 @@ export function App() {
       </header>
 
       <main id="main" className="flex flex-col gap-20">
-        <Hero t={t} lang={lang} />
-        <DemoStrip t={t} lang={lang} />
-        <Comparison t={t} lang={lang} />
-        <VideoBlock t={t} lang={lang} />
+        <Hero t={t} media={media} />
+        <DemoStrip t={t} lang={lang} media={media} />
+        <Comparison t={t} media={media} />
+        <VideoBlock t={t} media={media} />
         <Status t={t} />
       </main>
 
@@ -131,87 +142,86 @@ function LangButton({
   );
 }
 
-/**
- * Hero visual is always pixel-only walk media next to localized DOM copy.
- * `hero-en-*` composites bake English slogans — never use them beside ZH DOM text.
- * TODO(cdn): when `hero-zh-*` lands under marketing/v1/, prefer those for `lang === "zh"`.
- */
-function Hero({ t, lang }: { t: Copy; lang: Lang }) {
-  // TODO(cdn): when marketing/v1/hero-zh-* exists, prefer those for zh.
-  // Never use hero-en-* for zh — they bake English slogans into the frame.
-  const unlabeled = lang === "zh";
+type LocaleMedia = ReturnType<typeof mediaFor>;
 
+/**
+ * Locale hero composites already include headline / benefits art.
+ * Keep a compact DOM layer for real CTAs, SEO heading, and screen readers.
+ */
+function Hero({ t, media }: { t: Copy; media: LocaleMedia }) {
   return (
-    <section
-      className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12"
-      aria-labelledby="hero-heading"
-    >
-      <div>
-        <p className="mb-3 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
+    <section aria-labelledby="hero-heading" className="space-y-6">
+      <div className="max-w-3xl">
+        <p className="mb-2 font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-accent">
           {t.heroEyebrow}
         </p>
-        <div className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3 sm:p-4">
-          <div className="flex aspect-[5/4] items-center justify-center overflow-hidden rounded-xl bg-ink px-2 sm:aspect-[4/3]">
-            <WalkStrip alt={t.heroVisualAlt} unlabeled={unlabeled} className="w-full max-w-md" />
-          </div>
-          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.16em] text-accent">
-            {t.heroMeta}
-          </p>
-        </div>
-      </div>
-
-      <div>
         <h1
           id="hero-heading"
-          className="max-w-xl text-4xl font-semibold leading-[1.12] tracking-tight text-cream sm:text-5xl"
+          className="text-3xl font-semibold leading-[1.15] tracking-tight text-cream sm:text-4xl"
         >
           {t.headline}
         </h1>
-        <p className="mt-5 max-w-xl text-base leading-relaxed text-cream-muted sm:text-lg">
-          {t.subheading}
-        </p>
-
-        <ol className="mt-8 space-y-5">
-          {t.benefits.map((benefit, index) => (
-            <li key={benefit.title} className="max-w-xl">
-              <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-accent">
-                {String(index + 1).padStart(2, "0")} / {benefit.title}
-              </p>
-              <p className="mt-1 text-sm leading-relaxed text-cream-muted sm:text-base">
-                {benefit.body}
-              </p>
-            </li>
-          ))}
-        </ol>
-
-        <nav
-          className="mt-9 flex flex-wrap items-center gap-x-3 gap-y-2 text-base font-medium text-cream"
-          aria-label="Primary"
-        >
-          <a className="underline-offset-4 hover:text-accent hover:underline" href={links.install}>
-            {t.ctaInstall}
-          </a>
-          <span className="text-cream-dim" aria-hidden="true">
-            /
-          </span>
-          <a className="underline-offset-4 hover:text-accent hover:underline" href={links.docs}>
-            {t.ctaDocs}
-          </a>
-          <span className="text-cream-dim" aria-hidden="true">
-            /
-          </span>
-          <a className="underline-offset-4 hover:text-accent hover:underline" href={links.github}>
-            {t.ctaGitHub}
-          </a>
-        </nav>
+        <p className="mt-3 text-base leading-relaxed text-cream-muted sm:text-lg">{t.subheading}</p>
       </div>
+
+      <div className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-2 sm:p-3">
+        <picture>
+          <source srcSet={media.heroStatic} media="(prefers-reduced-motion: reduce)" />
+          <img
+            src={media.heroAnimated}
+            alt={t.heroVisualAlt}
+            width={1600}
+            height={820}
+            className="h-auto w-full rounded-xl"
+            decoding="async"
+          />
+        </picture>
+      </div>
+
+      <ol className="grid gap-4 sm:grid-cols-3">
+        {t.benefits.map((benefit, index) => (
+          <li key={benefit.title} className="max-w-xl">
+            <p className="font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-accent">
+              {String(index + 1).padStart(2, "0")} / {benefit.title}
+            </p>
+            <p className="mt-1 text-sm leading-relaxed text-cream-muted">{benefit.body}</p>
+          </li>
+        ))}
+      </ol>
+
+      <nav
+        className="flex flex-wrap items-center gap-x-3 gap-y-2 text-base font-medium text-cream"
+        aria-label="Primary"
+      >
+        <a className="underline-offset-4 hover:text-accent hover:underline" href={links.install}>
+          {t.ctaInstall}
+        </a>
+        <span className="text-cream-dim" aria-hidden="true">
+          /
+        </span>
+        <a className="underline-offset-4 hover:text-accent hover:underline" href={links.docs}>
+          {t.ctaDocs}
+        </a>
+        <span className="text-cream-dim" aria-hidden="true">
+          /
+        </span>
+        <a className="underline-offset-4 hover:text-accent hover:underline" href={links.github}>
+          {t.ctaGitHub}
+        </a>
+      </nav>
     </section>
   );
 }
 
-function DemoStrip({ t, lang }: { t: Copy; lang: Lang }) {
-  const textHeavyEnMedia = lang === "en";
-
+function DemoStrip({
+  t,
+  lang,
+  media,
+}: {
+  t: Copy;
+  lang: Lang;
+  media: LocaleMedia;
+}) {
   return (
     <section aria-labelledby="demo-heading" className="space-y-6">
       <div className="max-w-3xl">
@@ -231,7 +241,7 @@ function DemoStrip({ t, lang }: { t: Copy; lang: Lang }) {
           />
         </figure>
 
-        {textHeavyEnMedia ? (
+        {lang === "en" ? (
           <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3 md:col-span-2">
             <img
               src={assets.propsPreview}
@@ -259,57 +269,37 @@ function DemoStrip({ t, lang }: { t: Copy; lang: Lang }) {
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-cream-dim">{t.propsAlt}</p>
           </figure>
         )}
       </div>
 
-      {textHeavyEnMedia ? (
-        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3">
-          <div className="grid gap-3 md:grid-cols-[1.4fr_1fr] md:items-center">
-            <img
-              src={assets.localEditingStrip}
-              alt={t.localEditAlt}
-              width={1400}
-              height={510}
-              className="h-auto w-full"
-              loading="lazy"
-              decoding="async"
-            />
-            <div>
-              <CroppedLocalPreview alt={t.localEditAlt} />
-              <p className="mt-3 text-sm leading-relaxed text-cream-muted">{t.localEditCaption}</p>
-            </div>
-          </div>
-        </figure>
-      ) : (
-        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-4">
-          <div className="grid gap-6 md:grid-cols-[minmax(0,280px)_1fr] md:items-center">
+      <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-3">
+        <div className="grid gap-3 md:grid-cols-[1.4fr_1fr] md:items-center">
+          <img
+            src={media.localEditingStrip}
+            alt={t.localEditAlt}
+            width={1400}
+            height={510}
+            className="h-auto w-full"
+            loading="lazy"
+            decoding="async"
+          />
+          <div>
             <CroppedLocalPreview alt={t.localEditAlt} />
-            <div>
-              <ol className="grid gap-2 sm:grid-cols-2">
-                {t.localEditSteps.map((step, index) => (
-                  <li key={step} className="text-sm text-cream-muted">
-                    <span className="font-mono text-[11px] text-accent">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>{" "}
-                    {step}
-                  </li>
-                ))}
-              </ol>
-              <p className="mt-4 text-sm leading-relaxed text-cream-muted">{t.localEditCaption}</p>
+            <p className="mt-3 text-sm leading-relaxed text-cream-muted">{t.localEditCaption}</p>
+            {lang === "zh" ? (
               <p className="mt-2 text-xs leading-relaxed text-cream-dim">{t.localEditNote}</p>
-            </div>
+            ) : null}
           </div>
-        </figure>
-      )}
+        </div>
+      </figure>
     </section>
   );
 }
 
 /**
  * Walk GIF is 1024×352 with English title + SOUTH/WEST/EAST/NORTH labels.
- * Crop to the sprite band (~y 63–274) when unlabeled media is required (ZH).
+ * Crop to the sprite band (~y 63–274) for ZH so demo strip stays unlabeled.
  */
 function WalkStrip({
   alt,
@@ -369,7 +359,7 @@ function CroppedLocalPreview({ alt }: { alt: string }) {
   );
 }
 
-function Comparison({ t, lang }: { t: Copy; lang: Lang }) {
+function Comparison({ t, media }: { t: Copy; media: LocaleMedia }) {
   return (
     <section aria-labelledby="comparison-heading" className="space-y-5">
       <div className="max-w-3xl">
@@ -381,56 +371,23 @@ function Comparison({ t, lang }: { t: Copy; lang: Lang }) {
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-cream-dim sm:text-base">{t.comparisonDisclaimer}</p>
       </div>
-
-      {lang === "en" ? (
-        <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-2 sm:p-3">
-          <img
-            src={assets.gridComparison}
-            alt={t.comparisonAlt}
-            width={1400}
-            height={640}
-            className="h-auto w-full"
-            loading="lazy"
-            decoding="async"
-          />
-          <figcaption className="sr-only">{t.comparisonDisclaimer}</figcaption>
-        </figure>
-      ) : (
-        <IllustrativeCompare t={t} />
-      )}
+      <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-2 sm:p-3">
+        <img
+          src={media.gridComparison}
+          alt={t.comparisonAlt}
+          width={1400}
+          height={640}
+          className="h-auto w-full"
+          loading="lazy"
+          decoding="async"
+        />
+        <figcaption className="sr-only">{t.comparisonDisclaimer}</figcaption>
+      </figure>
     </section>
   );
 }
 
-/** Locale-safe soft vs nearest demo built in the DOM — not a model/conversion benchmark. */
-function IllustrativeCompare({ t }: { t: Copy }) {
-  return (
-    <figure className="overflow-hidden rounded-2xl border border-white/8 bg-ink-panel p-4 sm:p-6">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-xl border border-white/8 bg-ink p-4">
-          <div className="overflow-hidden rounded-lg" style={{ filter: "blur(1.6px)" }}>
-            <WalkStrip alt="" unlabeled className="w-full" loading="lazy" />
-          </div>
-          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-cream-dim">
-            {t.softLabel}
-          </p>
-        </div>
-        <div className="rounded-xl border border-white/8 bg-ink p-4">
-          <WalkStrip alt="" unlabeled className="w-full" loading="lazy" />
-          <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.14em] text-accent">
-            {t.nearestLabel}
-          </p>
-        </div>
-      </div>
-      <figcaption className="mt-4 text-sm text-cream-muted">{t.comparisonAlt}</figcaption>
-    </figure>
-  );
-}
-
-function VideoBlock({ t, lang }: { t: Copy; lang: Lang }) {
-  // EN poster bakes English marketing copy; ZH plays without that poster.
-  const poster = lang === "en" ? assets.localEditingPoster : undefined;
-
+function VideoBlock({ t, media }: { t: Copy; media: LocaleMedia }) {
   return (
     <section aria-labelledby="video-heading" className="space-y-5">
       <div className="max-w-3xl">
@@ -444,7 +401,7 @@ function VideoBlock({ t, lang }: { t: Copy; lang: Lang }) {
           className="aspect-video h-auto w-full rounded-xl bg-ink"
           controls
           preload="metadata"
-          poster={poster}
+          poster={media.localEditingPoster}
           playsInline
         >
           <source src={assets.localEditingVideo} type="video/mp4" />
