@@ -187,9 +187,9 @@ Linux 源码构建需要系统链接器（`build-essential` 或等价的 gcc）�
 
 ## Agent Skills
 
-Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。Skill 补观改流程，不代替专业画师的审美。命令速查在 [docs/agent-skill.md](docs/agent-skill.md)。本仓库不把同一份正文复制到 `.agents/skills/` 或 `.claude/skills/`；Codex 与 Claude Code 从 `AGENTS.md` / `CLAUDE.md` 打开这些文件。外部 Agent 用 CLI 时的真实任务评测约定（轨迹、交付物、机判与人工分分开；运行器后续补）见 [eval/README.md](eval/README.md)。
+Cursor 进仓库后按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。Skill 补观改流程，不代替专业画师的审美。命令速查在 [docs/agent-skill.md](docs/agent-skill.md)。本仓库不把同一份正文复制到 `.agents/skills/` 或 `.claude/skills/`；Codex 与 Claude Code 从 `AGENTS.md` / `CLAUDE.md` 打开这些文件。可重放案例与真实任务评测（含 `eval/tasks` 约定）在关联仓 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)；本仓不落地 `eval/` 树。
 
-*Cursor matches `description` under `.cursor/skills/<name>/SKILL.md`. Creative skills follow the `pixelforge` invariants first. Skills add a look-then-revise loop; they do not replace a pixel artist's judgment. Command reference: [docs/agent-skill.md](docs/agent-skill.md). Conventions for real-task eval of external agents on the CLI (trajectory, deliverables, machine vs human scores; runner later): [eval/README.md](eval/README.md). There is no second copy under `.agents/skills/` or `.claude/skills/`.*
+*Cursor matches `description` under `.cursor/skills/<name>/SKILL.md`. Creative skills follow the `pixelforge` invariants first. Skills add a look-then-revise loop; they do not replace a pixel artist's judgment. Command reference: [docs/agent-skill.md](docs/agent-skill.md). Replayable demos and real-task eval (including `eval/tasks`) live in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos); this repository does not ship an `eval/` tree. There is no second copy under `.agents/skills/` or `.claude/skills/`.*
 
 | Skill | 说明 |
 | --- | --- |

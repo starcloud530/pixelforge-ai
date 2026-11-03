@@ -10,4 +10,3 @@ crates/pixelforge-kernel-wasm/pkg-node
 *.log
 .pnpm-debug.log*
 .vite
-eval/runs/
