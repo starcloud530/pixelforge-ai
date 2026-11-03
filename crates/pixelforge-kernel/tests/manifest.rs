@@ -193,7 +193,7 @@ fn load_refuses_unknown_fields_bad_version_and_paths() {
 #[test]
 fn zombie_pack_manifest_matches_the_writer() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples/game-pack-zombie/pixelforge.manifest.json");
+        .join("tests/fixtures/game-pack-zombie/pixelforge.manifest.json");
     let text = fs::read_to_string(&path).expect("example manifest");
     let manifest = ArtManifest::load(&text).expect("load example");
     assert_eq!(manifest.save(), text);

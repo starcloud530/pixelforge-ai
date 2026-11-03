@@ -1,8 +1,8 @@
 # 依赖许可证 Dependency licenses
 
-本仓库代码以 **MIT OR Apache-2.0** 双许可发布，全文在 [`LICENSE-MIT`](../LICENSE-MIT) 与 [`LICENSE-APACHE`](../LICENSE-APACHE)，说明见 [`LICENSE`](../LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。`examples/` 下示例美术素材另见 [`examples/LICENSE-ASSETS.md`](../examples/LICENSE-ASSETS.md)（CC BY 4.0，AI 辅助生成）。
+本仓库代码以 **MIT OR Apache-2.0** 双许可发布，全文在 [`LICENSE-MIT`](../LICENSE-MIT) 与 [`LICENSE-APACHE`](../LICENSE-APACHE)，说明见 [`LICENSE`](../LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。`pixelforge-demos` 下示例美术素材另见 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) 内的 `LICENSE-ASSETS.md`（CC BY 4.0，AI 辅助生成）。
 
-*This repository’s code is dual-licensed MIT OR Apache-2.0. Texts: [`LICENSE-MIT`](../LICENSE-MIT), [`LICENSE-APACHE`](../LICENSE-APACHE); see [`LICENSE`](../LICENSE). Copyright © 2026 PixelForge contributors / starcloud530. Example art under `examples/` is covered by [`examples/LICENSE-ASSETS.md`](../examples/LICENSE-ASSETS.md) (CC BY 4.0, AI-assisted).*
+*This repository’s code is dual-licensed MIT OR Apache-2.0. Texts: [`LICENSE-MIT`](../LICENSE-MIT), [`LICENSE-APACHE`](../LICENSE-APACHE); see [`LICENSE`](../LICENSE). Copyright © 2026 PixelForge contributors / starcloud530. Example art in the companion demos repo is covered by `LICENSE-ASSETS.md` in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (CC BY 4.0, AI-assisted).*
 
 ## 结论
 

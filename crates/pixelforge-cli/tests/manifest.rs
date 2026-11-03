@@ -297,7 +297,7 @@ fn call_dispatches_manifest_tools_and_refuses_pixels() {
 
 #[test]
 fn game_pack_zombie_manifest_passes_validate() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-pack-zombie");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/game-pack-zombie");
     let manifest = root.join("pixelforge.manifest.json");
     let output = pixelforge(&[
         "project",
@@ -346,7 +346,7 @@ fn game_pack_zombie_manifest_passes_validate() {
 
 #[test]
 fn game_pack_zombie_character_matrix_passes_and_a_missing_tag_fails_check() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-pack-zombie");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/game-pack-zombie");
     let manifest = root.join("pixelforge.manifest.json");
     let passed = pixelforge(&[
         "character",

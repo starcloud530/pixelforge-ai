@@ -145,29 +145,29 @@ pixelforge validate-atlas --atlas hero-sheet.json --rules pack-rules.json
 
 1. `export sheet --atlas` 写出 PNG 和这份 atlas。
 2. 先跑 `validate-atlas`。清单里的 error 回到 PixelForge 改：补标签、把矩形放回格子、换成 64/96/128 画布、改四向名字、擦掉空位上的不透明像素、用规则里的 `pivot` 把各帧着地点对齐。然后重新导出。本命令不自动修图。
-3. 退出码是 0 之后，同一对 PNG 和 atlas 才送进游戏。过滤、最近点采样、动画有没有接到 `idle_*` / `walk_*`、引擎 pivot 和规则是不是同一点，这些游戏侧失败记在 #18。退出码 0，以及 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。画面好不好看、引擎里有没有接上，都不在这次检查里。和精修、旋转、IK 一起写在 [known-limits.md](known-limits.md)。
+3. 退出码是 0 之后，同一对 PNG 和 atlas 才送进游戏。过滤、最近点采样、动画有没有接到 `idle_*` / `walk_*`、引擎 pivot 和规则是不是同一点，这些游戏侧失败记在 #18。退出码 0，以及 `the pack validate script in pixelforge-demos (when published)` 通过，只说明清单里没有 error。画面好不好看、引擎里有没有接上，都不在这次检查里。和精修、旋转、IK 一起写在 [known-limits.md](known-limits.md)。
 
 静态道具可以在规则里把 `sizes` 放宽（例如加上 32），`tagPolicy` 设为 `optional`，`fourDirection` 设为 `off`，并用 `pivot` 写上引擎原点。四向角色用默认 strict。
 
-*Run `validate-atlas` after `export sheet --atlas` and before the sheet is imported. It reads the same `pixelforge-atlas` version 1 object and does not edit pixels or invent a second format. Exit 0 means no errors. Exit 1 means the checklist has an error. Warnings alone stay exit 0 in both modes. `--loose` downgrades canvas tier, four-direction names, an empty tag list, the image file name, delay range, and pivot drift. Overlap, out-of-bounds frames, a broken grid, and opaque padding stay errors. Canvas edges are `frameWidth / scale` and `frameHeight / scale`, defaulting to 64, 96, and 128. Pivot is checked only when the atlas or the rules file already has one. This is the tool-side gate in front of #18: fix those errors in PixelForge and re-export, then let the game record whatever it still rejects. Exit 0, including `examples/game-pack-zombie/validate.py`, means the checklist has no error. It does not accept the picture, and it does not mean the engine import is done. Polish, rotation, IK, and this check are in [known-limits.md](known-limits.md).*
+*Run `validate-atlas` after `export sheet --atlas` and before the sheet is imported. It reads the same `pixelforge-atlas` version 1 object and does not edit pixels or invent a second format. Exit 0 means no errors. Exit 1 means the checklist has an error. Warnings alone stay exit 0 in both modes. `--loose` downgrades canvas tier, four-direction names, an empty tag list, the image file name, delay range, and pivot drift. Overlap, out-of-bounds frames, a broken grid, and opaque padding stay errors. Canvas edges are `frameWidth / scale` and `frameHeight / scale`, defaulting to 64, 96, and 128. Pivot is checked only when the atlas or the rules file already has one. This is the tool-side gate in front of #18: fix those errors in PixelForge and re-export, then let the game record whatever it still rejects. Exit 0, including `the pack validate script in pixelforge-demos (when published)`, means the checklist has no error. It does not accept the picture, and it does not mean the engine import is done. Polish, rotation, IK, and this check are in [known-limits.md](known-limits.md).*
 
 ### 本仓库的 #18 包
 
-[examples/game-pack-zombie](../examples/game-pack-zombie/README.md) 是上面三步的一份结果，不是游戏工程。丧尸是 64×64、四行朝向的 idle + walk。据点道具是路障、木箱、发电机、医疗箱，规则里 `fourDirection` 为 `off`、`tagPolicy` 为 `optional`。
+[pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) 是上面三步的一份结果，不是游戏工程。丧尸是 64×64、四行朝向的 idle + walk。据点道具是路障、木箱、发电机、医疗箱，规则里 `fourDirection` 为 `off`、`tagPolicy` 为 `optional`。
 
 ```bash
-python3 examples/game-pack-zombie/build.py
-pixelforge export sheet --project examples/game-pack-zombie/zombie/zombie.json \
-  --output examples/game-pack-zombie/zombie/zombie-sheet.png --cols 4 \
-  --atlas examples/game-pack-zombie/zombie/zombie-sheet.json
-pixelforge validate-atlas --atlas examples/game-pack-zombie/zombie/zombie-sheet.json \
-  --rules examples/game-pack-zombie/zombie/zombie-rules.json --strict
-python3 examples/game-pack-zombie/validate.py
+python3 pixelforge-demos/build.py
+pixelforge export sheet --project pixelforge-demos/zombie/zombie.json \
+  --output pixelforge-demos/zombie/zombie-sheet.png --cols 4 \
+  --atlas pixelforge-demos/zombie/zombie-sheet.json
+pixelforge validate-atlas --atlas pixelforge-demos/zombie/zombie-sheet.json \
+  --rules pixelforge-demos/zombie/zombie-rules.json --strict
+python3 the pack validate script in pixelforge-demos (when published)
 ```
 
-道具把路径里的 `zombie` 换成 `props`。`validate.py` 和 `cargo test -p pixelforge-cli game_pack_zombie` 都要求 strict 退出码 0。失败模式、以及 Godot / Unity 仍要手接的过滤、轴心和 `idle_*` / `walk_*`，写在 [FAILURES.md](../examples/game-pack-zombie/FAILURES.md)。下面两节是那份清单用的导入约定。
+道具把路径里的 `zombie` 换成 `props`。`validate.py` 和 `cargo test -p pixelforge-cli game_pack_zombie` 都要求 strict 退出码 0。失败模式、以及 Godot / Unity 仍要手接的过滤、轴心和 `idle_*` / `walk_*`，写在 [FAILURES.md](../[pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) FAILURES notes (when published))。下面两节是那份清单用的导入约定。
 
-*The worked #18 pack is [examples/game-pack-zombie](../examples/game-pack-zombie/README.md). `validate.py` re-runs the strict gate. Godot and Unity import steps below are what the pack's failure log still has to do by hand.*
+*The worked #18 pack is [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). `validate.py` re-runs the strict gate. Godot and Unity import steps below are what the pack's failure log still has to do by hand.*
 
 ## Godot 4
 
@@ -199,6 +199,6 @@ python3 examples/game-pack-zombie/validate.py
 
 `pixelforge export tileset` 写出图块 PNG 和 `pixelforge-tileset` JSON。`pixelforge export tilemap` 写出整张预览 PNG 和 Tiled 能打开的正交 `.tmj`。两条命令的 `--cols` 和 `--scale` 要相同，`.tmj` 里的 `image` 是 PNG 文件名。把 `base.tmj` 和 `tiles.png` 放在同一目录，用 Tiled 打开 `.tmj`。空格的 GID 是 0。tile id 0 的 GID 是 1。水平翻转是 GID 的 `0x80000000`，垂直翻转是 `0x40000000`。
 
-这一版只有一张图块集、四邻接 16 掩码。没有 8 邻接，也没有对角翻转。例子是 [examples/base-tiles](../examples/base-tiles/README.md)。把这份导出放进一个可跑的页面，见 [examples/lighthouse-outpost](../examples/lighthouse-outpost/README.md) 和 [docs/trials/111-lighthouse-tilemap.md](trials/111-lighthouse-tilemap.md)。
+这一版只有一张图块集、四邻接 16 掩码。没有 8 邻接，也没有对角翻转。例子是 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demosREADME.md)。把这份导出放进一个可跑的页面，见 [pixelforge-demos](../pixelforge-demos/README.md) 和 [docs/trials/111-lighthouse-tilemap.md](trials/111-lighthouse-tilemap.md)。
 
-* `pixelforge export tileset` writes the tileset PNG and `pixelforge-tileset` JSON. `pixelforge export tilemap` writes a preview PNG and an orthogonal `.tmj` Tiled can open. Use the same `--cols` and `--scale` on both commands. The `.tmj` `image` is the PNG file name. Keep `base.tmj` and `tiles.png` in one directory and open the `.tmj` in Tiled. An empty cell is GID 0. Tile id 0 is GID 1. Horizontal flip is `0x80000000` on the GID. Vertical flip is `0x40000000`. This version is one tileset and the 16 four-neighbor masks. There is no 8-neighbor autotile and no diagonal flip. The example is [examples/base-tiles](../examples/base-tiles/README.md). A page that loads that export is [examples/lighthouse-outpost](../examples/lighthouse-outpost/README.md), with the trial note in [docs/trials/111-lighthouse-tilemap.md](trials/111-lighthouse-tilemap.md).*
+* `pixelforge export tileset` writes the tileset PNG and `pixelforge-tileset` JSON. `pixelforge export tilemap` writes a preview PNG and an orthogonal `.tmj` Tiled can open. Use the same `--cols` and `--scale` on both commands. The `.tmj` `image` is the PNG file name. Keep `base.tmj` and `tiles.png` in one directory and open the `.tmj` in Tiled. An empty cell is GID 0. Tile id 0 is GID 1. Horizontal flip is `0x80000000` on the GID. Vertical flip is `0x40000000`. This version is one tileset and the 16 four-neighbor masks. There is no 8-neighbor autotile and no diagonal flip. The example is [pixelforge-demos](https://github.com/starcloud530/pixelforge-demosREADME.md). A page that loads that export is [pixelforge-demos](../pixelforge-demos/README.md), with the trial note in [docs/trials/111-lighthouse-tilemap.md](trials/111-lighthouse-tilemap.md).*

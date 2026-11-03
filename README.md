@@ -107,8 +107,7 @@ CDN (do not commit large media into git):
 - [Seven-stage timeline](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
 - [Sheet assembly video](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
 
-In-repo light examples: [`examples/game-pack-zombie/`](examples/game-pack-zombie/), [`examples/lighthouse-outpost/`](examples/lighthouse-outpost/).  
-Companion demos / eval packs: [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (may still be private — use when you have access).
+Replayable demos / eval packs live in the companion repo [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (private for now). Do **not** add an `examples/` tree to this repository.
 
 ## Development
 
@@ -117,11 +116,10 @@ Prebuilt users can skip this. Source / web shell / CI: [dev-setup](https://starc
 ```bash
 cargo test -p pixelforge-kernel
 cargo test -p pixelforge-cli
-python3 examples/game-pack-zombie/validate.py
 ```
 
 ## License
 
 Code: **MIT OR Apache-2.0** ([LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).  
-Example art under `examples/`: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md).  
+Demo / eval art licenses are declared in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos).  
 Dependency notes: [docs/licensing.md](docs/licensing.md).

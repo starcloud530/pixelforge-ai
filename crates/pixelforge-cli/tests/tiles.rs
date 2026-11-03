@@ -302,7 +302,7 @@ fn tileset_autotile_and_tmj_round_trip() {
 
 #[test]
 fn base_tiles_example_passes_validate_tiles() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/base-tiles");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/base-tiles");
     let output = pixelforge(&[
         "validate-tiles",
         "--project",

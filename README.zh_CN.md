@@ -107,8 +107,7 @@ CDN（大媒体不要提交进 git）：
 - [七阶段时间线](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
 - [Sheet 组装短片](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
 
-本仓轻量样例：[`examples/game-pack-zombie/`](examples/game-pack-zombie/)、[`examples/lighthouse-outpost/`](examples/lighthouse-outpost/)。  
-配套演示 / 评测仓：[pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)（可能仍为私有——有权限时再打开）。
+配套演示 / 评测仓：[pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)（可能仍为私有——有权限时再打开）。**不要**在本仓再加 `examples/`。
 
 ## 开发
 
@@ -117,11 +116,9 @@ CDN（大媒体不要提交进 git）：
 ```bash
 cargo test -p pixelforge-kernel
 cargo test -p pixelforge-cli
-python3 examples/game-pack-zombie/validate.py
 ```
 
 ## 许可证
 
 代码：**MIT OR Apache-2.0**（[LICENSE](LICENSE)、[LICENSE-MIT](LICENSE-MIT)、[LICENSE-APACHE](LICENSE-APACHE)）。  
-`examples/` 示例美术：[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) — [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md)。  
 依赖核对：[docs/licensing.md](docs/licensing.md)。

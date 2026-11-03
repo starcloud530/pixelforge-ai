@@ -3646,7 +3646,7 @@ fn soldier_raise_gun_script_bakes_editable_frames() {
     let scratch = Scratch::new();
     let project = scratch.child("soldier.json");
     let script =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/soldier-raise-gun.py");
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/soldier-raise-gun.py");
     let output = Command::new("python3")
         .arg(&script)
         .arg(&project)
@@ -3693,7 +3693,7 @@ fn soldier_raise_gun_script_bakes_editable_frames() {
 fn soldier_walk_script_plants_feet_before_the_step() {
     let scratch = Scratch::new();
     let project = scratch.child("soldier.json");
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/soldier-walk.py");
+    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/soldier-walk.py");
     let output = Command::new("python3")
         .arg(&script)
         .arg(&project)
@@ -4331,7 +4331,7 @@ fn validate_atlas_reports_pass_fail_and_warning() {
 /// The committed #18 pack must keep passing strict validate-atlas.
 #[test]
 fn game_pack_zombie_sheets_pass_strict_validate_atlas() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-pack-zombie");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/game-pack-zombie");
     let cases = [
         ("zombie/zombie-sheet.json", None, "skipped", true),
         (
@@ -4377,7 +4377,7 @@ fn game_pack_zombie_sheets_pass_strict_validate_atlas() {
 /// The committed zombie walker must pass the hard direction gate.
 #[test]
 fn game_pack_zombie_directions_pass_and_a_missing_walk_fails() {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/game-pack-zombie");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/game-pack-zombie");
     let project = root.join("zombie/zombie.json");
     let passed = pixelforge(&[
         "direction".to_string(),
@@ -4421,7 +4421,7 @@ fn game_pack_zombie_directions_pass_and_a_missing_walk_fails() {
 
 /// Paint one side, mirror and copy the other cardinals, then the hard gate passes.
 ///
-/// The commands match `examples/direction-fill/README.md`.
+/// The commands match `tests/fixtures/direction-fill/README.md`.
 #[test]
 fn direction_fill_from_one_side_then_validate_passes() {
     let scratch = Scratch::new();

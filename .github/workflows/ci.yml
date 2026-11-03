@@ -45,13 +45,3 @@ jobs:
       - name: Core tests (pixelforge-cli)
         run: cargo test -p pixelforge-cli
 
-      - name: Export gate (game-pack-zombie)
-        run: |
-          cargo build -p pixelforge-cli
-          python3 examples/game-pack-zombie/validate.py
-
-      - name: Tile gate (base-tiles)
-        run: python3 examples/base-tiles/validate.py
-
-      - name: Lighthouse outpost trial (111)
-        run: python3 examples/lighthouse-outpost/validate.py

@@ -1,0 +1,153 @@
+{
+  "assetRoot": ".",
+  "assets": [
+    {
+      "id": "zombie",
+      "kind": "character",
+      "path": "zombie/zombie.json",
+      "produces": [
+        "zombie.idle",
+        "zombie.walk",
+        "zombie.sheet"
+      ]
+    },
+    {
+      "dependsOn": [
+        "zombie"
+      ],
+      "id": "zombie.idle",
+      "kind": "clip",
+      "owner": "zombie",
+      "path": "zombie/zombie.json",
+      "tags": [
+        "idle_down",
+        "idle_left",
+        "idle_right",
+        "idle_up"
+      ]
+    },
+    {
+      "dependsOn": [
+        "zombie"
+      ],
+      "id": "zombie.walk",
+      "kind": "clip",
+      "owner": "zombie",
+      "path": "zombie/zombie.json",
+      "tags": [
+        "walk_down",
+        "walk_left",
+        "walk_right",
+        "walk_up"
+      ]
+    },
+    {
+      "dependsOn": [
+        "zombie"
+      ],
+      "id": "zombie.sheet",
+      "kind": "sheet",
+      "owner": "zombie",
+      "path": "zombie/zombie-sheet.json"
+    },
+    {
+      "id": "props",
+      "kind": "group",
+      "path": "props/props.json",
+      "produces": [
+        "props.barricade",
+        "props.crate",
+        "props.generator",
+        "props.medkit",
+        "props.sheet"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.barricade",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "barricade"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.crate",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "crate"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.generator",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "generator"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.medkit",
+      "kind": "prop",
+      "owner": "props",
+      "path": "props/props.json",
+      "tags": [
+        "medkit"
+      ]
+    },
+    {
+      "dependsOn": [
+        "props"
+      ],
+      "id": "props.sheet",
+      "kind": "sheet",
+      "owner": "props",
+      "path": "props/props-sheet.json"
+    }
+  ],
+  "canvases": [
+    {
+      "height": 64,
+      "name": "sprite",
+      "width": 64
+    }
+  ],
+  "format": "pixelforge-manifest",
+  "layout": [
+    {
+      "canvas": "sprite",
+      "dir": "zombie",
+      "kind": "character",
+      "name": "characters"
+    },
+    {
+      "canvas": "sprite",
+      "dir": "props",
+      "kind": "prop",
+      "name": "props"
+    }
+  ],
+  "name": "zombie-outpost",
+  "note": "顶视四向。角色和道具都是 64×64：角色在 zombie/，行序 down、left、right、up，列是 idle 加三帧 walk；道具在 props/。默认色板是 zombie/zombie.json 里的调色板。本文件只记项目约定，不存像素。",
+  "palette": {
+    "path": "zombie/zombie.json",
+    "ref": "zombie"
+  },
+  "perspective": "top",
+  "version": 1
+}

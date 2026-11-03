@@ -46,4 +46,4 @@ Docs site (this MkDocs tree under `/docs/`):
 
 ## License / 许可证
 
-Code: **MIT OR Apache-2.0**. Example art under `examples/`: **CC BY 4.0**. See [licensing](licensing.md).
+Code: **MIT OR Apache-2.0**. Example art in the companion demos repo: **CC BY 4.0**. See [licensing](licensing.md).

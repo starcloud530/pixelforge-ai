@@ -1669,13 +1669,13 @@ CLI：`tilemap new`、`tilemap inspect`、`tilemap get`、`tilemap set`、`tilem
 
 *Tilemap tool names are `tilemapTools` from `pixelforge tools`, not the pixel-document `tools` list. `TileMap::call_tool` uses the same envelope. `validate-tiles` accepts `--project`, `--map`, and `--rules`, at least one. A kernel error exits 1. An unreadable file exits 2.*
 
-例子：`examples/base-tiles/`。地面是 tile 0，围墙规则把 mask 映射到 tile `mask + 1`，导出 `base.tmj` 和旁边的 `tiles.png`。
+例子：the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published)。地面是 tile 0，围墙规则把 mask 映射到 tile `mask + 1`，导出 `base.tmj` 和旁边的 `tiles.png`。
 
 ## 项目清单 Project manifest
 
-项目清单是另一份文件，`format` 为 `pixelforge-manifest`，version 1。它记画布档位、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径，以及可选的资产登记。不存像素，不代替 `pixelforge-project`。字段、退出码和不做的事见 [project-manifest.md](project-manifest.md)。例子是 `examples/game-pack-zombie/pixelforge.manifest.json`，里面登记了丧尸角色、idle/walk 帧段、图集，以及四个道具。
+项目清单是另一份文件，`format` 为 `pixelforge-manifest`，version 1。它记画布档位、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径，以及可选的资产登记。不存像素，不代替 `pixelforge-project`。字段、退出码和不做的事见 [project-manifest.md](project-manifest.md)。例子是 the zombie pack manifest in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)，里面登记了丧尸角色、idle/walk 帧段、图集，以及四个道具。
 
-*A project manifest is a separate `pixelforge-manifest` version 1 file. It stores canvas tiers, perspective, directory rules, the default palette path, a short note, the asset root, and an optional asset registry. It does not store pixels and it does not replace a `pixelforge-project`. Fields, exit codes, and the out-of-scope list are in [project-manifest.md](project-manifest.md). The example is `examples/game-pack-zombie/pixelforge.manifest.json`: the zombie character, its idle and walk clips, the atlas, and the four props.*
+*A project manifest is a separate `pixelforge-manifest` version 1 file. It stores canvas tiers, perspective, directory rules, the default palette path, a short note, the asset root, and an optional asset registry. It does not store pixels and it does not replace a `pixelforge-project`. Fields, exit codes, and the out-of-scope list are in [project-manifest.md](project-manifest.md). The example is the zombie pack manifest in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos): the zombie character, its idle and walk clips, the atlas, and the four props.*
 
 这些名字在 `pixelforge tools` 的 `manifestTools` 里。`ArtManifest::call_tool` 用同一份信封。文件没有撤销栈。`pixelforge call --project manifest.json` 发现这份 format 之后走清单工具，不走像素文档，也不走地图。`--checkpoint` 和 `--preview` 不能用。
 

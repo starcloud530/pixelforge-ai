@@ -19,11 +19,11 @@
 - 草稿 / 待审 / 已导出这类状态。没有命令读它。交付快照是另一条，不写进这条登记
 - 带版本的导出或交付清单
 
-灯塔试用（`examples/lighthouse-outpost/`）是 32×64 的单体，地图在另一个目录 `examples/base-tiles/`。这份格式拒绝 `..`，所以不把这两处收成同一个资产根。丧尸包才是下面的例子。
+灯塔试用（`pixelforge-demos/`）是 32×64 的单体，地图在另一个目录 the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published)。这份格式拒绝 `..`，所以不把这两处收成同一个资产根。丧尸包才是下面的例子。
 
 *Out of this file: a visual asset manager or any asset GUI, a map GUI, an embedded chat, team accounts and permissions, automatic image generation, animation-matrix fields on this file (`tags` names frame tags already on the asset; `character check` compares project tags and ink and does not invent an action DSL here), a draft / review / exported status (no command reads one; a delivery snapshot is a different record), and a versioned export or delivery list.*
 
-*The lighthouse trial (`examples/lighthouse-outpost/`) is one 32×64 sprite, and its map lives in `examples/base-tiles/`. This format refuses `..`, so those two directories are not one asset root. The zombie pack below is the checked-in example.*
+*The lighthouse trial (`pixelforge-demos/`) is one 32×64 sprite, and its map lives in the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published). This format refuses `..`, so those two directories are not one asset root. The zombie pack below is the checked-in example.*
 
 ## 格式 Format
 
@@ -60,9 +60,9 @@ version 1。`format` 必须是 `pixelforge-manifest`。未知字段拒绝，文�
 
 *Paths use `/` only. Absolute paths, `..`, `.`, empty segments, `\`, and `:` are refused, so a stored path cannot leave the asset root. Symlinks are not jailed further. A layout `kind` is `character`, `prop`, `tile`, `portrait`, `ui`, or `effect`: a directory role, not an asset id. `canvas` names a tier. The size check runs only when that field is set.*
 
-下面是约定字段，不是字节级样例，也省略了 `assets`。写入器按 JSON 对象的键序输出，并在末尾加换行。已登记的例子是 [`examples/game-pack-zombie/pixelforge.manifest.json`](../examples/game-pack-zombie/pixelforge.manifest.json)：顶视，角色和道具都是 64×64，色板指向 `zombie/zombie.json`，`assets` 里有 `zombie`、`zombie.walk` 和道具。
+下面是约定字段，不是字节级样例，也省略了 `assets`。写入器按 JSON 对象的键序输出，并在末尾加换行。已登记的例子是 [the zombie pack manifest in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)](../pixelforge-demos/pixelforge.manifest.json)：顶视，角色和道具都是 64×64，色板指向 `zombie/zombie.json`，`assets` 里有 `zombie`、`zombie.walk` 和道具。
 
-*The object below lists the convention fields, not a byte-for-byte sample, and it omits `assets`. The writer emits JSON-map key order and a trailing newline. The checked-in example is [`examples/game-pack-zombie/pixelforge.manifest.json`](../examples/game-pack-zombie/pixelforge.manifest.json): top-down, characters and props at 64×64, palette path `zombie/zombie.json`, with `zombie`, `zombie.walk`, and the props in `assets`.*
+*The object below lists the convention fields, not a byte-for-byte sample, and it omits `assets`. The writer emits JSON-map key order and a trailing newline. The checked-in example is [the zombie pack manifest in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)](../pixelforge-demos/pixelforge.manifest.json): top-down, characters and props at 64×64, palette path `zombie/zombie.json`, with `zombie`, `zombie.walk`, and the props in `assets`.*
 
 ```json
 {

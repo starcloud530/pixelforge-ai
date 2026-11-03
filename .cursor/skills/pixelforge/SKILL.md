@@ -417,9 +417,9 @@ pixelforge direction fill --project hero.json --from left --mode copy
 pixelforge direction validate --project hero.json
 ```
 
-`mirror` 把 left 水平翻到 right，或反过来。`copy` 原样拷到其余三个基本朝向，给北和南占位。已有墨水的目标帧默认跳过，`--overwrite` 才盖掉。八向的对角行不填。缺源帧段整次不写。只搬索引，不改颜色，不搬部件，不修高光。镜像之后要自己把高光画回光源一侧。`copy` 不是新的走路。`direction validate` 通过只说明帧段齐。这不是自然步态，不是审美通过，也不是 PixelLab 自动画四向。排表和脚滑见 `pixelforge-sprite-4dir`。8×4 例子是 `examples/direction-fill/`。
+`mirror` 把 left 水平翻到 right，或反过来。`copy` 原样拷到其余三个基本朝向，给北和南占位。已有墨水的目标帧默认跳过，`--overwrite` 才盖掉。八向的对角行不填。缺源帧段整次不写。只搬索引，不改颜色，不搬部件，不修高光。镜像之后要自己把高光画回光源一侧。`copy` 不是新的走路。`direction validate` 通过只说明帧段齐。这不是自然步态，不是审美通过，也不是 PixelLab 自动画四向。排表和脚滑见 `pixelforge-sprite-4dir`。8×4 例子是 the direction-fill sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published)。
 
-*`direction set` stores the facing rows. `direction apply` writes `{action}_{facing}` tags and does not paint. `direction fill` then copies that cardinal row's indices. `mirror` flips left into right, or right into left. `copy` repeats the source on the other three cardinals as a placeholder for north and south. A target frame that already has ink is skipped unless `--overwrite` is set. Diagonal rows are not filled. A missing source segment writes nothing. Indices move; colors, parts, and highlights do not. Repaint highlights after a mirror. A copy is not a new walk. `direction validate` only checks that the spans are present. It is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw. The sheet layout is `pixelforge-sprite-4dir`. The 8×4 example is `examples/direction-fill/`.*
+*`direction set` stores the facing rows. `direction apply` writes `{action}_{facing}` tags and does not paint. `direction fill` then copies that cardinal row's indices. `mirror` flips left into right, or right into left. `copy` repeats the source on the other three cardinals as a placeholder for north and south. A target frame that already has ink is skipped unless `--overwrite` is set. Diagonal rows are not filled. A missing source segment writes nothing. Indices move; colors, parts, and highlights do not. Repaint highlights after a mirror. A copy is not a new walk. `direction validate` only checks that the spans are present. It is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw. The sheet layout is `pixelforge-sprite-4dir`. The 8×4 example is the direction-fill sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published).*
 
 ### 士兵的枪和握持点 Gun and grip
 
@@ -594,9 +594,9 @@ pixelforge constraint solve --project soldier.json --frame 4 --apply
 { "tool": "solveConstraints", "params": { "frame": 4, "apply": true } }
 ```
 
-走路时脚底不要每帧都钉在同一个格，也不要让平移曲线把脚底悄悄挪走。先 `frame duplicate` 静止帧，再给髋部一条 `translateX` 曲线，再用 `ik` 的 `--contact` 写下接触区间。区间里的脚底格不变。下一落点是另一条 `--contact`，那是明确的一步，不是滑移。一条链驱动它的每一节，每节单独一层。`bend` 不要的那一侧不会被自动换上。`plant` 是没有链的脚：只在区间里平移脚底。外部脚本是 `examples/soldier-walk.py`。
+走路时脚底不要每帧都钉在同一个格，也不要让平移曲线把脚底悄悄挪走。先 `frame duplicate` 静止帧，再给髋部一条 `translateX` 曲线，再用 `ik` 的 `--contact` 写下接触区间。区间里的脚底格不变。下一落点是另一条 `--contact`，那是明确的一步，不是滑移。一条链驱动它的每一节，每节单独一层。`bend` 不要的那一侧不会被自动换上。`plant` 是没有链的脚：只在区间里平移脚底。外部脚本是 an external driver script (kept out of this repo; see companion demos when published)。
 
-*A walk does not pin the sole to one cell on every frame, and a translate curve must not slide a planted sole. Duplicate the rest frame, put a `translateX` curve on the hip, then store the contact spans on an `ik` `--contact`. The sole cell stays inside a span. The next plant is another `--contact`, an explicit step. One chain drives every joint, and each joint has its own layer. The other bend is not substituted. `plant` is a foot with no chain: it translates the sole only inside the span. The external script is `examples/soldier-walk.py`.*
+*A walk does not pin the sole to one cell on every frame, and a translate curve must not slide a planted sole. Duplicate the rest frame, put a `translateX` curve on the hip, then store the contact spans on an `ik` `--contact`. The sole cell stays inside a span. The next plant is another `--contact`, an explicit step. One chain drives every joint, and each joint has its own layer. The other bend is not substituted. `plant` is a foot with no chain: it translates the sole only inside the span. The external script is an external driver script (kept out of this repo; see companion demos when published).*
 
 ```bash
 pixelforge constraint add --project soldier.json --name left-leg --kind ik \
@@ -609,7 +609,7 @@ pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
 
 ### 烘焙 Bake
 
-`bake` 把曲线采样和约束求解写进普通像素帧。写完之后用现有的 `paint`、选区和 `tag` 接着改。没有内置脚本，也没有动画 DSL。外部程序驱动 CLI。`examples/soldier-raise-gun.py` 画好静止姿势，复制帧，写下旋转曲线和 `follow` / `attach` / `pin`，再 `bake --fps 12`。`examples/soldier-walk.py` 用短链 `ik` 和脚印把两只脚钉在接触帧上，再烤进像素。选了 `ik` 的末端时，整条链一起摆。够不着是 `IkUnreachable`，一格都不写。
+`bake` 把曲线采样和约束求解写进普通像素帧。写完之后用现有的 `paint`、选区和 `tag` 接着改。没有内置脚本，也没有动画 DSL。外部程序驱动 CLI。an external driver script (kept out of this repo; see companion demos when published) 画好静止姿势，复制帧，写下旋转曲线和 `follow` / `attach` / `pin`，再 `bake --fps 12`。an external driver script (kept out of this repo; see companion demos when published) 用短链 `ik` 和脚印把两只脚钉在接触帧上，再烤进像素。选了 `ik` 的末端时，整条链一起摆。够不着是 `IkUnreachable`，一格都不写。
 
 闭区间是 `--from` 到 `--to`，缺省从 0 到最后一帧。`--source` 缺省第 0 帧，是静止墨水。这一帧的像素不改，所以再烤一次不会叠加上去。报告里的部件 `x`、`y` 是摆好的原点；文件里的原点仍是静止姿势。曲线和约束留下，不自动删。
 
@@ -623,7 +623,7 @@ pixelforge bake --project soldier.json --from 0 --to 2 --fps 12
 
 报告里的 `dropped`、`conflicts`、`sealed`、`breaks` 和 `part rotate` 用同一套覆盖补洞。源帧这四个数是 0。`dropped` 仍是碰撞丢掉的格数，补洞不会把它清掉。`sealed` 小于 `dropped`，或 `breaks` 大于 0，都说明这一帧还要手修。旋转不能代替修边。
 
-*bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. `examples/soldier-raise-gun.py` draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`. `examples/soldier-walk.py` plants both feet with a short `ik` chain and footprint spans, then bakes. Selecting an `ik` end poses the whole chain. A miss is `IkUnreachable` and writes nothing.*
+*bake writes curve samples and the constraint solve into ordinary pixel frames. Paint, selection, and tags then edit those frames. There is no script runtime and no animation DSL. An external program drives the CLI. an external driver script (kept out of this repo; see companion demos when published) draws the rest pose, duplicates it, stores the rotation curve and the follow / attach / pin constraints, then runs `bake --fps 12`. an external driver script (kept out of this repo; see companion demos when published) plants both feet with a short `ik` chain and footprint spans, then bakes. Selecting an `ik` end poses the whole chain. A miss is `IkUnreachable` and writes nothing.*
 
 *`--from` and `--to` are an inclusive range. The default is frame 0 through the last frame. `--source` defaults to frame 0 and is the rest ink. That frame's pixels are not rewritten, so a second bake does not stack. Reported part `x` and `y` are the posed origin. The file keeps the rest origin. Curves and constraints stay.*
 
@@ -722,7 +722,7 @@ pixelforge call --project hero.json --request-file edits.json
 
 `export tileset` 和 `export tilemap` 的 `--cols`、`--scale` 要一致。`.tmj` 的 `image` 是图块 PNG 的文件名，和 `base.tmj` 放在一起，Tiled 才能打开。导出前跑 `validate-tiles`。
 
-据点地面加围墙的例子是 `examples/base-tiles/`。地面是 tile 0，围墙是 tile `mask + 1`。
+据点地面加围墙的例子是 the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published)。地面是 tile 0，围墙是 tile `mask + 1`。
 
 *A tileset is an ordinary project. Each edge is 16 or 32, and the canvas is exactly one tile. Each frame is one tile. The frame index is the tile id. `tileset set`, then paint with `fill-rect`, `paint`, `preview`, and `diff`. Do not hand-edit the project JSON.*
 
@@ -732,7 +732,7 @@ pixelforge call --project hero.json --request-file edits.json
 
 *`export tileset` and `export tilemap` share `--cols` and `--scale`. The `.tmj` `image` is the tileset PNG file name beside `base.tmj`, which is what Tiled opens. Run `validate-tiles` before that export.*
 
-*The base ground and wall example is `examples/base-tiles/`. Ground is tile 0. A wall tile is `mask + 1`.*
+*The base ground and wall example is the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published). Ground is tile 0. A wall tile is `mask + 1`.*
 
 ```bash
 pixelforge new --width 16 --height 16 --output tiles.json
@@ -765,23 +765,23 @@ pixelforge export tilemap --map map.json --tileset tiles.json \
 
 `show` 不读像素。`validate` 核对约定：写了 `canvas` 的目录里，直接放着的 `pixelforge-project` 必须是那一档。目录扫描跳过 atlas，不把它自动登记。`projects` 是数量，不是文件名单。`checks.assets` 是已经登记的条数。通过不等于画完。
 
-`pixelforge asset` 把稳定 id 写进同一份清单的 `assets`。一条记录有 `id`（例如 `zombie.walk`）、`kind`、`path`，可选 `owner`（角色或 `group`）、`dependsOn`、`produces`、`tags`。空的可选字段不写进文件。`kind` 是 `character`、`group`、`gear`、`prop`、`tile`、`clip`、`sheet`。`clip` 是工程里的一段帧，`sheet` 是图集 JSON，`group` 是拥有多条记录的那份工程。`list --kind` / `--tag` 过滤。`show` 给出记录、`owns` 和 `dependents`。`graph` 是一跳关系。`dependents` 回答谁的 `dependsOn` 含有这个 id。`validate` 查缺失路径、悬空 id、owner 不是角色或分组、`produces` 没有被对方依赖、以及环。它不打开像素去对朝向 × 动作，也不存草稿 / 已导出。朝向 × 动作用 `character matrix` / `character check`：打开角色工程，用 `directionLayout`、owned clip 的 `tags` 和工程 `{action}_{facing}` 报告 present / missing / empty / placeholder。不另开动作 DSL。矩阵绿 ≠ 步态或观感。没有素材 GUI。丧尸包的例子是 `examples/game-pack-zombie/pixelforge.manifest.json`。格式全文在 `docs/project-manifest.md`。
+`pixelforge asset` 把稳定 id 写进同一份清单的 `assets`。一条记录有 `id`（例如 `zombie.walk`）、`kind`、`path`，可选 `owner`（角色或 `group`）、`dependsOn`、`produces`、`tags`。空的可选字段不写进文件。`kind` 是 `character`、`group`、`gear`、`prop`、`tile`、`clip`、`sheet`。`clip` 是工程里的一段帧，`sheet` 是图集 JSON，`group` 是拥有多条记录的那份工程。`list --kind` / `--tag` 过滤。`show` 给出记录、`owns` 和 `dependents`。`graph` 是一跳关系。`dependents` 回答谁的 `dependsOn` 含有这个 id。`validate` 查缺失路径、悬空 id、owner 不是角色或分组、`produces` 没有被对方依赖、以及环。它不打开像素去对朝向 × 动作，也不存草稿 / 已导出。朝向 × 动作用 `character matrix` / `character check`：打开角色工程，用 `directionLayout`、owned clip 的 `tags` 和工程 `{action}_{facing}` 报告 present / missing / empty / placeholder。不另开动作 DSL。矩阵绿 ≠ 步态或观感。没有素材 GUI。丧尸包的例子是 the zombie pack manifest in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)。格式全文在 `docs/project-manifest.md`。
 
 *`pixelforge project init`, `project show`, and `project validate` own a `pixelforge-manifest`. It stores canvas tiers, perspective (`top`, `side`, `front`, `oblique`), directory roles, the default palette path, a short note, and the asset root. Relative paths cannot contain `..`.*
 
 *`show` does not read pixels. `validate` checks conventions: a `pixelforge-project` directly inside a directory that names a canvas must match that tier. The directory scan skips atlas JSON and does not register it. `projects` is a count, not a file list. `checks.assets` is how many ids are registered. A pass does not mean the picture is finished.*
 
-*`pixelforge asset` writes stable ids into the same file's `assets`. A record has `id` (for example `zombie.walk`), `kind`, and `path`, plus optional `owner` (a character or a `group`), `dependsOn`, `produces`, and `tags`. Empty optional fields are omitted. `kind` is `character`, `group`, `gear`, `prop`, `tile`, `clip`, or `sheet`. A `clip` is a frame span in a project, a `sheet` is the atlas JSON, and a `group` is the project that owns several records. `list --kind` / `--tag` filters. `show` returns the record, `owns`, and `dependents`. `graph` is one hop. `dependents` answers which records list this id in `dependsOn`. `validate` reports a missing path, a dangling id, an owner that is not a character or a group, a `produces` edge the product does not depend on, and a cycle. It does not open pixels to check facing by action, and it does not store draft or exported. Facing × action gaps are `character matrix` / `character check`: open the character project and compare `directionLayout`, owned clip `tags`, and project `{action}_{facing}` tags. No second action DSL. A green matrix is not a gait or an aesthetic pass. There is no asset GUI. The zombie pack example is `examples/game-pack-zombie/pixelforge.manifest.json`. The format is `docs/project-manifest.md`.*
+*`pixelforge asset` writes stable ids into the same file's `assets`. A record has `id` (for example `zombie.walk`), `kind`, and `path`, plus optional `owner` (a character or a `group`), `dependsOn`, `produces`, and `tags`. Empty optional fields are omitted. `kind` is `character`, `group`, `gear`, `prop`, `tile`, `clip`, or `sheet`. A `clip` is a frame span in a project, a `sheet` is the atlas JSON, and a `group` is the project that owns several records. `list --kind` / `--tag` filters. `show` returns the record, `owns`, and `dependents`. `graph` is one hop. `dependents` answers which records list this id in `dependsOn`. `validate` reports a missing path, a dangling id, an owner that is not a character or a group, a `produces` edge the product does not depend on, and a cycle. It does not open pixels to check facing by action, and it does not store draft or exported. Facing × action gaps are `character matrix` / `character check`: open the character project and compare `directionLayout`, owned clip `tags`, and project `{action}_{facing}` tags. No second action DSL. A green matrix is not a gait or an aesthetic pass. There is no asset GUI. The zombie pack example is the zombie pack manifest in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). The format is `docs/project-manifest.md`.*
 
 ```bash
-pixelforge project show --manifest examples/game-pack-zombie/pixelforge.manifest.json
-pixelforge project validate --manifest examples/game-pack-zombie/pixelforge.manifest.json
-pixelforge asset show --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie.walk
-pixelforge asset graph --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie
-pixelforge asset dependents --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie
-pixelforge asset validate --manifest examples/game-pack-zombie/pixelforge.manifest.json
-pixelforge character matrix --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie
-pixelforge character check --manifest examples/game-pack-zombie/pixelforge.manifest.json zombie
+pixelforge project show --manifest pixelforge-demos/pixelforge.manifest.json
+pixelforge project validate --manifest pixelforge-demos/pixelforge.manifest.json
+pixelforge asset show --manifest pixelforge-demos/pixelforge.manifest.json zombie.walk
+pixelforge asset graph --manifest pixelforge-demos/pixelforge.manifest.json zombie
+pixelforge asset dependents --manifest pixelforge-demos/pixelforge.manifest.json zombie
+pixelforge asset validate --manifest pixelforge-demos/pixelforge.manifest.json
+pixelforge character matrix --manifest pixelforge-demos/pixelforge.manifest.json zombie
+pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json zombie
 ```
 
 ## Catalog
