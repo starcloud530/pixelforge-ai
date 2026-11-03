@@ -1,6 +1,8 @@
 /target
 **/node_modules
 **/dist
+/site
+.cache/
 crates/pixelforge-kernel-wasm/pkg
 crates/pixelforge-kernel-wasm/pkg-node
 .env

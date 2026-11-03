@@ -61,7 +61,7 @@ Edit indexed pixels only through the `pixelforge` CLI. The Rust kernel owns the 
 
 ## Install and run
 
-最终用户用预编译的 `pixelforge`，不装 Rust。下载、解压、`new` 和 `preview` 见仓库 README 的「预编译安装」。Windows 源码构建需要的 MSVC / Windows SDK 也写在那里，和预编译路径分开。
+最终用户用预编译的 `pixelforge`，不装 Rust。安装脚本、`new` 和 `preview` 见 [docs/install.md](../../../docs/install.md)（根 README 也有快速开始）。Windows 源码构建需要的 MSVC / Windows SDK 写在 [docs/dev-setup.md](../../../docs/dev-setup.md) / [docs/install.md](../../../docs/install.md)，和预编译路径分开。
 
 在这个仓库里改代码，从仓库根目录：
 
@@ -78,7 +78,7 @@ cargo run -p pixelforge-cli -- --help
 
 需要 Rust stable（`cargo` 1.83 或更新）。没有 Python 服务。
 
-*End users run a prebuilt `pixelforge` and do not install Rust. Download, unpack, `new`, and `preview` are in the README section 预编译安装. The MSVC / Windows SDK requirement for a source build is there too, separate from the prebuilt path.*
+*End users run a prebuilt `pixelforge` and do not install Rust. Installer, `new`, and `preview` are in [docs/install.md](../../../docs/install.md) (and the root README Quick start). The MSVC / Windows SDK requirement for a source build is in [docs/dev-setup.md](../../../docs/dev-setup.md) / [docs/install.md](../../../docs/install.md), separate from the prebuilt path.*
 
 *From this repository, `cargo install --path crates/pixelforge-cli`, or `cargo run -p pixelforge-cli -- --help`. Rust stable (`cargo` 1.83 or newer). There is no Python service.*
 
