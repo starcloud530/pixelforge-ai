@@ -1,0 +1,40 @@
+name: Feature request
+description: 提议引擎/CLI 能力（先说问题与不做范围）
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本仓只收引擎/CLI 功能。演示案例、eval task、宣传素材请去 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题陈述
+      description: 现在缺什么、谁会卡住
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案
+      description: 期望的命令/行为/验收方式
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: 明确不做
+      description: 本轮不做什么（避免范围膨胀）
+    validations:
+      required: true
+  - type: dropdown
+    id: demos
+    attributes:
+      label: 是否其实属于 pixelforge-demos？
+      options:
+        - "否，是引擎/CLI"
+        - "是，应开到 demos 仓"
+        - "不确定"
+    validations:
+      required: true

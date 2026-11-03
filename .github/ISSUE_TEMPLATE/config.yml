@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Demo art / eval tasks (pixelforge-demos)
+    url: https://github.com/starcloud530/pixelforge-demos
+    about: 演示素材、可重放案例与 eval tasks 请开到 demos 仓，不要开到本仓（引擎/CLI）。
+  - name: Docs site
+    url: https://starcloud530.github.io/pixelforge-ai/docs/
+    about: 使用与概念文档（MkDocs）。
