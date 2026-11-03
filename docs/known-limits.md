@@ -1,0 +1,47 @@
+# Known limits
+
+After `new` / `preview` work, read these bounds. They are the CLI and kernel as they ship. A green test, a working example, or exit code 0 from `validate-atlas`, `direction validate`, `project validate`, or the game-pack check still sits inside them.
+
+装好并跑通 `new` / `preview` 之后，先看这些边界。测试通过、示例能跑、校验退出码是 0，仍然落在这些边界里。
+
+## Unbound polish stays on canvas cells
+
+绑定到部件的 `polish` 层按部件局部坐标理解：本地 `(0, 0)` 是部件原点，或 `layer bind --anchor` 点名的锚点。`bake` 以及 `part translate` / `rotate` / `flip` 会把这一层的修正连同显式擦除一起搬走。没绑定的覆盖层仍是 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) 的行为：`bake` 不写它，格子留在画下的那一格。显式擦除是覆盖层上的透明格，和「这一格没改过」不是一回事；`erase-rect --unmodified`（Tool API `mode: pass`）才清回未修改。曲线或约束管着的生成层仍从源帧整层重建，修正不要画在那一层上。旋转补洞仍然有损，绑在部件上的精修跟着转时一样。一层只绑一个部件。见 [#99](https://github.com/starcloud530/pixelforge-ai/issues/99)。烘焙命令见 [agent-skill](agent-skill.md)。
+
+*An unbound `polish` overlay stays on the canvas cell where it was painted. That is still the [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) behavior: `bake` does not write it. A polish layer bound to a part stores the correction in that part's local frame. Local `(0, 0)` is the part origin, or the anchor named by `layer bind --anchor`. `bake` and `part translate` / `rotate` / `flip` move those cells, including an explicit erase. An explicit erase is a transparent overlay cell, distinct from a cell that was never touched. `erase-rect --unmodified` (Tool API `mode: pass`) clears it back to pass-through. A layer a curve or constraint manages is still rebuilt from the source frame, so the fix does not belong on that generated layer. Rotation sealing stays lossy when the bound overlay turns with the part. One polish layer binds to one part. See [#99](https://github.com/starcloud530/pixelforge-ai/issues/99). Bake commands: [agent-skill](agent-skill.md).*
+
+## Rotation sealing is lossy
+
+非直角旋转在最近邻之后做覆盖补洞。缺口比只做正向映射少，质量有改进，仍然有损。`dropped` 不会因为补上格子变成 0。单像素细线仍可能断开（`breaks` 大于 0），靠近 45° 时还会变短。墨水数量回到源格数不等于修好。见 [#73](https://github.com/starcloud530/pixelforge-ai/issues/73)。旋转不能代替手修。
+
+*Rotation past a right angle is nearest-neighbor rasterization plus a coverage seal. The seal closes more notches than forward mapping alone. Quality is better, and it is still lossy. Sealing does not clear `dropped`. A one-pixel line can still break (`breaks` above 0) or shorten near 45°. Ink count matching the source is not a finished edge. See [#73](https://github.com/starcloud530/pixelforge-ai/issues/73). Rotation does not replace a hand pass.*
+
+## IK places joints; it does not author gait
+
+短链是 2 或 3 节，加上 `pin` 和 `plant` 把脚钉在接触点上。它不自动编写自然步态，也不从一条静止姿势生成走路循环。没有整棵 IK 树，没有步态生成器，也没有物理。见 [#68](https://github.com/starcloud530/pixelforge-ai/issues/68)。`examples/soldier-walk.py` 钉的是接触帧。走路帧仍要自己关键帧，或同姿复制后改差，再 `bake`。
+
+*Short-chain IK is two or three parts. `pin` and `plant` hold a foot on a contact. The solve places joints. It does not author a natural gait, and it does not turn one rest pose into a walk cycle. There is no full IK tree, no gait generator, and no physics. See [#68](https://github.com/starcloud530/pixelforge-ai/issues/68). `examples/soldier-walk.py` plants contact frames. Walk frames are still keyed, or duplicated and edited, then baked.*
+
+## Translucent flatten snaps to nearest index
+
+彩色 preview、`export png` 和 `frame_rgba` 仍是直通 alpha 的 RGB 混合，不改格子。ASCII 和 `diff` 在压平之前仍是盖住的索引。`layer flatten` 把这一张混合按 `apply-png` 的规则收成调色板索引：alpha 小于 128 写成索引 0，否则按平方 RGB 距离取最近的非 0 项，平局取较小索引。混合结果的 RGBA 已经等于盖住索引的调色板色时，留下那个索引。压平后的层可见且完全不透明，所以只靠层透明度产生的半透明不会留在格子里；alpha 不计入距离，一半不透明的单层会变成那一项的不透明色。没有 multiply / screen。不改工程的对照是 `preview --compare`：左是未量化 RGBA，右是 flatten 会写下的索引再按调色板着色，默认 `<stem>.compare.png`。要真的收成单层再用 `preview --output before.png`，然后 `layer flatten`，再 `preview --output after.png`。见 [#114](https://github.com/starcloud530/pixelforge-ai/issues/114)、[#110](https://github.com/starcloud530/pixelforge-ai/issues/110) 和 [#98](https://github.com/starcloud530/pixelforge-ai/issues/98)。
+
+*A translucent stack flattens to the nearest palette index. The color preview, `export png`, and `frame_rgba` stay the unquantized straight-alpha blend and do not write cells. ASCII and `diff` still show the covering index until flatten. `layer flatten` snaps that blend with the `apply-png` rule: alpha below 128 is index 0, otherwise the nearest opaque entry by squared RGB, and a tie keeps the lower index. A cell whose RGBA already equals the covering index keeps that index. The result layer is visible and fully opaque, so translucency that came only from layer opacity is not stored. Alpha is not part of the distance, and a lone layer at opacity 128 becomes that entry's opaque color. There is no multiply or screen. Compare without writing the project: `preview --compare` puts that blend on the left and the palette color of the indices flatten would write on the right (default `<stem>.compare.png`). To store the single layer, use `preview --output before.png`, then `layer flatten`, then `preview --output after.png`. See [#114](https://github.com/starcloud530/pixelforge-ai/issues/114), [#110](https://github.com/starcloud530/pixelforge-ai/issues/110), and [#98](https://github.com/starcloud530/pixelforge-ai/issues/98).*
+
+## Direction fill is not a natural gait
+
+`direction set` / `apply` 只按行写下已有的 idle/walk 标签区间，不画像素。`direction fill` 把一个基本朝向（N/E/S/W）里已经有的 `{动作}_{朝向}` 帧段拷到其余基本朝向，或把 left 与 right 水平镜像。目标帧已经有墨或显式擦除时默认跳过，`--overwrite` 才盖掉。八向的对角行这一版不填。镜像和拷贝都不是新画、不是自然步态、不修高光，也不是 PixelLab 那种自动画四向。`direction validate` 退出码 0 只说明四向（或可选的八向）帧段齐、没有缺方向或缺关键帧。它不生成走路，不检查脚滑，也不判断动作好不好看。像素仍要自己画，或同姿复制后改差。见 [#108](https://github.com/starcloud530/pixelforge-ai/issues/108) 和 [#116](https://github.com/starcloud530/pixelforge-ai/issues/116)。
+
+*Direction auto-naming and direction fill are not a natural gait and not an aesthetic pass. `direction set` / `apply` only writes the idle/walk tag spans for the stored rows and does not paint. `direction fill` copies one cardinal facing's `{action}_{facing}` frames onto the other cardinals, or horizontally mirrors left and right. A target frame that already holds ink or an explicit erase is skipped unless `--overwrite` is set. Eight-direction diagonal rows are not filled. A mirror or a copy is not new art, not a natural gait, does not repair highlights, and is not a PixelLab four-direction draw. Exit 0 from `direction validate` means the four cardinal facings, or the optional eight with diagonals, have their frame spans and that none are missing. It does not generate a walk, it does not check foot slide, and it does not judge the motion. Paint the pixels, or duplicate a pose and edit the diff. See [#108](https://github.com/starcloud530/pixelforge-ai/issues/108) and [#116](https://github.com/starcloud530/pixelforge-ai/issues/116).*
+
+## Project manifest is memory, not a canvas
+
+`pixelforge project` 读写 `pixelforge-manifest`：尺寸档、视角、目录约定、默认色板路径、一段短说明、资产根和相对路径。`assets` 只保存你登记的稳定 id 和关系。像素仍在 `pixelforge-project`。`project validate` 或 `asset validate` 退出码 0 只说明约定、已登记的路径和关系对得上。它不扫描目录来发明 id，也不做导出清单，也不画像素。朝向 × 动作缺格是 `character matrix` / `character check`：对照 `directionLayout`、clip `tags` 和工程标签，报告 present / missing / empty / placeholder。矩阵绿 ≠ 步态或观感合格。可视化素材管理、地图 GUI、内嵌聊天、团队权限、自动生图都不在这里。见 [project-manifest](project-manifest.md)。
+
+*A project manifest is project memory. `pixelforge project` reads and writes a `pixelforge-manifest`: canvas tiers, perspective, directory rules, the default palette path, a short note, and the asset root. `assets` stores only the stable ids and relations you register. Pixels stay in `pixelforge-project` files. Exit 0 from `project validate` or `asset validate` means those conventions, registered paths, and relations match. It does not scan a directory into new ids, it does not list an export, and it does not paint. Facing × action gaps are `character matrix` / `character check`. A green matrix is not a gait or an aesthetic pass. A visual asset manager, a map GUI, an embedded chat, team auth, and image generation are not this file. See [project-manifest](project-manifest.md).*
+
+## Export / validate is not aesthetic QA
+
+`export` 写出文件、`validate-atlas` 退出码 0、或 `examples/game-pack-zombie/validate.py` 通过，只说明清单里没有 error。warning 仍可能在。剪影、头身、色阶、动作好不好看不在这份清单里。Godot / Unity 的过滤、轴心和 `idle_*` / `walk_*` 仍要在引擎里接。`export apng` 是可循环播放的预览，不是引擎用的 sprite sheet，`validate-atlas` 不读它。像素和 PNG 导出是同一份直通 RGBA，不把调色板收成 GIF 的索引色，也不抖动；调色板 alpha 和 1 到 254 的层透明度都留着。时长按毫秒写入（分母 1000），不收成百分之一秒。见 [export](export.md) 和 [examples/game-pack-zombie/FAILURES.md](https://github.com/starcloud530/pixelforge-ai/blob/main/examples/game-pack-zombie/FAILURES.md)。
+
+*`export` writes the files. Exit 0 from `validate-atlas`, and a pass from `examples/game-pack-zombie/validate.py`, mean the checklist has no error. Warnings may remain. Silhouette, proportion, palette, and motion are outside that checklist. Filter, pivot, and `idle_*` / `walk_*` are still wired in Godot or Unity. `export apng` is a looping preview, not the engine sprite sheet, and `validate-atlas` does not read it. The pixels are the same straight RGBA as PNG export: no GIF palette quantization and no dither, so palette alpha and opacity 1..=254 stay. Delays are stored in milliseconds (denominator 1000), not centiseconds. See [export](export.md) and [examples/game-pack-zombie/FAILURES.md](https://github.com/starcloud530/pixelforge-ai/blob/main/examples/game-pack-zombie/FAILURES.md).*

@@ -24,7 +24,7 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 
 ## 安装与运行 Install and run
 
-最终用户用预编译的 `pixelforge`，不装 Rust。下载、解压、`new` 和 `preview` 见 [README](../README.md) 的「预编译安装」。Windows 源码构建需要的 MSVC / Windows SDK 也写在那里，和预编译路径分开。
+最终用户用预编译的 `pixelforge`，不装 Rust。安装脚本、`new` 和 `preview` 见 [install.md](install.md)（根 [README](../README.md) 也有快速开始）。Windows 源码构建需要的 MSVC / Windows SDK 写在 [dev-setup.md](dev-setup.md) / [install.md](install.md)，和预编译路径分开。
 
 在这个仓库里改代码，从仓库根目录：
 
@@ -41,15 +41,15 @@ cargo run -p pixelforge-cli -- --help
 
 需要 Rust stable（`cargo` 1.83 或更新）。没有 Python 服务。
 
-*End users run a prebuilt `pixelforge` and do not install Rust. Download, unpack, `new`, and `preview` are in the README section 预编译安装. The MSVC / Windows SDK requirement for a source build is there too, separate from the prebuilt path.*
+*End users run a prebuilt `pixelforge` and do not install Rust. Installer, `new`, and `preview` are in [install.md](install.md) (and the root [README](../README.md) Quick start). The MSVC / Windows SDK requirement for a source build is in [dev-setup.md](dev-setup.md) / [install.md](install.md), separate from the prebuilt path.*
 
 *From this repository, `cargo install --path crates/pixelforge-cli` puts `pixelforge` on the path. `cargo run -p pixelforge-cli -- --help` runs it without installing. Rust stable (`cargo` 1.83 or newer) is enough. There is no Python service.*
 
 ## 已知限制 Known limitations
 
-和 [README](../README.md) 的「已知限制」是同一份边界，放在安装和 `new` / `preview` 之后。测试通过或校验退出码 0 都停在这里。
+和 [known-limits.md](known-limits.md) 是同一份边界（精简版），放在安装和 `new` / `preview` 之后。测试通过或校验退出码 0 都停在这里。
 
-*Same bounds as the README section 已知限制, placed after install and `new` / `preview`. A green test or exit code 0 stays inside them.*
+*Same bounds as [known-limits.md](known-limits.md) (short form here), placed after install and `new` / `preview`. A green test or exit code 0 stays inside them.*
 
 - **未绑定的精修仍钉在画布坐标。** 绑定到部件的 `polish` 层随 `bake` 和部件平移 / 旋转 / 翻转一起走，显式擦除也跟着走。没绑定的覆盖层 `bake` 不写。直接改曲线或约束管着的生成层，下一次 `bake` 仍会从源帧整层盖掉。见 [#99](https://github.com/starcloud530/pixelforge-ai/issues/99) 和 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72)。
 - **旋转补洞不是无损。** 覆盖补洞让缺口变少，质量有改进，仍然有损。单像素细线仍可能断开或在接近 45° 时变短。`dropped` 不会被补洞清成 0。见 [#73](https://github.com/starcloud530/pixelforge-ai/issues/73)。
