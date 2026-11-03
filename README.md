@@ -85,9 +85,9 @@ gh release download v0.1.0 --repo starcloud530/pixelforge-ai --pattern 'pixelfor
 | macOS Apple silicon | `pixelforge-cli-aarch64-apple-darwin.tar.gz` |
 | Linux x64 | `pixelforge-cli-x86_64-unknown-linux-gnu.tar.gz` |
 
-Windows 的 zip 根目录就是 `pixelforge.exe`，旁边有 `LICENSE` 和 `README.md`。macOS / Linux 的 tar.gz 先有一层同名目录，二进制在里面。每个压缩包有同名 `.sha256`，Release 上还有一份汇总 `sha256.sum`。Linux 包在 GitHub `ubuntu-22.04` 上构建，需要 glibc 2.35 或更新（Ubuntu 22.04 这一代）。Windows 包静态链接了 C 运行库，不用装 Visual C++ Redistributable，也不用装 MSVC。
+Windows 的 zip 根目录就是 `pixelforge.exe`，旁边有 `LICENSE`、`LICENSE-MIT`、`LICENSE-APACHE` 和 `README.md`。macOS / Linux 的 tar.gz 先有一层同名目录，二进制在里面。每个压缩包有同名 `.sha256`，Release 上还有一份汇总 `sha256.sum`。Linux 包在 GitHub `ubuntu-22.04` 上构建，需要 glibc 2.35 或更新（Ubuntu 22.04 这一代）。Windows 包静态链接了 C 运行库，不用装 Visual C++ Redistributable，也不用装 MSVC。
 
-*The Windows zip has `pixelforge.exe` at its root, plus `LICENSE` and `README.md`. macOS and Linux tarballs nest the binary under one directory of the same name. Each archive has a `.sha256` sidecar, and the Release also has `sha256.sum`. The Linux build runs on GitHub `ubuntu-22.04` and needs glibc 2.35 or newer. The Windows build links the C runtime statically.*
+*The Windows zip has `pixelforge.exe` at its root, plus `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`, and `README.md`. macOS and Linux tarballs nest the binary under one directory of the same name. Each archive has a `.sha256` sidecar, and the Release also has `sha256.sum`. The Linux build runs on GitHub `ubuntu-22.04` and needs glibc 2.35 or newer. The Windows build links the C runtime statically.*
 
 ```powershell
 # Windows，在解压目录
@@ -221,10 +221,18 @@ Paint, erase, palette edits, the frame list (add a blank frame, duplicate the cu
 
 ## 许可证 License
 
-本仓库以 [MIT 许可证](LICENSE) 发布。版权所有 © 2026 starcloud530。
+代码以 **MIT OR Apache-2.0** 双许可发布，任选其一即可：全文见 [LICENSE-MIT](LICENSE-MIT) 与 [LICENSE-APACHE](LICENSE-APACHE)，说明见 [LICENSE](LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。
 
-第三方依赖已核对，许可证与本仓库的 MIT 再分发兼容，没有 copyleft 冲突。记录见 [docs/licensing.md](docs/licensing.md)。
+`examples/` 下的示例美术素材采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)，且为 AI 辅助生成；详见 [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md)。
 
-*This repository is released under the [MIT License](LICENSE). Copyright © 2026 starcloud530.*
+除非另有声明，提交到本仓库的贡献按上述代码双许可（MIT OR Apache-2.0）授权。
 
-*Third-party dependencies were checked. Their licenses are compatible with redistributing this repository under MIT, and there is no copyleft conflict. Notes: [docs/licensing.md](docs/licensing.md).*
+第三方依赖已核对，许可证与本仓库的双许可再分发兼容，没有 copyleft 冲突。记录见 [docs/licensing.md](docs/licensing.md)。
+
+*Code is dual-licensed under **MIT OR Apache-2.0**, at your option: [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE); see [LICENSE](LICENSE). Copyright © 2026 PixelForge contributors / starcloud530.*
+
+*Example art assets under `examples/` are [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) and AI-assisted; see [examples/LICENSE-ASSETS.md](examples/LICENSE-ASSETS.md).*
+
+*Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this repository is dual-licensed as above (MIT OR Apache-2.0), without additional terms.*
+
+*Third-party dependencies were checked. Their licenses are compatible with redistributing this repository under MIT OR Apache-2.0, and there is no copyleft conflict. Notes: [docs/licensing.md](docs/licensing.md).*
