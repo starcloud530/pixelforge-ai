@@ -74,9 +74,9 @@ Early / work in progress. The M5 Tool API is a stable machine-readable surface i
 gh release download v0.1.0 --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'
 ```
 
-把 `v0.1.0` 换成实际标签。`v0.1.0-rc.1` 这种预发布不是 GitHub 的 `latest`，不要用 `releases/latest`，直到打出不带预发布后缀的正式版。
+把 `v0.1.0` 换成实际标签。`v0.1.0-rc.2` 这种预发布不是 GitHub 的 `latest`，不要用 `releases/latest`，直到打出不带预发布后缀的正式版。
 
-*While this repository is private, download from [Releases](https://github.com/starcloud530/pixelforge-ai/releases) while logged in, or use `gh release download` as above. A prerelease such as `v0.1.0-rc.1` is not GitHub `latest`.*
+*While this repository is private, download from [Releases](https://github.com/starcloud530/pixelforge-ai/releases) while logged in, or use `gh release download` as above. A prerelease such as `v0.1.0-rc.2` is not GitHub `latest`.*
 
 | 系统 | 文件 |
 | --- | --- |
@@ -127,7 +127,7 @@ curl --proto '=https' --tlsv1.2 -LsSf https://github.com/starcloud530/pixelforge
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/latest/download/pixelforge-cli-installer.ps1 | iex"
 ```
 
-私有仓库上这条直链会 404。那是安装脚本的限制，不是 Release 没有附件。公开后同一条工作流不用改。预发布把 URL 里的 `latest` 换成标签，例如 `v0.1.0-rc.1`。
+私有仓库上这条直链会 404。那是安装脚本的限制，不是 Release 没有附件。公开后同一条工作流不用改。预发布把 URL 里的 `latest` 换成标签，例如 `v0.1.0-rc.2`。
 
 *After the repository is public, the installer scripts above install `pixelforge` to `~/.pixelforge/bin`. On a private repository those direct download URLs return 404; use the archives from the Releases page instead. The workflow does not change when the repository becomes public. For a prerelease, replace `latest` with the tag.*
 
