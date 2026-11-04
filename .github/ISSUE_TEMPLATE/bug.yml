@@ -1,0 +1,55 @@
+name: Bug report
+description: 报告 CLI / kernel 缺陷（索引色工程相关优先）
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        本仓只收引擎/CLI 相关 bug。演示素材或 eval task 请去 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)。
+  - type: input
+    id: cli-version
+    attributes:
+      label: CLI / 版本
+      description: `pixelforge --version` 或 release tag（例如 v0.1.0-rc.2）
+      placeholder: v0.1.0-rc.2
+    validations:
+      required: true
+  - type: dropdown
+    id: indexed
+    attributes:
+      label: 是否索引色工程
+      options:
+        - "是（indexed / 调色板工程）"
+        - "否 / 不确定"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 尽量给出最小命令与工程结构
+      placeholder: |
+        1. pixelforge ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 截图 / 相关文件
+      description: 可贴终端输出；大图可外链
+    validations:
+      required: false
