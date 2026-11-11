@@ -13,6 +13,7 @@
 //! replay through [`crate::Document::paint`].
 
 use crate::constraint::Constraint;
+use crate::convert::TransformSnapshot;
 use crate::curve::Curve;
 use crate::direction::DirectionLayout;
 use crate::error::KernelError;
@@ -166,6 +167,16 @@ pub(crate) enum Change {
     Tileset {
         before: Option<TilesetDecl>,
         after: Option<TilesetDecl>,
+    },
+    /// The default convert engine id. `None` means center-sample and is omitted.
+    Engine {
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// The last convert snapshot. `None` means the file has no transform.
+    Transform {
+        before: Option<TransformSnapshot>,
+        after: Option<TransformSnapshot>,
     },
     /// The direction grid was set or cleared. `None` means no layout is stored.
     ///

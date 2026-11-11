@@ -381,6 +381,24 @@ pixelforge palette apply-png --project hero.json --file sprite.png
 
 *`palette add` returns the new index. Paint that index. `import` takes `replace` or `merge` and a `.gpl` file or a hex list. A locked palette refuses import and remap. `enforce` sets `reject` (default) or `clamp`. `remap` takes `--max-colors` or `--file`. `apply-png` crushes one canvas-sized PNG onto the current palette. Read `misses`, `merges`, and `pixelsChanged`. There is no Lospec browser.*
 
+### 任意尺寸 PNG Convert a PNG
+
+`apply-png` 仍然不缩放。任意尺寸走 `convert`。五个开源引擎可以互换，调用字段不变。`pixelforge-native` 报未安装 / 未授权，不回退。
+
+```bash
+pixelforge engine list
+pixelforge engine set center-sample --project hero.json
+pixelforge convert --file ref.png --width 64 --height 64 --engine center-sample --output hero.json
+pixelforge convert --file ref.png --project hero.json --width 64 --height 64 --palette project --checkpoint hero.ckpt.json
+pixelforge paint --project hero.json --checkpoint hero.ckpt.json --x 1 --y 2 --color-index 3
+pixelforge undo --project hero.json --checkpoint hero.ckpt.json
+pixelforge export png --project hero.json --out-dir ./frames
+```
+
+`--output` 默认从采样颜色封顶（`source`，默认 16 色）。`--project` 默认压进当前调色板。`--palette-file` 使用调用方给的 `.gpl` 或十六进制列表。`--params` 是引擎自己的 JSON。`--feature` 只记在 `transform` 里，这一版不使用。源图每边最大 4096。同一张图、同一个引擎、同一组参数，输出一致。质量基准不是这条命令。详见 [tool-api](tool-api.md) 的 `convertPng` 和 [known-limits](known-limits.md)。
+
+*`apply-png` still does not scale. An arbitrary PNG uses `convert`. The five open-source engines share one request. `pixelforge-native` errors and does not fall back. `--output` caps sampled colors. `--project` uses the current palette. `--feature` is stored and not applied. A source edge above 4096 is refused. The same image, engine, and parameters write the same indices. See `convertPng` in [tool-api](tool-api.md) and [known-limits](known-limits.md).*
+
 ### 查看与原始调用 Inspect and raw calls
 
 ```bash

@@ -9,6 +9,7 @@ description: >-
   component selection (`selection wand`), copying or
   moving a rectangle, editing the palette, locking, quantizing, or remapping it,
   crushing a PNG onto the palette, importing an indexed .aseprite file,
+  converting an arbitrary-size PNG into an indexed frame (`convert`, `engine list`, `engine set`),
   flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
   270 degrees, naming parts and anchors, translating, rotating, or flipping a
   named part on the pixel grid, keyframing that part's rotation, translation,
@@ -303,6 +304,30 @@ pixelforge resize --project hero.json --width 64 --height 96 --offset-x 0 --offs
 pixelforge import-aseprite --file hero.aseprite --output hero.json
 pixelforge import-aseprite --file hero.aseprite --project hero.json
 ```
+
+### 任意尺寸 PNG Convert a PNG into an indexed frame
+
+`apply-png` 不缩放。任意尺寸、含透明的 PNG 用 `convert`。格子仍然是调色板索引。alpha 小于 128 写成索引 0。目标边长 `1..=256`。源图每边最大 4096。
+
+五个开源引擎：`center-sample`（默认）、`dominant`、`kmeans`、`contrast-outline`、`grid-snap`。调用字段相同，用 `--engine` 或 `engine set` 选择。`pixelforge-native` 未安装，选它得到 `EngineUnavailable`，不换引擎，也不下载。`engine set` 把默认 id 写进工程。`convert --engine` 只覆盖这一次。成功后 `transform` 记下 id、版本和参数，同一输入输出一致。
+
+`--output` 新建工程，默认从采样颜色封顶（`--palette source`，`--max-colors` 默认 16）。`--project` 默认压进当前调色板。`--palette-file` 用调用方的 `.gpl` 或十六进制列表。`--params` 是该引擎的 JSON 对象。`--feature` 只记录，这一版不参与采样。`palette source` 不是 #126 的完整色板产品。质量基准不是这条命令。
+
+```bash
+pixelforge engine list
+pixelforge engine set center-sample --project hero.json
+pixelforge convert --file ref.png --width 64 --height 64 --engine center-sample --output hero.json
+pixelforge convert --file ref.png --project hero.json --checkpoint hero.ckpt.json
+pixelforge undo --project hero.json --checkpoint hero.ckpt.json
+```
+
+```json
+{ "tool": "listEngines" }
+{ "tool": "setTransformEngine", "params": { "id": "kmeans" } }
+{ "tool": "convertPng", "params": { "png": "<base64>", "width": 64, "height": 64, "engine": "center-sample", "palette": { "mode": "project" } } }
+```
+
+*An arbitrary PNG uses `convert`. Cells stay palette indices. Alpha below 128 is index 0. The five open-source engines share one request. `pixelforge-native` returns `EngineUnavailable` and does not fall back. `engine set` stores the default id. `transform` records the id, version, and parameters. `--output` caps sampled colors. `--project` uses the current palette. `--feature` is stored and not applied. Source edges above 4096 are refused. This is not issue 126 or 127.*
 
 ```json
 { "tool": "importAseprite", "params": { "bytes": "<base64>" } }

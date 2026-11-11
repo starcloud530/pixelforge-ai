@@ -82,6 +82,11 @@
 | `NoPaintColor` | 量化或 PNG 压盘时，调色板没有不透明色可映射 |
 | `PngFile` | `applyPng` 的字节不是可解码的图像 |
 | `PngSize` | PNG 的宽高不是画布大小。压盘不缩放 |
+| `EngineUnknown` | `convertPng` / `setTransformEngine` 的引擎 id 没有注册 |
+| `EngineUnavailable` | 引擎已注册但这一构建没有实现。`pixelforge-native` 是这个码。不会改跑另一个引擎 |
+| `EngineParams` | 引擎私有参数缺了、类型不对，或有未知字段 |
+| `ConvertFeature` | `features` 超过 32 条，或某一条是空的、含控制字符、超过 64 个字符 |
+| `ConvertSource` | 源 PNG 的一边超过 4096。像素不展开 |
 | `FrameIndex` | 帧下标越界 |
 | `LastFrame` | 删掉仅剩的一帧 |
 | `LayerIndex` | 层下标越界 |
@@ -569,6 +574,91 @@ CLI：`pixelforge palette remap --max-colors 8` 或 `--file colors.hex`。
 CLI：`pixelforge palette apply-png --file sprite.png`。可选 `--frame` 和 `--layer`。
 
 错误：`PngFile`、`PngSize`、`NoPaintColor`、`FrameIndex`、`LayerIndex`。`png` 不是 Base64 时是 `InvalidParams`。
+
+### `listEngines`
+
+参数：无。不改文档。
+
+`result.default` 是没写过 `engine set` 时的 id，固定 `center-sample`。`result.engine` 是这份工程当前会用的 id。`result.engines` 每条有 `id`、`version`、`status`（`available` 或 `reserved`）、`available`、`licensed`、`summary`。
+
+开源构建内置五个 available 引擎，顺序固定：`center-sample`、`dominant`、`kmeans`、`contrast-outline`、`grid-snap`。`pixelforge-native` 是 `reserved`，`available: false`，`licensed: false`。没有运行时下载。
+
+*No parameters. `default` is `center-sample`. `engine` is the id this project will use. Reserved `pixelforge-native` is not available and not licensed. Nothing is downloaded.*
+
+CLI：`pixelforge engine list`。可选 `--project`，那时 `engine` 读的是该文件。
+
+### `setTransformEngine`
+
+`params`：`id`。把默认引擎写进工程文件的 `engine`。省略该字段时，下一次 `convertPng` 用 `center-sample`。同一个 id 不进撤销栈。未知 id 是 `EngineUnknown`。`pixelforge-native` 是 `EngineUnavailable`，文件不动。
+
+`result`：`{ "engine": "<id>" }`。
+
+*Stores the default engine. The same id is not recorded. A reserved id writes nothing.*
+
+CLI：`pixelforge engine set <id> --project hero.json`。
+
+### `convertPng`
+
+把一张任意尺寸的 PNG 收成一帧索引色。上层只认这一份参数。换引擎不改这些字段。
+
+`params`：
+
+| 字段 | 含义 |
+| --- | --- |
+| `png` | 标准 Base64。空白可忽略。源图每边最大 4096 |
+| `width`, `height` | 目标边长，`1..=256`。一起给，或一起省略（用当前画布） |
+| `engine` | 引擎 id。省略时用工程里的默认引擎 |
+| `palette` | `{ "mode": "project" \| "source" \| "provided", "text"?, "maxColors"? }`。省略等于 `project` |
+| `features` | 字符串数组，最多 32 条。写进快照，这一版不使用 |
+| `params` | 引擎私有对象。上层不解析。未知字段是 `EngineParams` |
+| `frame`, `layer` | 写入的帧和层。省略是当前帧、当前层，并且不切换它们 |
+
+`palette.mode`：
+
+- `project`：压进当前调色板，不追加颜色。不能带 `text` 或 `maxColors`。锁定时仍可写。
+- `source`：从采样结果收一盘颜色，不透明色不超过 `maxColors`（默认 16，`1..=255`）。合并规则与 `remapPalette` 相同，不平均出新 RGB。这只是让帧有调色板，不是 #126 的三种策略和误差产品。锁定且调色板会变时拒绝。
+- `provided`：`text` 是 `.gpl` 或十六进制列表，压进这盘颜色。文本不在快照里再存一份；工程调色板就是这盘颜色。锁定且调色板会变时拒绝。
+
+采样先得到目标尺寸的 RGBA。alpha 小于 128 的格子是透明。不透明格只取源图里已经有的颜色，不混合出新色。然后用和 `applyPng` 相同的平方 RGB 最近索引写入。平局取较小索引。选区不裁这块写入。
+
+五个引擎，版本都是 `"1"`：
+
+| id | 行为 |
+| --- | --- |
+| `center-sample` | 每格取该格中心覆盖到的源像素。放大是最近邻，不补细节。无私有参数 |
+| `dominant` | 块内多数不透明 RGB。票数相同取较小 RGB。不透明像素不超过一半则整格透明。无私有参数 |
+| `kmeans` | 不透明源色做固定 8 轮、无随机的聚类。中心最后吸到一个真实源色。块内再按簇投票。`k` 默认 16，`1..=255` |
+| `contrast-outline` | 亮度差达到 `contrast`（默认 48）或邻接透明的像素是轮廓。`expand`（默认 1，`0..=4`）只在不透明格子上加粗。块内优先轮廓像素，取最接近亮度中位数的那一个；偶数个取较低的中位 |
+| `grid-snap` | 用边缘投票找重复周期，允许 `slack`（默认 1，`0..=4`）格的弹性。每格取众数色，再中心采样到目标尺寸。找不到边缘时 `report.detected` 为 false，并改用中心采样。这是这个引擎自己的结果，不是换成另一个 id。`maxCell` 默认 32，`2..=64` |
+
+`kmeans` 的均值只用来选源色，写进调色板的仍是源色。`source` 模式若引擎给出了建议色，先用建议色再按 `maxColors` 封顶。
+
+目标尺寸和当前画布不同时，其它帧、选区、部件按 `resizeCanvas` 的居中规则挪一次，然后所选层整层换成采样索引。图块集工程的目标必须等于图块尺寸，否则 `TileAlign`。一步撤销。失败不写。
+
+`--engine` 只影响这一次，不改 `engine set` 存下的默认 id。成功后工程文件写入 `transform`：`id`、`version`、`width`、`height`、`palette`、`params`，以及非空的 `features`。同一张 PNG、同一个 id、同一组参数，输出一致。`features` 出现在 `result.featuresIgnored` 里，表示记下来了但没有参与采样。
+
+`result` 含 `applyPng` 的 `pixelsChanged`、`misses`、`merges`、`dropped`，另有 `frame`、`layer`、`width`、`height`、`engine`（`id`、`version`、`status`）、`palette`、`paletteMode`、`transform`、`featuresIgnored`、`report`。
+
+*One request shape for every engine. Alpha below 128 is index 0. Opaque samples stay source colors, then `applyPng` maps them. `project` keeps the current palette. `source` caps sampled colors and is not issue 126. `provided` uses caller text. `pixelforge-native` errors. Features are stored and ignored. One undo step.*
+
+```json
+{ "tool": "listEngines" }
+{ "tool": "setTransformEngine", "params": { "id": "center-sample" } }
+{ "tool": "convertPng", "params": { "png": "<base64>", "width": 64, "height": 64, "engine": "kmeans", "palette": { "mode": "source", "maxColors": 16 }, "params": { "k": 16 } } }
+```
+
+CLI：
+
+```bash
+pixelforge engine list
+pixelforge engine set kmeans --project hero.json
+pixelforge convert --file ref.png --width 64 --height 64 --engine center-sample --output hero.json
+pixelforge convert --file ref.png --project hero.json --palette project --checkpoint hero.ckpt.json
+```
+
+`--output` 新建工程，默认 `palette` 是 `source`。`--project` 改现有工程，默认 `palette` 是 `project`。`--output` 必须带 `--width` 和 `--height`。`--project` 省略尺寸时保持画布。`--max-colors` 只配 `source`。`--params` 是 JSON 对象。`--feature` 可重复。
+
+错误：`EngineUnknown`、`EngineUnavailable`、`EngineParams`、`ConvertFeature`、`ConvertSource`、`PngFile`、`NoPaintColor`、`PaletteLocked`、`PaletteFile`、`TileAlign`、`InvalidSize`、`FrameIndex`、`LayerIndex`。尺寸只给了一边、`palette` 字段冲突、`png` 不是 Base64，是 `InvalidParams`。
 
 ### `setActiveFrame`
 

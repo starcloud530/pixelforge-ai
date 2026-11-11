@@ -25,7 +25,8 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use pixelforge_kernel::{
-    Mask, Selection, MANIFEST_TOOL_NAMES, TILEMAP_TOOL_NAMES, TOOL_API_VERSION, TOOL_NAMES,
+    Document, Mask, Selection, MANIFEST_TOOL_NAMES, TILEMAP_TOOL_NAMES, TOOL_API_VERSION,
+    TOOL_NAMES,
 };
 use serde_json::{json, Value};
 
@@ -33,11 +34,11 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::cli::{
-    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, CurveCmd, DirectionCmd,
-    EllipseArgs, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs, FloodArgs, FrameCmd, ImportMode,
-    LayerCmd, LineArgs, MaskArgs, MaskCmd, PaintArgs, PaletteCmd, PartCmd, PolygonArgs,
-    ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, ScopeArgs, SelectionCmd, StrokeRectArgs,
-    TagCmd,
+    AnchorCmd, BakeArgs, BlitRectArgs, Cli, Command, ConstraintCmd, ConvertPaletteMode, CurveCmd,
+    DirectionCmd, EllipseArgs, EngineCmd, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs,
+    FloodArgs, FrameCmd, ImportMode, LayerCmd, LineArgs, MaskArgs, MaskCmd, PaintArgs, PaletteCmd,
+    PartCmd, PolygonArgs, ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, ScopeArgs,
+    SelectionCmd, StrokeRectArgs, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -66,6 +67,38 @@ fn execute(cli: Cli) -> i32 {
             output,
             project,
         } => cmd_import_aseprite(&file, output.as_deref(), project.as_deref()),
+        Command::Convert {
+            file,
+            output,
+            project,
+            checkpoint,
+            width,
+            height,
+            engine,
+            palette,
+            palette_file,
+            max_colors,
+            feature,
+            params,
+            frame,
+            layer,
+        } => cmd_convert(
+            &file,
+            output.as_deref(),
+            project.as_deref(),
+            checkpoint.as_deref(),
+            width,
+            height,
+            engine.as_deref(),
+            palette,
+            palette_file.as_deref(),
+            max_colors,
+            &feature,
+            params.as_deref(),
+            frame,
+            layer,
+        ),
+        Command::Engine { command } => cmd_engine(command),
         Command::Inspect { doc, preview } => {
             apply_with(&doc, vec![request("inspect", json!({}))], preview)
         }
@@ -720,6 +753,181 @@ fn cmd_import_aseprite(file: &Path, output: Option<&Path>, project: Option<&Path
             Err(failure) => return emit(failure),
         };
         apply_session(&mut session, request, false)
+    }
+}
+
+fn cmd_engine(command: EngineCmd) -> i32 {
+    match command {
+        EngineCmd::List { project } => cmd_engine_list(project.as_deref()),
+        EngineCmd::Set { id, doc } => apply(
+            &doc,
+            vec![request("setTransformEngine", json!({ "id": id }))],
+        ),
+    }
+}
+
+fn cmd_engine_list(project: Option<&Path>) -> i32 {
+    if let Some(path) = project {
+        return apply(
+            &ProjectArgs {
+                project: path.to_path_buf(),
+                checkpoint: None,
+            },
+            vec![request("listEngines", json!({}))],
+        );
+    }
+    let mut document = match Document::new(1, 1) {
+        Ok(document) => document,
+        Err(error) => return emit(CliFailure::kernel(error)),
+    };
+    let response = document.call_tool(&request("listEngines", json!({})));
+    if !print_line(&response) {
+        return 2;
+    }
+    if let Some((code, message)) = tool_refusal(&response) {
+        eprintln!("pixelforge: listEngines failed: {code}: {message}");
+        return 1;
+    }
+    0
+}
+
+fn cmd_convert(
+    file: &Path,
+    output: Option<&Path>,
+    project: Option<&Path>,
+    checkpoint: Option<&Path>,
+    width: Option<u16>,
+    height: Option<u16>,
+    engine: Option<&str>,
+    palette: Option<ConvertPaletteMode>,
+    palette_file: Option<&Path>,
+    max_colors: Option<u8>,
+    features: &[String],
+    params_text: Option<&str>,
+    frame: Option<u32>,
+    layer: Option<u32>,
+) -> i32 {
+    let target = match (output, project) {
+        (Some(output), None) => output,
+        (None, Some(project)) => project,
+        _ => {
+            return emit(CliFailure::new(
+                "Cli",
+                "convert needs --output for a new project, or --project to edit one",
+            ))
+        }
+    };
+    if output.is_some() && target.exists() {
+        return emit(CliFailure::new(
+            "Cli",
+            format!("project file already exists: {}", target.display()),
+        ));
+    }
+    if checkpoint.is_some() && project.is_none() {
+        return emit(CliFailure::new(
+            "Cli",
+            "convert --checkpoint needs --project",
+        ));
+    }
+    if output.is_some() && (width.is_none() || height.is_none()) {
+        return emit(CliFailure::new(
+            "Cli",
+            "convert --output needs --width and --height",
+        ));
+    }
+    if width.is_some() != height.is_some() {
+        return emit(CliFailure::new(
+            "Cli",
+            "convert needs --width and --height together, or neither to keep the canvas",
+        ));
+    }
+    if palette.is_some() && palette_file.is_some() {
+        return emit(CliFailure::new(
+            "Cli",
+            "convert takes --palette or --palette-file, not both",
+        ));
+    }
+    let mode = if palette_file.is_some() {
+        "provided"
+    } else if let Some(palette) = palette {
+        palette.as_str()
+    } else if output.is_some() {
+        "source"
+    } else {
+        "project"
+    };
+    if max_colors.is_some() && mode != "source" {
+        return emit(CliFailure::new(
+            "Cli",
+            "convert --max-colors is only for --palette source",
+        ));
+    }
+    let bytes = match fs::read(file) {
+        Ok(bytes) => bytes,
+        Err(err) => return emit(CliFailure::io(file, err)),
+    };
+    let mut params = json!({ "png": STANDARD.encode(bytes) });
+    if let (Some(width), Some(height)) = (width, height) {
+        params["width"] = json!(width);
+        params["height"] = json!(height);
+    }
+    if let Some(engine) = engine {
+        params["engine"] = json!(engine);
+    }
+    let mut palette_json = json!({ "mode": mode });
+    if let Some(path) = palette_file {
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(err) => return emit(CliFailure::io(path, err)),
+        };
+        palette_json["text"] = json!(text);
+    }
+    if let Some(max_colors) = max_colors {
+        palette_json["maxColors"] = json!(max_colors);
+    }
+    params["palette"] = palette_json;
+    if !features.is_empty() {
+        params["features"] = json!(features);
+    }
+    if let Some(text) = params_text {
+        let value: Value = match serde_json::from_str(text) {
+            Ok(value) => value,
+            Err(_) => {
+                return emit(CliFailure::new(
+                    "Cli",
+                    "convert --params must be a JSON object",
+                ))
+            }
+        };
+        if !value.is_object() {
+            return emit(CliFailure::new(
+                "Cli",
+                "convert --params must be a JSON object",
+            ));
+        }
+        params["params"] = value;
+    }
+    if let Some(frame) = frame {
+        params["frame"] = json!(frame);
+    }
+    if let Some(layer) = layer {
+        params["layer"] = json!(layer);
+    }
+    let requests = vec![request("convertPng", params)];
+    if output.is_some() {
+        let mut session = match Session::placeholder(target) {
+            Ok(session) => session,
+            Err(failure) => return emit(failure),
+        };
+        apply_session(&mut session, requests, false)
+    } else {
+        apply(
+            &ProjectArgs {
+                project: target.to_path_buf(),
+                checkpoint: checkpoint.map(Path::to_path_buf),
+            },
+            requests,
+        )
     }
 }
 

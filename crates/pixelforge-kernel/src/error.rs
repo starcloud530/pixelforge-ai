@@ -245,6 +245,19 @@ pub enum KernelError {
     /// a source `{action}_{facing}` segment is missing or outside its row.
     /// The call writes nothing.
     DirectionFill { detail: String },
+    /// Convert was asked for an engine id this build does not register.
+    EngineUnknown { id: String },
+    /// The engine id is reserved and this build has no implementation.
+    ///
+    /// Choosing it does not run another engine.
+    EngineUnavailable { id: String },
+    /// An engine rejected its private parameter object.
+    EngineParams { detail: String },
+    /// A convert feature name is empty, too long, or contains a control character,
+    /// or the list is longer than 32.
+    ConvertFeature,
+    /// The source PNG is outside the convert edge limit. Pixels are not expanded.
+    ConvertSource { width: u32, height: u32 },
 }
 
 /// Why [`KernelError::ProjectFile`] rejected a project file.
@@ -369,6 +382,10 @@ pub enum ProjectFileError {
     Tileset,
     /// `directionLayout` count is not 4 or 8, or the grid is empty or past 4096 frames.
     DirectionLayout,
+    /// `engine` is not one of the built-in convert ids.
+    Engine,
+    /// `transform` is not a snapshot this build can read.
+    Transform,
 }
 
 impl KernelError {
@@ -458,6 +475,11 @@ impl KernelError {
             Self::DirectionFrames { .. } => "DirectionFrames",
             Self::DirectionSegment => "DirectionSegment",
             Self::DirectionFill { .. } => "DirectionFill",
+            Self::EngineUnknown { .. } => "EngineUnknown",
+            Self::EngineUnavailable { .. } => "EngineUnavailable",
+            Self::EngineParams { .. } => "EngineParams",
+            Self::ConvertFeature => "ConvertFeature",
+            Self::ConvertSource { .. } => "ConvertSource",
         }
     }
 }
@@ -705,6 +727,25 @@ impl fmt::Display for KernelError {
                 write!(f, "direction segment is named more than once")
             }
             Self::DirectionFill { detail } => write!(f, "{detail}"),
+            Self::EngineUnknown { id } => {
+                write!(f, "convert engine \"{id}\" is not registered")
+            }
+            Self::EngineUnavailable { id } => {
+                write!(
+                    f,
+                    "convert engine \"{id}\" is not installed or not authorized"
+                )
+            }
+            Self::EngineParams { detail } => write!(f, "convert engine params: {detail}"),
+            Self::ConvertFeature => write!(
+                f,
+                "a convert feature must be 1 to 64 characters, with at most 32 names"
+            ),
+            Self::ConvertSource { width, height } => write!(
+                f,
+                "png {width}x{height} is outside the convert source limit of {}",
+                crate::convert::MAX_CONVERT_SOURCE_EDGE
+            ),
         }
     }
 }
@@ -888,6 +929,8 @@ impl fmt::Display for ProjectFileError {
                 "directionLayout count must be 4 or 8 and the grid must be 1 to {} frames",
                 crate::MAX_BAKE_FRAMES
             ),
+            Self::Engine => write!(f, "project file engine is not a built-in convert engine"),
+            Self::Transform => write!(f, "project file transform snapshot is not valid"),
         }
     }
 }

@@ -64,6 +64,9 @@ pub const TOOL_NAMES: &[&str] = &[
     "setIndexPolicy",
     "remapPalette",
     "applyPng",
+    "listEngines",
+    "setTransformEngine",
+    "convertPng",
     "setActiveFrame",
     "addFrame",
     "deleteFrame",
@@ -699,6 +702,24 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             result["width"] = serde_json::json!(document.width());
             result["height"] = serde_json::json!(document.height());
             Ok(result)
+        }
+        "listEngines" => {
+            parse_empty(tool, params)?;
+            Ok(crate::convert::engines_json(document.transform_engine()))
+        }
+        "setTransformEngine" => {
+            let id = parse_engine_id(params)?;
+            document
+                .set_transform_engine(&id)
+                .map_err(ToolFailure::Kernel)?;
+            Ok(serde_json::json!({
+                "engine": document.transform_engine(),
+            }))
+        }
+        "convertPng" => {
+            let request = parse_convert(params)?;
+            let outcome = document.convert_png(request).map_err(ToolFailure::Kernel)?;
+            Ok(convert_json(document, &outcome))
         }
         "setActiveFrame" => {
             let index = parse_index(tool, params)?;
@@ -1462,6 +1483,8 @@ fn inspect_value(document: &Document) -> Value {
         "constraints": constraints_json(document),
         "layers": layer_entries(document),
         "tileset": tileset_json(document),
+        "engine": document.transform_engine(),
+        "transform": transform_json(document),
         "canUndo": document.can_undo(),
         "canRedo": document.can_redo(),
         "gestureOpen": document.gesture_open(),
@@ -1506,6 +1529,8 @@ fn scene_value(document: &Document) -> Value {
         "curves": curves_json(document, None),
         "constraints": constraints_json(document),
         "tileset": tileset_json(document),
+        "engine": document.transform_engine(),
+        "transform": transform_json(document),
     })
 }
 
@@ -3989,6 +4014,209 @@ fn parse_remap(params: Value) -> Result<RemapRequest, ToolFailure> {
         )),
         (None, None) => Err(invalid_params("remapPalette", "pass text or maxColors")),
     }
+}
+
+fn parse_engine_id(params: Value) -> Result<String, ToolFailure> {
+    let map = expect_object("setTransformEngine", params)?;
+    reject_params("setTransformEngine", &map, &["id"])?;
+    require_string("setTransformEngine", &map, "id")
+}
+
+fn parse_convert(params: Value) -> Result<crate::convert::ConvertRequest, ToolFailure> {
+    let map = expect_object("convertPng", params)?;
+    reject_params(
+        "convertPng",
+        &map,
+        &[
+            "png", "width", "height", "engine", "palette", "features", "params", "frame", "layer",
+        ],
+    )?;
+    let text = require_string("convertPng", &map, "png")?;
+    let png =
+        decode_base64(&text).map_err(|_| invalid_params("convertPng", "png must be base64"))?;
+    let width = optional_u16("convertPng", &map, "width")?;
+    let height = optional_u16("convertPng", &map, "height")?;
+    if width.is_some() != height.is_some() {
+        return Err(invalid_params(
+            "convertPng",
+            "pass width and height together, or omit both",
+        ));
+    }
+    let engine = match map.get("engine") {
+        None => None,
+        Some(_) => Some(require_string("convertPng", &map, "engine")?),
+    };
+    let palette = parse_convert_palette(&map)?;
+    let features = optional_strings("convertPng", &map, "features")?;
+    let params = match map.get("params") {
+        None => serde_json::Map::new(),
+        Some(Value::Object(object)) => object.clone(),
+        Some(_) => return Err(invalid_params("convertPng", "params must be an object")),
+    };
+    let frame = optional_frame("convertPng", &map, "frame")?;
+    let layer = optional_frame("convertPng", &map, "layer")?;
+    Ok(crate::convert::ConvertRequest {
+        png,
+        width,
+        height,
+        engine,
+        palette,
+        features,
+        params,
+        frame,
+        layer,
+    })
+}
+
+fn parse_convert_palette(
+    map: &Map<String, Value>,
+) -> Result<crate::convert::ConvertPalette, ToolFailure> {
+    let Some(value) = map.get("palette") else {
+        return Ok(crate::convert::ConvertPalette::Project);
+    };
+    let Some(palette) = value.as_object() else {
+        return Err(invalid_params("convertPng", "palette must be an object"));
+    };
+    reject_params("convertPng", palette, &["mode", "text", "maxColors"])?;
+    let mode = require_string("convertPng", palette, "mode")?;
+    let text = match palette.get("text") {
+        None => None,
+        Some(_) => Some(require_string("convertPng", palette, "text")?),
+    };
+    let max_colors = match palette.get("maxColors") {
+        None => None,
+        Some(_) => Some(require_u8_range(
+            "convertPng",
+            palette,
+            "maxColors",
+            1,
+            255,
+        )?),
+    };
+    match mode.as_str() {
+        "project" => {
+            if text.is_some() || max_colors.is_some() {
+                return Err(invalid_params(
+                    "convertPng",
+                    "palette mode project takes no text or maxColors",
+                ));
+            }
+            Ok(crate::convert::ConvertPalette::Project)
+        }
+        "source" => {
+            if text.is_some() {
+                return Err(invalid_params(
+                    "convertPng",
+                    "palette mode source takes maxColors, not text",
+                ));
+            }
+            Ok(crate::convert::ConvertPalette::Source {
+                max_colors: max_colors.unwrap_or(crate::convert::DEFAULT_MAX_COLORS),
+            })
+        }
+        "provided" => {
+            if max_colors.is_some() {
+                return Err(invalid_params(
+                    "convertPng",
+                    "palette mode provided takes text, not maxColors",
+                ));
+            }
+            let Some(text) = text else {
+                return Err(invalid_params(
+                    "convertPng",
+                    "palette mode provided needs text",
+                ));
+            };
+            Ok(crate::convert::ConvertPalette::Provided { text })
+        }
+        _ => Err(invalid_params(
+            "convertPng",
+            "palette mode must be project, source, or provided",
+        )),
+    }
+}
+
+fn optional_strings(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+) -> Result<Vec<String>, ToolFailure> {
+    match map.get(key) {
+        None => Ok(Vec::new()),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| {
+                item.as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| invalid_params(tool, &format!("{key} entries must be strings")))
+            })
+            .collect(),
+        Some(_) => Err(invalid_params(tool, &format!("{key} must be an array"))),
+    }
+}
+
+fn require_u8_range(
+    tool: &str,
+    map: &Map<String, Value>,
+    key: &str,
+    min: u8,
+    max: u8,
+) -> Result<u8, ToolFailure> {
+    let value = require_u8(tool, map, key)?;
+    if value < min || value > max {
+        return Err(invalid_params(
+            tool,
+            &format!("{key} must be an integer from {min} to {max}"),
+        ));
+    }
+    Ok(value)
+}
+
+fn convert_json(document: &Document, outcome: &crate::convert::ConvertOutcome) -> Value {
+    let mut result = conflict_json(&outcome.map);
+    result["frame"] = serde_json::json!(outcome.frame);
+    result["layer"] = serde_json::json!(outcome.layer);
+    result["width"] = serde_json::json!(outcome.width);
+    result["height"] = serde_json::json!(outcome.height);
+    result["engine"] = serde_json::json!({
+        "id": outcome.engine,
+        "version": outcome.version,
+        "status": "available",
+    });
+    result["palette"] = serde_json::json!(palette_entries(document));
+    result["paletteMode"] = serde_json::json!(outcome.snapshot.palette_mode.as_str());
+    result["transform"] = snapshot_json(&outcome.snapshot);
+    result["featuresIgnored"] = serde_json::json!(outcome.features_ignored);
+    result["report"] = outcome.report.clone();
+    result
+}
+
+fn transform_json(document: &Document) -> Value {
+    match document.transform_snapshot() {
+        Some(snapshot) => snapshot_json(snapshot),
+        None => Value::Null,
+    }
+}
+
+fn snapshot_json(snapshot: &crate::convert::TransformSnapshot) -> Value {
+    let mut palette = serde_json::json!({
+        "mode": snapshot.palette_mode.as_str(),
+    });
+    if let Some(max_colors) = snapshot.max_colors {
+        palette["maxColors"] = serde_json::json!(max_colors);
+    }
+    let mut value = serde_json::json!({
+        "id": snapshot.id,
+        "version": snapshot.version,
+        "width": snapshot.width,
+        "height": snapshot.height,
+        "palette": palette,
+        "params": snapshot.params,
+    });
+    if !snapshot.features.is_empty() {
+        value["features"] = serde_json::json!(snapshot.features);
+    }
+    value
 }
 
 fn parse_apply_png(params: Value) -> Result<(Vec<u8>, Option<usize>, Option<usize>), ToolFailure> {
