@@ -25,7 +25,9 @@
 //! omits `curves` and loads with none. An empty curve list is still saved that
 //! way. A file written before constraints existed omits `constraints` and loads
 //! with none. An empty constraint list is still saved that way. `ik` and
-//! `plant` are kinds on that same list. A direction layout is omitted until
+//! `plant` are kinds on that same list. A missing `engine` loads as
+//! `center-sample` and is omitted until one is stored. A missing `transform`
+//! means this file has not been converted. A direction layout is omitted until
 //! `count` and `columns` are set. Count 4 is the cardinal sheet. Count 8
 //! appends diagonals. A tileset size is omitted until
 //! `tileWidth` and `tileHeight` are set; both edges are 16 or 32. A polish layer may name `part` and
@@ -39,6 +41,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::constraint::{solve_order, Constraint, ConstraintKind, Contact};
+use crate::convert::{self, PaletteMode, TransformSnapshot};
 use crate::curve::{Curve, CurveChannel, CurveKey, Ease};
 use crate::direction::DirectionLayout;
 use crate::document::Document;
@@ -116,6 +119,12 @@ struct ProjectFile {
     /// Tile size. Missing when the project is not a tileset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tileset: Option<TilesetSizeFile>,
+    /// Default convert engine. Missing means `center-sample`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    engine: Option<String>,
+    /// Last convert snapshot. Missing when this file has not been converted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    transform: Option<TransformFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +139,44 @@ struct DirectionLayoutFile {
 struct TilesetSizeFile {
     tile_width: u64,
     tile_height: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TransformFile {
+    id: String,
+    version: String,
+    width: u64,
+    height: u64,
+    palette: TransformPaletteFile,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    features: Vec<String>,
+    params: serde_json::Map<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TransformPaletteFile {
+    mode: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_colors: Option<u64>,
+}
+
+impl TransformFile {
+    fn from(snapshot: &TransformSnapshot) -> Self {
+        Self {
+            id: snapshot.id.clone(),
+            version: snapshot.version.clone(),
+            width: u64::from(snapshot.width),
+            height: u64::from(snapshot.height),
+            palette: TransformPaletteFile {
+                mode: snapshot.palette_mode.as_str().to_string(),
+                max_colors: snapshot.max_colors.map(u64::from),
+            },
+            features: snapshot.features.clone(),
+            params: snapshot.params.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -380,6 +427,8 @@ impl Document {
                 tile_width: u64::from(decl.tile_width),
                 tile_height: u64::from(decl.tile_height),
             }),
+            engine: self.stored_engine().map(str::to_string),
+            transform: self.transform_snapshot().map(TransformFile::from),
         };
         let mut json = serde_json::to_string_pretty(&file)
             .expect("project fields are JSON numbers, strings, and arrays");
@@ -492,6 +541,8 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let curves = curves_from_file(file.curves, &parts, frames.len())?;
     let constraints = constraints_from_file(file.constraints, &parts, width, height, frames.len())?;
     let tileset = tileset_from_file(file.tileset)?;
+    let engine = engine_from_file(file.engine)?;
+    let transform = transform_from_file(file.transform)?;
     Ok(Document::from_stored(
         width,
         height,
@@ -513,7 +564,73 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         curves,
         constraints,
         tileset,
+        engine,
+        transform,
     ))
+}
+
+fn engine_from_file(id: Option<String>) -> Result<Option<String>, KernelError> {
+    let Some(id) = id else {
+        return Ok(None);
+    };
+    if convert::is_available(&id) {
+        Ok(Some(id))
+    } else {
+        Err(invalid(ProjectFileError::Engine))
+    }
+}
+
+fn transform_from_file(
+    file: Option<TransformFile>,
+) -> Result<Option<TransformSnapshot>, KernelError> {
+    let Some(file) = file else {
+        return Ok(None);
+    };
+    let fail = || invalid(ProjectFileError::Transform);
+    if !convert::is_available(&file.id) || file.version != convert::ENGINE_VERSION {
+        return Err(fail());
+    }
+    let Some(mode) = convert::parse_mode(&file.palette.mode) else {
+        return Err(fail());
+    };
+    let Some(width) = u16::try_from(file.width)
+        .ok()
+        .filter(|edge| (1..=MAX_CANVAS_EDGE).contains(edge))
+    else {
+        return Err(fail());
+    };
+    let Some(height) = u16::try_from(file.height)
+        .ok()
+        .filter(|edge| (1..=MAX_CANVAS_EDGE).contains(edge))
+    else {
+        return Err(fail());
+    };
+    let max_colors = match (mode, file.palette.max_colors) {
+        (PaletteMode::Source, Some(value)) => {
+            let Some(value) = u8::try_from(value)
+                .ok()
+                .filter(|value| (1..=255).contains(value))
+            else {
+                return Err(fail());
+            };
+            Some(value)
+        }
+        (PaletteMode::Source, None) => Some(convert::DEFAULT_MAX_COLORS),
+        (_, None) => None,
+        (_, Some(_)) => return Err(fail()),
+    };
+    let features = convert::normalize_features(&file.features).map_err(|_| fail())?;
+    let params = convert::normalize_params(&file.id, &file.params).map_err(|_| fail())?;
+    Ok(Some(TransformSnapshot {
+        id: file.id,
+        version: file.version,
+        width,
+        height,
+        palette_mode: mode,
+        max_colors,
+        features,
+        params,
+    }))
 }
 
 fn direction_layout_from_file(

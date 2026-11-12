@@ -355,6 +355,15 @@ pub(crate) fn crush_rgba(
 
 /// Read one PNG into 8-bit RGBA. Images larger than the canvas edge are not expanded.
 pub(crate) fn decode_png(bytes: &[u8]) -> Result<DecodedPng, KernelError> {
+    decode_png_limited(bytes, u32::from(MAX_CANVAS_EDGE))
+}
+
+/// Read one PNG into 8-bit RGBA, up to `max_edge` on each side.
+///
+/// `applyPng` passes the canvas limit and does not scale. Convert passes a
+/// larger source limit and samples afterward. An image past `max_edge` is
+/// [`DecodedPng::TooBig`] and its pixels are not expanded.
+pub(crate) fn decode_png_limited(bytes: &[u8], max_edge: u32) -> Result<DecodedPng, KernelError> {
     let mut decoder = Decoder::new(Cursor::new(bytes));
     decoder.set_transformations(Transformations::EXPAND | Transformations::STRIP_16);
     let mut reader = decoder.read_info().map_err(|_| KernelError::PngFile)?;
@@ -365,7 +374,7 @@ pub(crate) fn decode_png(bytes: &[u8]) -> Result<DecodedPng, KernelError> {
     if width == 0 || height == 0 {
         return Err(KernelError::PngFile);
     }
-    if width > u32::from(MAX_CANVAS_EDGE) || height > u32::from(MAX_CANVAS_EDGE) {
+    if width > max_edge || height > max_edge {
         return Ok(DecodedPng::TooBig { width, height });
     }
     let mut buf = vec![0; reader.output_buffer_size()];

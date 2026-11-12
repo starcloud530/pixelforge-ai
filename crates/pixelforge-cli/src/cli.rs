@@ -39,6 +39,9 @@ Examples:
   pixelforge vflip --project hero.json
   pixelforge rotate --project hero.json --degrees 90
   pixelforge import-aseprite --file hero.aseprite --output hero.json
+  pixelforge engine list
+  pixelforge engine set center-sample --project hero.json
+  pixelforge convert --file ref.png --width 64 --height 64 --engine center-sample --output hero.json
   pixelforge scene --project hero.json
   pixelforge preview --project hero.json --scale 4
   pixelforge preview --project hero.json --frame 1 --scale 4 --output hero-f1.png
@@ -244,6 +247,60 @@ pub enum Command {
         /// Existing project to replace after a successful import.
         #[arg(short, long, value_name = "FILE")]
         project: Option<PathBuf>,
+    },
+    /// Sample an arbitrary-size PNG into one indexed frame.
+    ///
+    /// Pass `--output` to create a project, or `--project` to replace one
+    /// frame. The engine id selects the sampler. `pixelforge-native` is
+    /// reserved and errors. This does not download an engine.
+    Convert {
+        /// Source PNG. Edges up to 4096. Indexed and gray files are expanded.
+        #[arg(long, value_name = "FILE")]
+        file: PathBuf,
+        /// New project path. Refuses when the file already exists.
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+        /// Existing project to edit after a successful convert.
+        #[arg(short, long, value_name = "FILE")]
+        project: Option<PathBuf>,
+        /// Checkpoint sidecar. Only with `--project`.
+        #[arg(long, value_name = "FILE")]
+        checkpoint: Option<PathBuf>,
+        /// Target width, from 1 to 256. Required with `--output`.
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
+        width: Option<u16>,
+        /// Target height, from 1 to 256. Required with `--output`.
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
+        height: Option<u16>,
+        /// Engine id. Omit to use the project's stored engine, or `center-sample`.
+        #[arg(long)]
+        engine: Option<String>,
+        /// `project` crushes onto the current palette. `source` caps sampled colors.
+        #[arg(long, value_enum)]
+        palette: Option<ConvertPaletteMode>,
+        /// Palette text (`.gpl` or hex) to crush onto. Not stored twice.
+        #[arg(long, value_name = "FILE")]
+        palette_file: Option<PathBuf>,
+        /// Opaque color cap for `--palette source`. Default 16.
+        #[arg(long, value_parser = clap::value_parser!(u8).range(1..=255))]
+        max_colors: Option<u8>,
+        /// Feature name to record. This version does not apply it.
+        #[arg(long = "feature")]
+        feature: Vec<String>,
+        /// Engine parameter object, JSON. Unknown keys error.
+        #[arg(long, value_name = "JSON")]
+        params: Option<String>,
+        /// Frame to write. Defaults to the active frame. Does not select it.
+        #[arg(long)]
+        frame: Option<u32>,
+        /// Layer to write. Defaults to the active layer. Does not select it.
+        #[arg(long)]
+        layer: Option<u32>,
+    },
+    /// List convert engines, or store the default engine on a project.
+    Engine {
+        #[command(subcommand)]
+        command: EngineCmd,
     },
     /// Print the Tool API inspect result. Does not write the file.
     Inspect {
@@ -1269,6 +1326,40 @@ pub enum PaletteCmd {
         #[arg(long)]
         layer: Option<u32>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum EngineCmd {
+    /// List built-in and reserved engines. Does not download anything.
+    List {
+        /// Read this project's stored engine into the result.
+        #[arg(short, long, value_name = "FILE")]
+        project: Option<PathBuf>,
+    },
+    /// Store the default convert engine. A reserved id is refused.
+    Set {
+        /// Engine id from `engine list`.
+        id: String,
+        #[command(flatten)]
+        doc: ProjectArgs,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum ConvertPaletteMode {
+    /// Crush onto the project's current palette. Does not add colors.
+    Project,
+    /// Cap colors sampled from the PNG. Not the #126 extractor.
+    Source,
+}
+
+impl ConvertPaletteMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Source => "source",
+        }
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]

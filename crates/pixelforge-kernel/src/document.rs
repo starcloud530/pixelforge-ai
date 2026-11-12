@@ -7,6 +7,10 @@ use crate::constraint::{
     warp_overlay, Constraint, ConstraintKind, Contact, MotionStep, PosedPart, SolveReport,
     SolvedAnchor, SolvedPart, WarpReport,
 };
+use crate::convert::{
+    self, ConvertOutcome, ConvertPalette, ConvertRequest, TransformSnapshot, DEFAULT_ENGINE_ID,
+    MAX_CONVERT_SOURCE_EDGE,
+};
 use crate::curve::{
     curves_after_insert, curves_after_remove, curves_after_rename, curves_for_parts, sample_keys,
     Curve, CurveChannel, CurveKey, CurveRemoval, CurveSample, CurveWrite, Ease, PartSample,
@@ -419,6 +423,11 @@ pub struct Document {
     /// Each frame is one tile. The canvas has to equal this size before a
     /// tileset export. Paint tools do not read it.
     tileset: Option<TilesetDecl>,
+    /// Default convert engine. `None` means [`crate::convert::DEFAULT_ENGINE_ID`]
+    /// and is omitted from the file. A one-shot convert does not change this.
+    engine: Option<String>,
+    /// Last successful convert snapshot. `None` is omitted.
+    transform: Option<crate::convert::TransformSnapshot>,
     history: History,
     playback: Playback,
 }
@@ -470,6 +479,8 @@ impl Document {
             curves: Vec::new(),
             constraints: Vec::new(),
             tileset: None,
+            engine: None,
+            transform: None,
             history: History::new(),
             playback: Playback::stopped(),
         })
@@ -499,6 +510,19 @@ impl Document {
     /// How `paint` and `fill_rect` treat an index past the palette.
     pub fn index_policy(&self) -> IndexPolicy {
         self.index_policy
+    }
+
+    /// Convert engine id stored for the next convert, or the built-in default.
+    pub fn transform_engine(&self) -> &str {
+        self.engine.as_deref().unwrap_or(DEFAULT_ENGINE_ID)
+    }
+
+    pub(crate) fn stored_engine(&self) -> Option<&str> {
+        self.engine.as_deref()
+    }
+
+    pub(crate) fn transform_snapshot(&self) -> Option<&TransformSnapshot> {
+        self.transform.as_ref()
     }
 
     /// Resolves a paint index under [`Self::index_policy`].
@@ -1331,6 +1355,209 @@ impl Document {
         Ok(report)
     }
 
+    /// Stores the default convert engine. The same id is not recorded.
+    ///
+    /// A reserved or unknown id writes nothing. Setting the built-in default
+    /// still stores that id so the project file shows the choice.
+    pub(crate) fn set_transform_engine(&mut self, id: &str) -> Result<(), KernelError> {
+        let id = convert::require_available(id)?;
+        if self.engine.as_deref() == Some(id) {
+            return Ok(());
+        }
+        let before = self.engine.clone();
+        let after = Some(id.to_string());
+        self.engine = after.clone();
+        self.history.record(Change::Engine { before, after });
+        Ok(())
+    }
+
+    /// Samples an arbitrary PNG into one indexed frame.
+    ///
+    /// The canvas becomes the target size, using the same centered placement
+    /// as [`Self::resize_canvas`] for every other frame, the selection, and
+    /// parts. The chosen layer is then replaced by the sampled indices. The
+    /// selection does not mask the write. One undo step. A failure writes
+    /// nothing.
+    pub(crate) fn convert_png(
+        &mut self,
+        request: ConvertRequest,
+    ) -> Result<ConvertOutcome, KernelError> {
+        let (width, height) = match (request.width, request.height) {
+            (Some(width), Some(height)) => (width, height),
+            (None, None) => (self.width, self.height),
+            (Some(width), None) => return Err(KernelError::InvalidSize { width, height: 0 }),
+            (None, Some(height)) => return Err(KernelError::InvalidSize { width: 0, height }),
+        };
+        check_size(width, height)?;
+        if let Some(decl) = self.tileset {
+            if decl.tile_width != width || decl.tile_height != height {
+                return Err(KernelError::TileAlign {
+                    tile_width: decl.tile_width,
+                    tile_height: decl.tile_height,
+                    width,
+                    height,
+                });
+            }
+        }
+        let frame = self.frame_or_err(request.frame.unwrap_or(self.active))?;
+        let layer = self.layer_or_err(request.layer.unwrap_or(self.active_layer))?;
+        let engine = match request.engine.as_deref() {
+            Some(id) => convert::require_available(id)?,
+            None => convert::require_available(self.transform_engine())?,
+        };
+        let features = convert::normalize_features(&request.features)?;
+        let decoded = match palette_map::decode_png_limited(&request.png, MAX_CONVERT_SOURCE_EDGE)?
+        {
+            DecodedPng::TooBig {
+                width: png_width,
+                height: png_height,
+            } => {
+                return Err(KernelError::ConvertSource {
+                    width: png_width,
+                    height: png_height,
+                });
+            }
+            DecodedPng::Image {
+                width: png_width,
+                height: png_height,
+                rgba,
+            } => (png_width, png_height, rgba),
+        };
+        let sampled = convert::sample(
+            engine,
+            decoded.0,
+            decoded.1,
+            &decoded.2,
+            width,
+            height,
+            &request.params,
+        )?;
+        let destination = self.destination_palette(&request.palette, &sampled)?;
+        if destination.as_slice() != self.palette.colors() && self.palette_locked {
+            return Err(KernelError::PaletteLocked);
+        }
+        let (indices, mut map_report) = palette_map::crush_rgba(&destination, &sampled.rgba)?;
+        let index_map = if destination.as_slice() == self.palette.colors() {
+            None
+        } else {
+            Some(remap_indices(self.palette.colors(), &destination)?)
+        };
+        let snapshot = TransformSnapshot {
+            id: engine.to_string(),
+            version: sampled.version.to_string(),
+            width,
+            height,
+            palette_mode: request.palette.mode(),
+            max_colors: request.palette.max_colors(),
+            features: features.clone(),
+            params: sampled.params.clone(),
+        };
+        let offset_x = (i32::from(width) - i32::from(self.width)) / 2;
+        let offset_y = (i32::from(height) - i32::from(self.height)) / 2;
+        let mut changes = self.resize_canvas_changes(width, height, offset_x, offset_y)?;
+        let pixel_count = self.pixel_count();
+        debug_assert_eq!(indices.len(), pixel_count);
+        for frame_index in 0..self.frames.len() {
+            for layer_index in 0..self.layer_names.len() {
+                let before = self.frames[frame_index].layer_pixels(layer_index).to_vec();
+                for offset in 0..pixel_count {
+                    let next = if frame_index == frame && layer_index == layer {
+                        indices[offset]
+                    } else if let Some(map) = &index_map {
+                        map[usize::from(before[offset])]
+                    } else {
+                        before[offset]
+                    };
+                    if before[offset] != next {
+                        self.frames[frame_index].set_on(layer_index, offset, next);
+                        changes.push(Change::Pixel {
+                            frame: frame_index,
+                            layer: layer_index,
+                            offset,
+                            before: before[offset],
+                            after: next,
+                        });
+                    }
+                    if frame_index == frame && layer_index == layer {
+                        self.put_mark(frame_index, layer_index, offset, 0, &mut changes);
+                    }
+                }
+            }
+        }
+        if self.palette.colors() != destination.as_slice() {
+            let before = self.palette.colors().to_vec();
+            self.palette.install(destination.clone());
+            changes.push(Change::PaletteReplace {
+                before,
+                after: destination.clone(),
+            });
+        }
+        if self.transform.as_ref() != Some(&snapshot) {
+            let before = self.transform.clone();
+            self.transform = Some(snapshot.clone());
+            changes.push(Change::Transform {
+                before,
+                after: Some(snapshot.clone()),
+            });
+        }
+        map_report.pixels_changed = changes
+            .iter()
+            .filter(|change| {
+                matches!(
+                    change,
+                    Change::Pixel {
+                        frame: pixel_frame,
+                        layer: pixel_layer,
+                        ..
+                    } if *pixel_frame == frame && *pixel_layer == layer
+                )
+            })
+            .count();
+        self.history.record_group(changes);
+        Ok(ConvertOutcome {
+            frame,
+            layer,
+            width,
+            height,
+            engine: engine.to_string(),
+            version: sampled.version.to_string(),
+            snapshot,
+            report: sampled.report,
+            map: map_report,
+            features_ignored: features,
+        })
+    }
+
+    fn destination_palette(
+        &self,
+        palette: &ConvertPalette,
+        sampled: &convert::Sampled,
+    ) -> Result<Vec<Rgba>, KernelError> {
+        match palette {
+            ConvertPalette::Project => Ok(self.palette.colors().to_vec()),
+            ConvertPalette::Provided { text } => {
+                let imported = parse_palette_text(text)?;
+                let mut colors = Vec::with_capacity(imported.len() + 1);
+                colors.push(Rgba::TRANSPARENT);
+                colors.extend(imported);
+                Palette::new(colors.clone())?;
+                Ok(colors)
+            }
+            ConvertPalette::Source { max_colors } => {
+                let listed = match &sampled.suggested {
+                    Some(colors) if !colors.is_empty() => colors.clone(),
+                    _ => convert::unique_opaque(&sampled.rgba),
+                };
+                if listed.is_empty() {
+                    return Ok(self.palette.colors().to_vec());
+                }
+                let capped = convert::cap_opaque(&listed, usize::from(*max_colors));
+                Palette::new(capped.clone())?;
+                Ok(capped)
+            }
+        }
+    }
+
     fn index_counts(&self) -> Vec<u32> {
         let mut counts = vec![0u32; self.palette.len()];
         for frame in &self.frames {
@@ -2078,6 +2305,22 @@ impl Document {
         offset_x: i32,
         offset_y: i32,
     ) -> Result<(), KernelError> {
+        let changes = self.resize_canvas_changes(width, height, offset_x, offset_y)?;
+        self.history.record_group(changes);
+        Ok(())
+    }
+
+    /// Places every frame on a new canvas and returns the undo records.
+    ///
+    /// The document is already updated. The caller records the records, so a
+    /// convert can append the sampled indices to the same step.
+    fn resize_canvas_changes(
+        &mut self,
+        width: u16,
+        height: u16,
+        offset_x: i32,
+        offset_y: i32,
+    ) -> Result<Vec<Change>, KernelError> {
         check_size(width, height)?;
         let before_pixels: Vec<Vec<Vec<u8>>> = self
             .frames
@@ -2136,7 +2379,7 @@ impl Document {
         let curves_same = before_curves == after_curves;
         let constraints_same = before_constraints == after_constraints;
         if pixels_same && selection_same && parts_same && curves_same && constraints_same {
-            return Ok(());
+            return Ok(Vec::new());
         }
         let before_width = self.width;
         let before_height = self.height;
@@ -2191,8 +2434,7 @@ impl Document {
                 after: after_constraints,
             });
         }
-        self.history.record_group(changes);
-        Ok(())
+        Ok(changes)
     }
 
     /// Copies `width` by `height` indices from one frame's rectangle to another.
@@ -5048,6 +5290,8 @@ impl Document {
         curves: Vec<Curve>,
         constraints: Vec<Constraint>,
         tileset: Option<TilesetDecl>,
+        engine: Option<String>,
+        transform: Option<crate::convert::TransformSnapshot>,
     ) -> Self {
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
@@ -5145,6 +5389,8 @@ impl Document {
             curves,
             constraints,
             tileset,
+            engine,
+            transform,
             history: History::new(),
             playback: Playback::stopped(),
         }
@@ -5617,6 +5863,20 @@ impl Document {
             Change::Tileset { before, after } => {
                 self.tileset = if forward { *after } else { *before };
             }
+            Change::Engine { before, after } => {
+                self.engine = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
+            }
+            Change::Transform { before, after } => {
+                self.transform = if forward {
+                    after.clone()
+                } else {
+                    before.clone()
+                };
+            }
             Change::DirectionLayout { before, after } => {
                 self.direction_layout = if forward { *after } else { *before };
             }
@@ -6039,6 +6299,16 @@ fn source_local(turn: Turn, width: u16, height: u16, x: u16, y: u16) -> (u16, u1
         Turn::Cw90 => (y, height - 1 - x),
         Turn::Cw270 => (width - 1 - y, x),
     }
+}
+
+fn remap_indices(from: &[Rgba], to: &[Rgba]) -> Result<Vec<u8>, KernelError> {
+    let mut map = vec![0u8; from.len()];
+    for (index, color) in from.iter().enumerate().skip(1) {
+        let nearest = palette_map::nearest_opaque(to, (color.r, color.g, color.b))
+            .ok_or(KernelError::NoPaintColor)?;
+        map[index] = nearest.index;
+    }
+    Ok(map)
 }
 
 fn check_size(width: u16, height: u16) -> Result<(), KernelError> {

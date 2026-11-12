@@ -349,6 +349,36 @@ const BY_NAME = {
     },
     ["png"],
   ),
+  listEngines: tool(
+    "listEngines",
+    "List convert engines. center-sample, dominant, kmeans, contrast-outline, and grid-snap are available. pixelforge-native is reserved and is not installed. Changes nothing.",
+  ),
+  setTransformEngine: tool(
+    "setTransformEngine",
+    "Store the default convert engine id on the project. The same id is not recorded. pixelforge-native is refused and does not fall back.",
+    {
+      id: { type: "string", description: "Engine id from listEngines." },
+    },
+    ["id"],
+  ),
+  convertPng: tool(
+    "convertPng",
+    "Sample an arbitrary PNG into one indexed frame at width and height. Alpha below 128 becomes index 0. palette.mode is project, source, or provided. features are stored and not applied. Engine params are an opaque object. One undo step.",
+    {
+      png: { type: "string", description: "Standard base64 PNG. Whitespace is ignored. Each edge must be at most 4096." },
+      width: int("Target width, 1 to 256. Pass with height, or omit both.", 1, 256),
+      height: int("Target height, 1 to 256. Pass with width, or omit both.", 1, 256),
+      engine: { type: "string", description: "Engine id. Omit for the project's stored engine." },
+      features: {
+        type: "array",
+        description: "Feature names to record. This version does not apply them.",
+        items: { type: "string", description: "One feature name, 1 to 64 characters." },
+      },
+      frame: int("Frame to write. Omit for the active frame. Does not select it.", 0, 4294967295),
+      layer: int("Layer to write. Omit for the active layer. Does not select it.", 0, 4294967295),
+    },
+    ["png"],
+  ),
   setActiveFrame: tool(
     "setActiveFrame",
     "Select the frame the next paint and inspect pixels refer to.",
@@ -1012,6 +1042,7 @@ export const TOOL_CATALOG: readonly ChatTool[] = TOOL_NAMES.map((name) => BY_NAM
 export const READ_ONLY_TOOLS: readonly ToolName[] = [
   "inspect",
   "scene",
+  "listEngines",
   "saveProject",
   "exportPngSequence",
   "exportSpriteSheet",
