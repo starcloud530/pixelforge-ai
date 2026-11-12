@@ -10,9 +10,12 @@
 //! transparent. The document then crushes that buffer with the same nearest
 //! opaque index `applyPng` uses.
 //!
-//! This is not the palette-extraction product (#126) and not a quality
-//! benchmark (#127). `source` mode only caps the sampled colors with the
-//! existing nearest-color merge so the frame has a palette.
+//! `palette.mode` is the earlier cap (`source`), the document palette
+//! (`project`), or caller text (`provided`). `palette.strategy` is the
+//! registered extractor: `source`, `limit`, or `project`. Unknown strategy
+//! ids error and do not fall back. The merge and error record is
+//! [`crate::palette_strategy::PaletteReport`]. This is not a quality
+//! benchmark (#127).
 
 use serde_json::{Map, Value};
 
@@ -32,7 +35,7 @@ pub(crate) const RESERVED_ENGINE_ID: &str = "pixelforge-native";
 /// Largest source edge [`crate::Document::convert_png`] will expand.
 pub(crate) const MAX_CONVERT_SOURCE_EDGE: u32 = 4096;
 
-/// Default opaque cap for `palette.mode = source`. Not a #126 strategy.
+/// Default opaque cap for legacy `palette.mode = source` and for strategy `limit`.
 pub(crate) const DEFAULT_MAX_COLORS: u8 = 16;
 
 const DEFAULT_K: u8 = 16;
@@ -49,10 +52,16 @@ const MAX_FEATURE_CHARS: usize = 64;
 pub(crate) enum PaletteMode {
     /// Crush onto the document palette. Does not add colors.
     Project,
-    /// Cap the sampled opaque colors. Prerequisite for a later extractor.
+    /// Legacy cap of sampled opaque colors. Not strategy `source`.
+    ///
+    /// A snapshot records this only when the caller omitted `strategy`.
     Source,
     /// Crush onto caller-supplied palette text. The text is not stored twice.
     Provided,
+    /// Strategy `source`: the image palette was installed. Not the legacy cap.
+    Keep,
+    /// Strategy `limit`: opaque colors were reduced to `maxColors`.
+    Limit,
 }
 
 impl PaletteMode {
@@ -61,6 +70,8 @@ impl PaletteMode {
             Self::Project => "project",
             Self::Source => "source",
             Self::Provided => "provided",
+            Self::Keep => "keep",
+            Self::Limit => "limit",
         }
     }
 
@@ -69,6 +80,8 @@ impl PaletteMode {
             "project" => Some(Self::Project),
             "source" => Some(Self::Source),
             "provided" => Some(Self::Provided),
+            "keep" => Some(Self::Keep),
+            "limit" => Some(Self::Limit),
             _ => None,
         }
     }
@@ -85,6 +98,8 @@ pub(crate) struct TransformSnapshot {
     pub width: u16,
     pub height: u16,
     pub palette_mode: PaletteMode,
+    /// Set when convert selected a registered strategy. Absent on a legacy mode.
+    pub palette_strategy: Option<crate::palette_strategy::PaletteStrategy>,
     pub max_colors: Option<u8>,
     pub features: Vec<String>,
     pub params: Map<String, Value>,
@@ -105,8 +120,14 @@ pub(crate) struct ConvertRequest {
 
 pub(crate) enum ConvertPalette {
     Project,
-    Source { max_colors: u8 },
-    Provided { text: String },
+    Source {
+        max_colors: u8,
+    },
+    Provided {
+        text: String,
+    },
+    /// Registered strategy. Unknown ids are [`crate::palette_strategy::StrategyRequest::Unknown`].
+    Strategy(crate::palette_strategy::StrategyRequest),
 }
 
 impl ConvertPalette {
@@ -115,12 +136,25 @@ impl ConvertPalette {
             Self::Project => PaletteMode::Project,
             Self::Source { .. } => PaletteMode::Source,
             Self::Provided { .. } => PaletteMode::Provided,
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Project) => {
+                PaletteMode::Project
+            }
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Source) => PaletteMode::Keep,
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Limit { .. }) => {
+                PaletteMode::Limit
+            }
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Unknown { .. }) => {
+                PaletteMode::Project
+            }
         }
     }
 
     pub(crate) fn max_colors(&self) -> Option<u8> {
         match self {
             Self::Source { max_colors } => Some(*max_colors),
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Limit { max_colors }) => {
+                Some(*max_colors)
+            }
             _ => None,
         }
     }
@@ -137,6 +171,8 @@ pub(crate) struct ConvertOutcome {
     pub snapshot: TransformSnapshot,
     pub report: Value,
     pub map: crate::palette_map::MapReport,
+    /// Present when `palette.strategy` selected a registered id.
+    pub palette_report: Option<crate::palette_strategy::PaletteReport>,
     pub features_ignored: Vec<String>,
 }
 
@@ -431,6 +467,69 @@ pub(crate) fn unique_opaque(rgba: &[u8]) -> Vec<(Rgba, u32)> {
 
 pub(crate) fn parse_mode(text: &str) -> Option<PaletteMode> {
     PaletteMode::parse(text)
+}
+
+/// Read `transform.palette` from a project file.
+///
+/// A missing strategy keeps the legacy mode. A strategy id that is not
+/// registered, or that disagrees with `mode` / `maxColors`, is refused.
+/// There is no fallback to another id.
+pub(crate) fn stored_palette(
+    mode: PaletteMode,
+    strategy: Option<&str>,
+    max_colors: Option<u64>,
+) -> Result<
+    (
+        PaletteMode,
+        Option<crate::palette_strategy::PaletteStrategy>,
+        Option<u8>,
+    ),
+    (),
+> {
+    let strategy = match strategy {
+        None => None,
+        Some(text) => Some(crate::palette_strategy::PaletteStrategy::parse(text).ok_or(())?),
+    };
+    let max_colors = match max_colors {
+        None => None,
+        Some(value) => Some(
+            u8::try_from(value)
+                .ok()
+                .filter(|value| (1..=255).contains(value))
+                .ok_or(())?,
+        ),
+    };
+    use crate::palette_strategy::PaletteStrategy;
+    // Files written before `keep` / `limit` recorded strategy `source` and
+    // `limit` with mode `source`. Readers still accept that pair, then store
+    // the unambiguous mode so the next save does not say the cap was "source".
+    match (strategy, mode, max_colors) {
+        (None, PaletteMode::Source, Some(value)) => Ok((PaletteMode::Source, None, Some(value))),
+        (None, PaletteMode::Source, None) => {
+            Ok((PaletteMode::Source, None, Some(DEFAULT_MAX_COLORS)))
+        }
+        (None, PaletteMode::Project | PaletteMode::Provided, None) => Ok((mode, None, None)),
+        (None, _, Some(_)) => Err(()),
+        (Some(PaletteStrategy::Source), PaletteMode::Keep | PaletteMode::Source, None) => {
+            Ok((PaletteMode::Keep, Some(PaletteStrategy::Source), None))
+        }
+        (Some(PaletteStrategy::Limit), PaletteMode::Limit | PaletteMode::Source, Some(value)) => {
+            Ok((
+                PaletteMode::Limit,
+                Some(PaletteStrategy::Limit),
+                Some(value),
+            ))
+        }
+        (Some(PaletteStrategy::Limit), PaletteMode::Limit | PaletteMode::Source, None) => Ok((
+            PaletteMode::Limit,
+            Some(PaletteStrategy::Limit),
+            Some(DEFAULT_MAX_COLORS),
+        )),
+        (Some(PaletteStrategy::Project), PaletteMode::Project, None) => {
+            Ok((PaletteMode::Project, Some(PaletteStrategy::Project), None))
+        }
+        _ => Err(()),
+    }
 }
 
 fn one_u8(key: &str, value: u8) -> Map<String, Value> {

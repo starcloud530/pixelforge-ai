@@ -275,13 +275,26 @@ pub enum Command {
         /// Engine id. Omit to use the project's stored engine, or `center-sample`.
         #[arg(long)]
         engine: Option<String>,
-        /// `project` crushes onto the current palette. `source` caps sampled colors.
+        /// Legacy palette mode. `project` crushes onto the current palette.
+        /// `source` caps sampled colors. Prefer `--palette-strategy` for the
+        /// three registered strategies.
         #[arg(long, value_enum)]
         palette: Option<ConvertPaletteMode>,
+        /// Palette strategy id: `source`, `limit`, or `project`.
+        ///
+        /// `source` keeps the image palette (recorded as mode `keep`).
+        /// `limit` reduces it to `--max-colors` (default 16, recorded as
+        /// mode `limit`). `project` maps onto a palette this project already
+        /// chose, not the built-in default and not a new `--output` file.
+        /// `source` and `limit` error when another frame or layer still has
+        /// ink. An unknown id errors and does not fall back. Do not combine
+        /// with `--palette` or `--palette-file`.
+        #[arg(long, value_name = "ID")]
+        palette_strategy: Option<String>,
         /// Palette text (`.gpl` or hex) to crush onto. Not stored twice.
         #[arg(long, value_name = "FILE")]
         palette_file: Option<PathBuf>,
-        /// Opaque color cap for `--palette source`. Default 16.
+        /// Opaque color cap for `--palette source` or `--palette-strategy limit`. Default 16.
         #[arg(long, value_parser = clap::value_parser!(u8).range(1..=255))]
         max_colors: Option<u8>,
         /// Feature name to record. This version does not apply it.

@@ -4077,8 +4077,31 @@ fn parse_convert_palette(
     let Some(palette) = value.as_object() else {
         return Err(invalid_params("convertPng", "palette must be an object"));
     };
-    reject_params("convertPng", palette, &["mode", "text", "maxColors"])?;
-    let mode = require_string("convertPng", palette, "mode")?;
+    reject_params(
+        "convertPng",
+        palette,
+        &["mode", "text", "maxColors", "strategy"],
+    )?;
+    let strategy = match palette.get("strategy") {
+        None => None,
+        Some(_) => Some(require_string("convertPng", palette, "strategy")?),
+    };
+    let mode = match palette.get("mode") {
+        None => None,
+        Some(_) => Some(require_string("convertPng", palette, "mode")?),
+    };
+    if strategy.is_none() && mode.is_none() {
+        return Err(invalid_params(
+            "convertPng",
+            "palette needs strategy or mode",
+        ));
+    }
+    if strategy.is_some() && mode.is_some() {
+        return Err(invalid_params(
+            "convertPng",
+            "pass strategy or mode, not both",
+        ));
+    }
     let text = match palette.get("text") {
         None => None,
         Some(_) => Some(require_string("convertPng", palette, "text")?),
@@ -4093,6 +4116,16 @@ fn parse_convert_palette(
             255,
         )?),
     };
+    if let Some(strategy) = strategy {
+        if text.is_some() {
+            return Err(invalid_params(
+                "convertPng",
+                "palette strategy takes no text",
+            ));
+        }
+        return parse_strategy(&strategy, max_colors);
+    }
+    let mode = mode.expect("mode is present when strategy is absent");
     match mode.as_str() {
         "project" => {
             if text.is_some() || max_colors.is_some() {
@@ -4132,6 +4165,51 @@ fn parse_convert_palette(
         _ => Err(invalid_params(
             "convertPng",
             "palette mode must be project, source, or provided",
+        )),
+    }
+}
+
+fn parse_strategy(
+    id: &str,
+    max_colors: Option<u8>,
+) -> Result<crate::convert::ConvertPalette, ToolFailure> {
+    use crate::palette_strategy::StrategyRequest;
+    if id.is_empty() || id.len() > 64 || id.chars().any(|ch| ch.is_control()) {
+        let shown = id.chars().take(64).collect();
+        return Ok(crate::convert::ConvertPalette::Strategy(
+            StrategyRequest::Unknown { id: shown },
+        ));
+    }
+    match id {
+        "source" => {
+            if max_colors.is_some() {
+                return Err(invalid_params(
+                    "convertPng",
+                    "palette strategy source takes no maxColors",
+                ));
+            }
+            Ok(crate::convert::ConvertPalette::Strategy(
+                StrategyRequest::Source,
+            ))
+        }
+        "limit" => Ok(crate::convert::ConvertPalette::Strategy(
+            StrategyRequest::Limit {
+                max_colors: max_colors.unwrap_or(crate::convert::DEFAULT_MAX_COLORS),
+            },
+        )),
+        "project" => {
+            if max_colors.is_some() {
+                return Err(invalid_params(
+                    "convertPng",
+                    "palette strategy project takes no maxColors",
+                ));
+            }
+            Ok(crate::convert::ConvertPalette::Strategy(
+                StrategyRequest::Project,
+            ))
+        }
+        _ => Ok(crate::convert::ConvertPalette::Strategy(
+            StrategyRequest::Unknown { id: id.to_string() },
         )),
     }
 }
@@ -4185,6 +4263,9 @@ fn convert_json(document: &Document, outcome: &crate::convert::ConvertOutcome) -
     });
     result["palette"] = serde_json::json!(palette_entries(document));
     result["paletteMode"] = serde_json::json!(outcome.snapshot.palette_mode.as_str());
+    if let Some(report) = &outcome.palette_report {
+        result["paletteReport"] = report.to_json();
+    }
     result["transform"] = snapshot_json(&outcome.snapshot);
     result["featuresIgnored"] = serde_json::json!(outcome.features_ignored);
     result["report"] = outcome.report.clone();
@@ -4202,6 +4283,9 @@ fn snapshot_json(snapshot: &crate::convert::TransformSnapshot) -> Value {
     let mut palette = serde_json::json!({
         "mode": snapshot.palette_mode.as_str(),
     });
+    if let Some(strategy) = snapshot.palette_strategy {
+        palette["strategy"] = serde_json::json!(strategy.as_str());
+    }
     if let Some(max_colors) = snapshot.max_colors {
         palette["maxColors"] = serde_json::json!(max_colors);
     }

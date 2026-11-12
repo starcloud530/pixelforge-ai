@@ -389,15 +389,17 @@ pixelforge palette apply-png --project hero.json --file sprite.png
 pixelforge engine list
 pixelforge engine set center-sample --project hero.json
 pixelforge convert --file ref.png --width 64 --height 64 --engine center-sample --output hero.json
-pixelforge convert --file ref.png --project hero.json --width 64 --height 64 --palette project --checkpoint hero.ckpt.json
+pixelforge convert --file ref.png --output hero.json --width 64 --height 64 --palette-strategy source
+pixelforge convert --file ref.png --project hero.json --width 64 --height 64 --palette-strategy limit --max-colors 8
+pixelforge convert --file ref.png --project hero.json --palette-strategy project --checkpoint hero.ckpt.json
 pixelforge paint --project hero.json --checkpoint hero.ckpt.json --x 1 --y 2 --color-index 3
 pixelforge undo --project hero.json --checkpoint hero.ckpt.json
 pixelforge export png --project hero.json --out-dir ./frames
 ```
 
-`--output` 默认从采样颜色封顶（`source`，默认 16 色）。`--project` 默认压进当前调色板。`--palette-file` 使用调用方给的 `.gpl` 或十六进制列表。`--params` 是引擎自己的 JSON。`--feature` 只记在 `transform` 里，这一版不使用。源图每边最大 4096。同一张图、同一个引擎、同一组参数，输出一致。质量基准不是这条命令。详见 [tool-api](tool-api.md) 的 `convertPng` 和 [known-limits](known-limits.md)。
+`--palette-strategy source` 沿用原图色板，快照 `mode` 是 `keep`。`--palette-strategy limit` 把不透明色收到 `--max-colors`（默认 16），快照 `mode` 是 `limit`。`--palette-strategy project` 映射到已经选过的工程色板；`--output` 或内置默认色板是 `PaletteDefault`，不建文件。别的帧或层还有墨水时，`source` 和 `limit` 是 `PaletteInUse`。未知 id 报 `PaletteStrategyUnknown`，不换策略。`result.paletteReport` 是合并项、平方 RGB 误差，以及每一个改过索引的帧。没写策略时，`--output` 仍用 `mode: source` 把采样色封顶，没有这份报告。`--palette-file` 使用调用方给的 `.gpl` 或十六进制列表。`--params` 是引擎自己的 JSON。`--feature` 只记在 `transform` 里，这一版不使用。源图每边最大 4096。质量基准不是这条命令。详见 [tool-api](tool-api.md) 的 `convertPng` 和 [known-limits](known-limits.md)。
 
-*`apply-png` still does not scale. An arbitrary PNG uses `convert`. The five open-source engines share one request. `pixelforge-native` errors and does not fall back. `--output` caps sampled colors. `--project` uses the current palette. `--feature` is stored and not applied. A source edge above 4096 is refused. The same image, engine, and parameters write the same indices. See `convertPng` in [tool-api](tool-api.md) and [known-limits](known-limits.md).*
+*`apply-png` still does not scale. An arbitrary PNG uses `convert`. The five open-source engines share one request. `pixelforge-native` errors and does not fall back. `--palette-strategy source` keeps the image palette and is recorded as mode `keep`. `limit` caps opaque colors and is recorded as mode `limit`. `project` maps onto a palette this project already chose; `--output` and the built-in default are `PaletteDefault` and write no file. `source` and `limit` are `PaletteInUse` when another frame or layer still has ink. An unknown id is `PaletteStrategyUnknown` and does not switch. `result.paletteReport` lists merges, the squared-RGB error, and every frame whose indices changed. Without a strategy, `--output` still caps sampled colors as mode `source` and does not emit that report. `--feature` is stored and not applied. A source edge above 4096 is refused. The same image, engine, strategy, and parameters write the same indices. See `convertPng` in [tool-api](tool-api.md) and [known-limits](known-limits.md).*
 
 ### 查看与原始调用 Inspect and raw calls
 

@@ -61,6 +61,7 @@ mod manifest;
 mod palette;
 mod palette_file;
 mod palette_map;
+mod palette_strategy;
 mod part;
 mod part_xform;
 mod project;

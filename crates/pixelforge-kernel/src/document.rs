@@ -25,6 +25,7 @@ use crate::history::{Change, History};
 use crate::palette::{IndexPolicy, Palette};
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
+use crate::palette_strategy;
 use crate::part::{
     anchor_offset_i64, normalize_part_name, parts_after_flatten, parts_after_layer_insert,
     parts_after_layer_remove, parts_after_reorder, parts_after_resize, Anchor, LayerAttach, Part,
@@ -1378,6 +1379,13 @@ impl Document {
     /// parts. The chosen layer is then replaced by the sampled indices. The
     /// selection does not mask the write. One undo step. A failure writes
     /// nothing.
+    ///
+    /// Strategies `source` and `limit` install a new shared palette. If any
+    /// other frame or layer still has ink, that would change cells the
+    /// request did not name, so the call is [`KernelError::PaletteInUse`].
+    /// Strategy `project` maps onto the palette this document already has.
+    /// The built-in default is [`KernelError::PaletteDefault`]. Omitting the
+    /// strategy keeps the earlier `mode` behavior, including `source` as a cap.
     pub(crate) fn convert_png(
         &mut self,
         request: ConvertRequest,
@@ -1404,6 +1412,10 @@ impl Document {
         let engine = match request.engine.as_deref() {
             Some(id) => convert::require_available(id)?,
             None => convert::require_available(self.transform_engine())?,
+        };
+        let known_strategy = match &request.palette {
+            ConvertPalette::Strategy(strategy) => Some(palette_strategy::require_known(strategy)?),
+            _ => None,
         };
         let features = convert::normalize_features(&request.features)?;
         let decoded = match palette_map::decode_png_limited(&request.png, MAX_CONVERT_SOURCE_EDGE)?
@@ -1432,11 +1444,46 @@ impl Document {
             height,
             &request.params,
         )?;
-        let destination = self.destination_palette(&request.palette, &sampled)?;
+        let prepared = match known_strategy {
+            Some(strategy) => Some(palette_strategy::prepare(
+                strategy,
+                &request.png,
+                &decoded.2,
+                &sampled.rgba,
+                self.palette.colors(),
+            )?),
+            None => None,
+        };
+        let destination = if let Some(prepared) = &prepared {
+            prepared.colors.clone()
+        } else {
+            self.destination_palette(&request.palette, &sampled)?
+        };
+        if matches!(
+            known_strategy,
+            Some(
+                palette_strategy::KnownStrategy::Source
+                    | palette_strategy::KnownStrategy::Limit { .. }
+            )
+        ) && destination.as_slice() != self.palette.colors()
+            && self.palette_has_other_ink(frame, layer)
+        {
+            return Err(KernelError::PaletteInUse);
+        }
+        if matches!(
+            known_strategy,
+            Some(palette_strategy::KnownStrategy::Project)
+        ) && self.palette.colors() == Palette::studio_default().colors()
+        {
+            return Err(KernelError::PaletteDefault);
+        }
         if destination.as_slice() != self.palette.colors() && self.palette_locked {
             return Err(KernelError::PaletteLocked);
         }
         let (indices, mut map_report) = palette_map::crush_rgba(&destination, &sampled.rgba)?;
+        let mut palette_report = prepared
+            .as_ref()
+            .map(|prepared| palette_strategy::finish_report(prepared, &sampled.rgba, &indices));
         let index_map = if destination.as_slice() == self.palette.colors() {
             None
         } else {
@@ -1448,7 +1495,12 @@ impl Document {
             width,
             height,
             palette_mode: request.palette.mode(),
-            max_colors: request.palette.max_colors(),
+            palette_strategy: known_strategy.map(|strategy| strategy.id()),
+            max_colors: match known_strategy {
+                Some(palette_strategy::KnownStrategy::Limit { max_colors }) => Some(max_colors),
+                Some(_) => None,
+                None => request.palette.max_colors(),
+            },
             features: features.clone(),
             params: sampled.params.clone(),
         };
@@ -1513,6 +1565,34 @@ impl Document {
                 )
             })
             .count();
+        if let Some(report) = palette_report.as_mut() {
+            let mut per_frame = vec![0u32; self.frames.len()];
+            let mut other_cells_changed = 0u32;
+            for change in &changes {
+                let Change::Pixel {
+                    frame: changed_frame,
+                    layer: changed_layer,
+                    ..
+                } = change
+                else {
+                    continue;
+                };
+                per_frame[*changed_frame] = per_frame[*changed_frame].saturating_add(1);
+                if *changed_frame != frame || *changed_layer != layer {
+                    other_cells_changed = other_cells_changed.saturating_add(1);
+                }
+            }
+            report.other_cells_changed = other_cells_changed;
+            report.frames = per_frame
+                .into_iter()
+                .enumerate()
+                .filter(|(_, count)| *count > 0)
+                .map(|(index, pixels_changed)| palette_strategy::ReportFrame {
+                    frame: index,
+                    pixels_changed,
+                })
+                .collect();
+        }
         self.history.record_group(changes);
         Ok(ConvertOutcome {
             frame,
@@ -1524,7 +1604,25 @@ impl Document {
             snapshot,
             report: sampled.report,
             map: map_report,
+            palette_report,
             features_ignored: features,
+        })
+    }
+
+    /// True when a cell this convert will not replace already stores ink.
+    ///
+    /// The project has one palette. Replacing it changes every index outside
+    /// the converted layer, including frames the request did not name.
+    fn palette_has_other_ink(&self, frame: usize, layer: usize) -> bool {
+        self.frames.iter().enumerate().any(|(frame_index, pixels)| {
+            pixels
+                .layers()
+                .iter()
+                .enumerate()
+                .any(|(layer_index, cells)| {
+                    (frame_index != frame || layer_index != layer)
+                        && cells.iter().any(|index| *index != TRANSPARENT_INDEX)
+                })
         })
     }
 
@@ -1555,6 +1653,9 @@ impl Document {
                 Palette::new(capped.clone())?;
                 Ok(capped)
             }
+            ConvertPalette::Strategy(_) => Err(KernelError::PaletteStrategyUnknown {
+                id: "unresolved".to_string(),
+            }),
         }
     }
 
