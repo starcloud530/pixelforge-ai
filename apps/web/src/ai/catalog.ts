@@ -363,7 +363,7 @@ const BY_NAME = {
   ),
   convertPng: tool(
     "convertPng",
-    "Sample an arbitrary PNG into one indexed frame at width and height. Alpha below 128 becomes index 0. palette.strategy is source (keep the image palette), limit (cap with maxColors, default 16), or project (the current palette). An unknown strategy errors and does not fall back. The result paletteReport lists merges and squared-RGB error. palette.mode remains project, source, or provided and does not emit that report. Pass strategy or mode, not both. features are stored and not applied. Engine params are an opaque object. One undo step.",
+    "Sample an arbitrary PNG into one indexed frame at width and height. Alpha below 128 becomes index 0. palette.strategy is source (keep the image palette; snapshot mode keep), limit (cap with maxColors, default 16; snapshot mode limit), or project (a palette this project already chose). project on the built-in default palette is PaletteDefault and writes nothing. source and limit are PaletteInUse and write nothing when another frame or layer still has ink. An unknown strategy errors and does not fall back. paletteReport lists merges, squared-RGB error, otherCellsChanged, and frames. palette.mode without strategy remains project, source, or provided, records that mode, and does not emit paletteReport. Pass strategy or mode, not both. features are stored and not applied. Engine params are an opaque object. One undo step.",
     {
       png: { type: "string", description: "Standard base64 PNG. Whitespace is ignored. Each edge must be at most 4096." },
       width: int("Target width, 1 to 256. Pass with height, or omit both.", 1, 256),

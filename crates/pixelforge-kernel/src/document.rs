@@ -1379,6 +1379,13 @@ impl Document {
     /// parts. The chosen layer is then replaced by the sampled indices. The
     /// selection does not mask the write. One undo step. A failure writes
     /// nothing.
+    ///
+    /// Strategies `source` and `limit` install a new shared palette. If any
+    /// other frame or layer still has ink, that would change cells the
+    /// request did not name, so the call is [`KernelError::PaletteInUse`].
+    /// Strategy `project` maps onto the palette this document already has.
+    /// The built-in default is [`KernelError::PaletteDefault`]. Omitting the
+    /// strategy keeps the earlier `mode` behavior, including `source` as a cap.
     pub(crate) fn convert_png(
         &mut self,
         request: ConvertRequest,
@@ -1452,11 +1459,29 @@ impl Document {
         } else {
             self.destination_palette(&request.palette, &sampled)?
         };
+        if matches!(
+            known_strategy,
+            Some(
+                palette_strategy::KnownStrategy::Source
+                    | palette_strategy::KnownStrategy::Limit { .. }
+            )
+        ) && destination.as_slice() != self.palette.colors()
+            && self.palette_has_other_ink(frame, layer)
+        {
+            return Err(KernelError::PaletteInUse);
+        }
+        if matches!(
+            known_strategy,
+            Some(palette_strategy::KnownStrategy::Project)
+        ) && self.palette.colors() == Palette::studio_default().colors()
+        {
+            return Err(KernelError::PaletteDefault);
+        }
         if destination.as_slice() != self.palette.colors() && self.palette_locked {
             return Err(KernelError::PaletteLocked);
         }
         let (indices, mut map_report) = palette_map::crush_rgba(&destination, &sampled.rgba)?;
-        let palette_report = prepared
+        let mut palette_report = prepared
             .as_ref()
             .map(|prepared| palette_strategy::finish_report(prepared, &sampled.rgba, &indices));
         let index_map = if destination.as_slice() == self.palette.colors() {
@@ -1540,6 +1565,34 @@ impl Document {
                 )
             })
             .count();
+        if let Some(report) = palette_report.as_mut() {
+            let mut per_frame = vec![0u32; self.frames.len()];
+            let mut other_cells_changed = 0u32;
+            for change in &changes {
+                let Change::Pixel {
+                    frame: changed_frame,
+                    layer: changed_layer,
+                    ..
+                } = change
+                else {
+                    continue;
+                };
+                per_frame[*changed_frame] = per_frame[*changed_frame].saturating_add(1);
+                if *changed_frame != frame || *changed_layer != layer {
+                    other_cells_changed = other_cells_changed.saturating_add(1);
+                }
+            }
+            report.other_cells_changed = other_cells_changed;
+            report.frames = per_frame
+                .into_iter()
+                .enumerate()
+                .filter(|(_, count)| *count > 0)
+                .map(|(index, pixels_changed)| palette_strategy::ReportFrame {
+                    frame: index,
+                    pixels_changed,
+                })
+                .collect();
+        }
         self.history.record_group(changes);
         Ok(ConvertOutcome {
             frame,
@@ -1553,6 +1606,23 @@ impl Document {
             map: map_report,
             palette_report,
             features_ignored: features,
+        })
+    }
+
+    /// True when a cell this convert will not replace already stores ink.
+    ///
+    /// The project has one palette. Replacing it changes every index outside
+    /// the converted layer, including frames the request did not name.
+    fn palette_has_other_ink(&self, frame: usize, layer: usize) -> bool {
+        self.frames.iter().enumerate().any(|(frame_index, pixels)| {
+            pixels
+                .layers()
+                .iter()
+                .enumerate()
+                .any(|(layer_index, cells)| {
+                    (frame_index != frame || layer_index != layer)
+                        && cells.iter().any(|index| *index != TRANSPARENT_INDEX)
+                })
         })
     }
 

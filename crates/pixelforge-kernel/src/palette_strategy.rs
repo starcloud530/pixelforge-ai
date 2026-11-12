@@ -154,7 +154,20 @@ struct DroppedRow {
     pixels: u32,
 }
 
+/// One frame whose stored indices changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReportFrame {
+    pub frame: usize,
+    pub pixels_changed: u32,
+}
+
 /// Structured merge and error report for one strategy.
+///
+/// Color error (`inexactPixels`, `totalDistance`) is the sampled frame.
+/// `frames` lists every frame whose indices changed, and `otherCellsChanged`
+/// counts cells outside the converted layer. A `source` or `limit` convert
+/// that would recolor other ink does not write, so those fields stay zero
+/// outside the converted layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PaletteReport {
     pub strategy: PaletteStrategy,
@@ -170,6 +183,8 @@ pub(crate) struct PaletteReport {
     pub inexact_pixels: u32,
     pub max_distance: u32,
     pub total_distance: u64,
+    pub other_cells_changed: u32,
+    pub frames: Vec<ReportFrame>,
     merges: Vec<MergeRow>,
     dropped: Vec<DroppedRow>,
 }
@@ -193,6 +208,11 @@ impl PaletteReport {
             "inexactPixels": self.inexact_pixels,
             "maxDistance": self.max_distance,
             "totalDistance": self.total_distance,
+            "otherCellsChanged": self.other_cells_changed,
+            "frames": self.frames.iter().map(|frame| json!({
+                "frame": frame.frame,
+                "pixelsChanged": frame.pixels_changed,
+            })).collect::<Vec<_>>(),
             "merges": self.merges.iter().map(merge_json).collect::<Vec<_>>(),
             "dropped": self.dropped.iter().map(dropped_json).collect::<Vec<_>>(),
         })
@@ -289,6 +309,8 @@ pub(crate) fn finish_report(
         inexact_pixels,
         max_distance,
         total_distance,
+        other_cells_changed: 0,
+        frames: Vec::new(),
         merges,
         dropped,
     }

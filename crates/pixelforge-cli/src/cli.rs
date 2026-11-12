@@ -282,10 +282,13 @@ pub enum Command {
         palette: Option<ConvertPaletteMode>,
         /// Palette strategy id: `source`, `limit`, or `project`.
         ///
-        /// `source` keeps the image palette. `limit` reduces it to
-        /// `--max-colors` (default 16). `project` maps onto the current
-        /// palette. An unknown id errors and does not fall back. Do not
-        /// combine with `--palette` or `--palette-file`.
+        /// `source` keeps the image palette (recorded as mode `keep`).
+        /// `limit` reduces it to `--max-colors` (default 16, recorded as
+        /// mode `limit`). `project` maps onto a palette this project already
+        /// chose, not the built-in default and not a new `--output` file.
+        /// `source` and `limit` error when another frame or layer still has
+        /// ink. An unknown id errors and does not fall back. Do not combine
+        /// with `--palette` or `--palette-file`.
         #[arg(long, value_name = "ID")]
         palette_strategy: Option<String>,
         /// Palette text (`.gpl` or hex) to crush onto. Not stored twice.

@@ -52,10 +52,16 @@ const MAX_FEATURE_CHARS: usize = 64;
 pub(crate) enum PaletteMode {
     /// Crush onto the document palette. Does not add colors.
     Project,
-    /// Cap the sampled opaque colors. Prerequisite for a later extractor.
+    /// Legacy cap of sampled opaque colors. Not strategy `source`.
+    ///
+    /// A snapshot records this only when the caller omitted `strategy`.
     Source,
     /// Crush onto caller-supplied palette text. The text is not stored twice.
     Provided,
+    /// Strategy `source`: the image palette was installed. Not the legacy cap.
+    Keep,
+    /// Strategy `limit`: opaque colors were reduced to `maxColors`.
+    Limit,
 }
 
 impl PaletteMode {
@@ -64,6 +70,8 @@ impl PaletteMode {
             Self::Project => "project",
             Self::Source => "source",
             Self::Provided => "provided",
+            Self::Keep => "keep",
+            Self::Limit => "limit",
         }
     }
 
@@ -72,6 +80,8 @@ impl PaletteMode {
             "project" => Some(Self::Project),
             "source" => Some(Self::Source),
             "provided" => Some(Self::Provided),
+            "keep" => Some(Self::Keep),
+            "limit" => Some(Self::Limit),
             _ => None,
         }
     }
@@ -129,10 +139,13 @@ impl ConvertPalette {
             Self::Strategy(crate::palette_strategy::StrategyRequest::Project) => {
                 PaletteMode::Project
             }
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Source) => PaletteMode::Keep,
+            Self::Strategy(crate::palette_strategy::StrategyRequest::Limit { .. }) => {
+                PaletteMode::Limit
+            }
             Self::Strategy(crate::palette_strategy::StrategyRequest::Unknown { .. }) => {
                 PaletteMode::Project
             }
-            Self::Strategy(_) => PaletteMode::Source,
         }
     }
 
@@ -465,7 +478,14 @@ pub(crate) fn stored_palette(
     mode: PaletteMode,
     strategy: Option<&str>,
     max_colors: Option<u64>,
-) -> Result<(Option<crate::palette_strategy::PaletteStrategy>, Option<u8>), ()> {
+) -> Result<
+    (
+        PaletteMode,
+        Option<crate::palette_strategy::PaletteStrategy>,
+        Option<u8>,
+    ),
+    (),
+> {
     let strategy = match strategy {
         None => None,
         Some(text) => Some(crate::palette_strategy::PaletteStrategy::parse(text).ok_or(())?),
@@ -480,22 +500,33 @@ pub(crate) fn stored_palette(
         ),
     };
     use crate::palette_strategy::PaletteStrategy;
+    // Files written before `keep` / `limit` recorded strategy `source` and
+    // `limit` with mode `source`. Readers still accept that pair, then store
+    // the unambiguous mode so the next save does not say the cap was "source".
     match (strategy, mode, max_colors) {
-        (None, PaletteMode::Source, Some(value)) => Ok((None, Some(value))),
-        (None, PaletteMode::Source, None) => Ok((None, Some(DEFAULT_MAX_COLORS))),
-        (None, PaletteMode::Project | PaletteMode::Provided, None) => Ok((None, None)),
+        (None, PaletteMode::Source, Some(value)) => Ok((PaletteMode::Source, None, Some(value))),
+        (None, PaletteMode::Source, None) => {
+            Ok((PaletteMode::Source, None, Some(DEFAULT_MAX_COLORS)))
+        }
+        (None, PaletteMode::Project | PaletteMode::Provided, None) => Ok((mode, None, None)),
         (None, _, Some(_)) => Err(()),
-        (Some(PaletteStrategy::Source), PaletteMode::Source, None) => {
-            Ok((Some(PaletteStrategy::Source), None))
+        (Some(PaletteStrategy::Source), PaletteMode::Keep | PaletteMode::Source, None) => {
+            Ok((PaletteMode::Keep, Some(PaletteStrategy::Source), None))
         }
-        (Some(PaletteStrategy::Limit), PaletteMode::Source, Some(value)) => {
-            Ok((Some(PaletteStrategy::Limit), Some(value)))
+        (Some(PaletteStrategy::Limit), PaletteMode::Limit | PaletteMode::Source, Some(value)) => {
+            Ok((
+                PaletteMode::Limit,
+                Some(PaletteStrategy::Limit),
+                Some(value),
+            ))
         }
-        (Some(PaletteStrategy::Limit), PaletteMode::Source, None) => {
-            Ok((Some(PaletteStrategy::Limit), Some(DEFAULT_MAX_COLORS)))
-        }
+        (Some(PaletteStrategy::Limit), PaletteMode::Limit | PaletteMode::Source, None) => Ok((
+            PaletteMode::Limit,
+            Some(PaletteStrategy::Limit),
+            Some(DEFAULT_MAX_COLORS),
+        )),
         (Some(PaletteStrategy::Project), PaletteMode::Project, None) => {
-            Ok((Some(PaletteStrategy::Project), None))
+            Ok((PaletteMode::Project, Some(PaletteStrategy::Project), None))
         }
         _ => Err(()),
     }

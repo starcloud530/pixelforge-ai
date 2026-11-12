@@ -610,7 +610,7 @@ fn transform_from_file(
     else {
         return Err(fail());
     };
-    let (palette_strategy, max_colors) = convert::stored_palette(
+    let (mode, palette_strategy, max_colors) = convert::stored_palette(
         mode,
         file.palette.strategy.as_deref(),
         file.palette.max_colors,

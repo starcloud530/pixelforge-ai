@@ -262,6 +262,13 @@ pub enum KernelError {
     ///
     /// Choosing it does not run another strategy.
     PaletteStrategyUnknown { id: String },
+    /// `source` or `limit` would replace the shared palette while some other
+    /// frame or layer still stores ink. The call writes nothing.
+    PaletteInUse,
+    /// Strategy `project` was asked to map onto the built-in default palette.
+    ///
+    /// That palette is not one the caller chose. The call writes nothing.
+    PaletteDefault,
 }
 
 /// Why [`KernelError::ProjectFile`] rejected a project file.
@@ -485,6 +492,8 @@ impl KernelError {
             Self::ConvertFeature => "ConvertFeature",
             Self::ConvertSource { .. } => "ConvertSource",
             Self::PaletteStrategyUnknown { .. } => "PaletteStrategyUnknown",
+            Self::PaletteInUse => "PaletteInUse",
+            Self::PaletteDefault => "PaletteDefault",
         }
     }
 }
@@ -754,6 +763,14 @@ impl fmt::Display for KernelError {
             Self::PaletteStrategyUnknown { id } => {
                 write!(f, "palette strategy \"{id}\" is not registered")
             }
+            Self::PaletteInUse => write!(
+                f,
+                "palette strategy would replace the shared palette while another frame or layer still has ink"
+            ),
+            Self::PaletteDefault => write!(
+                f,
+                "palette strategy project needs a palette chosen for this project, not the built-in default"
+            ),
         }
     }
 }

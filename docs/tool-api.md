@@ -84,6 +84,8 @@
 | `PngSize` | PNG 的宽高不是画布大小。压盘不缩放 |
 | `EngineUnknown` | `convertPng` / `setTransformEngine` 的引擎 id 没有注册 |
 | `PaletteStrategyUnknown` | `convertPng` 的 `palette.strategy` 不是 `source`、`limit`、`project`。不会改跑另一个策略 |
+| `PaletteInUse` | 策略 `source` 或 `limit` 会换掉共用调色板，但别的帧或层还有墨水。整次不写 |
+| `PaletteDefault` | 策略 `project` 要对着内置默认色板映射。那不是调用方选过的色板。整次不写，`--output` 也不建文件 |
 | `EngineUnavailable` | 引擎已注册但这一构建没有实现。`pixelforge-native` 是这个码。不会改跑另一个引擎 |
 | `EngineParams` | 引擎私有参数缺了、类型不对，或有未知字段 |
 | `ConvertFeature` | `features` 超过 32 条，或某一条是空的、含控制字符、超过 64 个字符 |
@@ -618,13 +620,13 @@ CLI：`pixelforge engine set <id> --project hero.json`。
 
 | id | 行为 |
 | --- | --- |
-| `source` | 沿用原图色板。索引色 PNG 取 PLTE 里 alpha ≥ 128 的项，按文件顺序，采样没用到的也留下。其它 PNG 按行优先收集每个不透明 RGB。不透明色超过 255 是 `PaletteTooLarge`，不改走 `limit`。不能带 `maxColors` |
-| `limit` | 自动限制色数。索引色且不透明项不超过 255 时从那盘开始，否则从采样后的不透明颜色开始，收到 `maxColors`（默认 16，`1..=255`）。合并规则与 `remapPalette` 相同，不平均出新 RGB。超过 255 色时先留采样里出现最多的 255 个，平局留较小 RGB |
-| `project` | 映射到当前工程调色板，不追加、不删除。不能带 `maxColors`。锁定时仍可写 |
+| `source` | 沿用原图色板。索引色 PNG 取 PLTE 里 alpha ≥ 128 的项，按文件顺序，采样没用到的也留下。其它 PNG 按行优先收集每个不透明 RGB。不透明色超过 255 是 `PaletteTooLarge`，不改走 `limit`。不能带 `maxColors`。别的帧或层还有墨水、而且新色板和当前色板不同，是 `PaletteInUse`，一格都不写 |
+| `limit` | 自动限制色数。索引色且不透明项不超过 255 时从那盘开始，否则从采样后的不透明颜色开始，收到 `maxColors`（默认 16，`1..=255`）。合并规则与 `remapPalette` 相同，不平均出新 RGB。超过 255 色时先留采样里出现最多的 255 个，平局留较小 RGB。和 `source` 一样，不能在还有别的墨水时换掉共用色板 |
+| `project` | 映射到当前工程里已经选好的调色板，不追加、不删除。不能带 `maxColors`。调色板仍是内置默认色板（包括 `--output` 新建的那份）是 `PaletteDefault`，不写文件。锁定时，色板已经选过仍可写 |
 
 距离是平方 RGB（`dr² + dg² + db²`）。alpha 小于 128 写成索引 0，不计入 RGB 误差。源图没有不透明色时不换调色板，`paletteReport.keptExisting` 为 true。这不是换成另一个策略 id。
 
-`result.paletteReport` 只在给了 `strategy` 时出现。字段：`strategy`、`version`（`"1"`）、`metric`（`"squared-rgb"`）、`origin`（`indexed`、`colors`、`sampled`、`project`、`existing`）、`keptExisting`、`sourceColors`、`paletteColors`、`mergedColors`、`droppedColors`、`opaquePixels`、`transparentPixels`、`exactPixels`、`inexactPixels`、`maxDistance`、`totalDistance`、`merges`、`dropped`。`merges` 每一项是一个没精确命中的采样色：`from`、`intoIndex`、`into`、`pixels`、`distance`、`exact: false`，索引色来源另有 `sourceIndex`。`dropped` 是因为没人用、又超过上限而删掉的颜色，带 `pixels: 0`。`totalDistance` 是不精确像素的平方距离之和。同一张图、同一个策略、同一组参数，调色板、像素和这份报告都一样。
+`result.paletteReport` 只在给了 `strategy` 时出现。颜色误差（`inexactPixels`、`maxDistance`、`totalDistance`）是这一张采样图。`frames` 列出每一个索引变过的帧（`frame`、`pixelsChanged`）。`otherCellsChanged` 是转换层以外、索引变了的格子数；`source` 和 `limit` 在这个数会大于 0 时直接拒绝，所以成功时它是 0。其余字段：`strategy`、`version`（`"1"`）、`metric`（`"squared-rgb"`）、`origin`（`indexed`、`colors`、`sampled`、`project`、`existing`）、`keptExisting`、`sourceColors`、`paletteColors`、`mergedColors`、`droppedColors`、`opaquePixels`、`transparentPixels`、`exactPixels`、`merges`、`dropped`。`merges` 每一项是一个没精确命中的采样色：`from`、`intoIndex`、`into`、`pixels`、`distance`、`exact: false`，索引色来源另有 `sourceIndex`。`dropped` 是因为没人用、又超过上限而删掉的颜色，带 `pixels: 0`。`totalDistance` 是不精确像素的平方距离之和。同一张图、同一个策略、同一组参数，调色板、像素和这份报告都一样。
 
 `palette.mode` 仍是原来的三种，不产生 `paletteReport`：
 
@@ -648,11 +650,11 @@ CLI：`pixelforge engine set <id> --project hero.json`。
 
 目标尺寸和当前画布不同时，其它帧、选区、部件按 `resizeCanvas` 的居中规则挪一次，然后所选层整层换成采样索引。图块集工程的目标必须等于图块尺寸，否则 `TileAlign`。一步撤销。失败不写。
 
-`--engine` 只影响这一次，不改 `engine set` 存下的默认 id。成功后工程文件写入 `transform`：`id`、`version`、`width`、`height`、`palette`（含 `mode`，策略另有 `strategy`，`limit` 另有 `maxColors`）、`params`，以及非空的 `features`。同一张 PNG、同一个引擎、同一个策略、同一组参数，输出一致。`features` 出现在 `result.featuresIgnored` 里，表示记下来了但没有参与采样。
+`--engine` 只影响这一次，不改 `engine set` 存下的默认 id。成功后工程文件写入 `transform`：`id`、`version`、`width`、`height`、`palette`、`params`，以及非空的 `features`。`palette.mode` 在没写策略时仍是 `project`、`source`（封顶）或 `provided`。写了策略时，`mode` 不把限色或沿用原图色板记成这个 `source`：策略 `source` 记 `mode: keep`，策略 `limit` 记 `mode: limit` 和 `maxColors`，策略 `project` 记 `mode: project`。三种都另有 `strategy`。以前把策略 `source` / `limit` 写成 `mode: source` 的文件仍能打开，再次保存时改成 `keep` 或 `limit`。同一张 PNG、同一个引擎、同一个策略、同一组参数，输出一致。`features` 出现在 `result.featuresIgnored` 里，表示记下来了但没有参与采样。
 
 `result` 含 `applyPng` 的 `pixelsChanged`、`misses`、`merges`、`dropped`，另有 `frame`、`layer`、`width`、`height`、`engine`（`id`、`version`、`status`）、`palette`、`paletteMode`、`transform`、`featuresIgnored`、`report`。给了 `strategy` 时还有 `paletteReport`。
 
-*One request shape for every engine. Alpha below 128 is index 0. Opaque samples stay source colors, then `applyPng` maps them. `strategy` is `source` (keep the image palette), `limit` (cap with a merge report), or `project` (the current palette). An unknown id errors. `paletteReport` is the merge and squared-RGB error record. Legacy `mode: source` still only caps sampled colors and does not emit that report. `provided` uses caller text. `pixelforge-native` errors. Features are stored and ignored. One undo step. This is not a quality score.*
+*One request shape for every engine. Alpha below 128 is index 0. Opaque samples stay source colors, then `applyPng` maps them. `strategy` is `source` (keep the image palette, recorded as mode `keep`), `limit` (cap, recorded as mode `limit`), or `project` (a palette this project already chose). An unknown id errors. `source` and `limit` return `PaletteInUse` and write nothing when another frame or layer still has ink and the palette would change. `project` returns `PaletteDefault` on the built-in default palette, including a new `--output` file. `paletteReport.frames` lists every frame whose indices changed, and `otherCellsChanged` is outside the converted layer. Legacy `mode: source` still only caps sampled colors, records mode `source` with no strategy, and does not emit that report. `provided` uses caller text. `pixelforge-native` errors. Features are stored and ignored. One undo step. This is not a quality score.*
 
 ```json
 { "tool": "listEngines" }
@@ -673,9 +675,9 @@ pixelforge convert --file ref.png --project hero.json --palette-strategy limit -
 pixelforge convert --file ref.png --project hero.json --palette-strategy project --checkpoint hero.ckpt.json
 ```
 
-`--output` 新建工程，没写策略时默认 `palette` 是 `mode: source`（采样色封顶，默认 16）。`--project` 没写策略时默认 `mode: project`。`--palette-strategy` 选择 `source`、`limit` 或 `project`，不能和 `--palette` 或 `--palette-file` 一起用。`--output` 必须带 `--width` 和 `--height`。`--project` 省略尺寸时保持画布。`--max-colors` 配 `--palette source` 或 `--palette-strategy limit`。`--params` 是 JSON 对象。`--feature` 可重复。
+`--output` 新建工程，没写策略时默认 `palette` 是 `mode: source`（采样色封顶，默认 16）。`--project` 没写策略时默认 `mode: project`。`--palette-strategy project` 不能用在 `--output` 上，也不能用在仍是内置默认色板的工程上，那是 `PaletteDefault`，不建文件。`--palette-strategy source` 和 `limit` 在别的帧或层还有墨水时是 `PaletteInUse`，不改那些格子。`--palette-strategy` 不能和 `--palette` 或 `--palette-file` 一起用。`--output` 必须带 `--width` 和 `--height`。`--project` 省略尺寸时保持画布。`--max-colors` 配 `--palette source` 或 `--palette-strategy limit`。`--params` 是 JSON 对象。`--feature` 可重复。
 
-错误：`EngineUnknown`、`EngineUnavailable`、`EngineParams`、`PaletteStrategyUnknown`、`ConvertFeature`、`ConvertSource`、`PngFile`、`NoPaintColor`、`PaletteLocked`、`PaletteFile`、`PaletteTooLarge`、`TileAlign`、`InvalidSize`、`FrameIndex`、`LayerIndex`。尺寸只给了一边、`strategy` 和 `mode` 一起给、策略带了 `text`、`source` 或 `project` 策略带了 `maxColors`、`png` 不是 Base64，是 `InvalidParams`。
+错误：`EngineUnknown`、`EngineUnavailable`、`EngineParams`、`PaletteStrategyUnknown`、`PaletteInUse`、`PaletteDefault`、`ConvertFeature`、`ConvertSource`、`PngFile`、`NoPaintColor`、`PaletteLocked`、`PaletteFile`、`PaletteTooLarge`、`TileAlign`、`InvalidSize`、`FrameIndex`、`LayerIndex`。尺寸只给了一边、`strategy` 和 `mode` 一起给、策略带了 `text`、`source` 或 `project` 策略带了 `maxColors`、`png` 不是 Base64，是 `InvalidParams`。
 
 ### `setActiveFrame`
 

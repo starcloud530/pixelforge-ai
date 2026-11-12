@@ -429,6 +429,24 @@ fn palette_strategies_are_selectable_from_the_cli() {
     ]));
     assert_eq!(status(&created), 0);
     let before = fs::read_to_string(&project).unwrap();
+    let colors = scratch.child("colors.hex");
+    fs::write(&colors, "ff0000\n0000ff\n").unwrap();
+    let imported = pixelforge(&arg(&[
+        "palette",
+        "import",
+        "--project",
+        project.to_str().unwrap(),
+        "--mode",
+        "replace",
+        "--file",
+        colors.to_str().unwrap(),
+    ]));
+    assert_eq!(
+        status(&imported),
+        0,
+        "{}",
+        String::from_utf8_lossy(&imported.stderr)
+    );
     let mapped = pixelforge(&arg(&[
         "convert",
         "--file",
@@ -458,7 +476,7 @@ fn palette_strategies_are_selectable_from_the_cli() {
             .unwrap()
             .palette_colors()
             .len(),
-        9
+        3
     );
 
     let before_unknown = fs::read_to_string(&project).unwrap();
@@ -493,4 +511,31 @@ fn palette_strategies_are_selectable_from_the_cli() {
     ]));
     assert_eq!(status(&both), 2);
     assert_eq!(json_lines(&both)[0]["error"]["code"], json!("Cli"));
+}
+
+#[test]
+fn output_project_strategy_does_not_write_the_builtin_palette() {
+    let scratch = Scratch::new();
+    let png = scratch.child("ref.png");
+    reference_png(&png);
+    let project = scratch.child("fresh.json");
+    let created = pixelforge(&arg(&[
+        "convert",
+        "--file",
+        png.to_str().unwrap(),
+        "--output",
+        project.to_str().unwrap(),
+        "--width",
+        "4",
+        "--height",
+        "2",
+        "--palette-strategy",
+        "project",
+    ]));
+    assert_eq!(status(&created), 1);
+    assert_eq!(
+        json_lines(&created)[0]["error"]["code"],
+        json!("PaletteDefault")
+    );
+    assert!(!project.exists());
 }
