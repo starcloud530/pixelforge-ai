@@ -335,3 +335,162 @@ fn engine_list_set_and_reserved_id() {
         "kmeans"
     );
 }
+
+#[test]
+fn palette_strategies_are_selectable_from_the_cli() {
+    let scratch = Scratch::new();
+    let png = scratch.child("ref.png");
+    reference_png(&png);
+    let source = scratch.child("source.json");
+    let limited = scratch.child("limit.json");
+    let project = scratch.child("project.json");
+    let png_arg = png.to_str().unwrap();
+
+    let kept = pixelforge(&arg(&[
+        "convert",
+        "--file",
+        png_arg,
+        "--output",
+        source.to_str().unwrap(),
+        "--width",
+        "4",
+        "--height",
+        "2",
+        "--palette-strategy",
+        "source",
+    ]));
+    assert_eq!(
+        status(&kept),
+        0,
+        "{}",
+        String::from_utf8_lossy(&kept.stderr)
+    );
+    let kept_body = &json_lines(&kept)[0];
+    assert_eq!(
+        kept_body["result"]["paletteReport"]["strategy"],
+        json!("source")
+    );
+    assert_eq!(
+        kept_body["result"]["paletteReport"]["totalDistance"],
+        json!(0)
+    );
+    assert_eq!(
+        kept_body["result"]["paletteReport"]["paletteColors"],
+        json!(2)
+    );
+    let kept_doc = Document::load_project(&fs::read_to_string(&source).unwrap()).unwrap();
+    assert_eq!(kept_doc.palette_colors().len(), 3);
+
+    let capped = pixelforge(&arg(&[
+        "convert",
+        "--file",
+        png_arg,
+        "--output",
+        limited.to_str().unwrap(),
+        "--width",
+        "4",
+        "--height",
+        "2",
+        "--palette-strategy",
+        "limit",
+        "--max-colors",
+        "1",
+    ]));
+    assert_eq!(
+        status(&capped),
+        0,
+        "{}",
+        String::from_utf8_lossy(&capped.stderr)
+    );
+    let capped_body = &json_lines(&capped)[0];
+    assert_eq!(
+        capped_body["result"]["paletteReport"]["strategy"],
+        json!("limit")
+    );
+    assert_eq!(
+        capped_body["result"]["paletteReport"]["paletteColors"],
+        json!(1)
+    );
+    assert!(
+        capped_body["result"]["paletteReport"]["totalDistance"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+
+    let created = pixelforge(&arg(&[
+        "new",
+        "--width",
+        "4",
+        "--height",
+        "2",
+        "--output",
+        project.to_str().unwrap(),
+    ]));
+    assert_eq!(status(&created), 0);
+    let before = fs::read_to_string(&project).unwrap();
+    let mapped = pixelforge(&arg(&[
+        "convert",
+        "--file",
+        png_arg,
+        "--project",
+        project.to_str().unwrap(),
+        "--palette-strategy",
+        "project",
+    ]));
+    assert_eq!(
+        status(&mapped),
+        0,
+        "{}",
+        String::from_utf8_lossy(&mapped.stderr)
+    );
+    let mapped_body = &json_lines(&mapped)[0];
+    assert_eq!(
+        mapped_body["result"]["paletteReport"]["strategy"],
+        json!("project")
+    );
+    assert_eq!(
+        mapped_body["result"]["paletteReport"]["origin"],
+        json!("project")
+    );
+    assert_eq!(
+        Document::load_project(&fs::read_to_string(&project).unwrap())
+            .unwrap()
+            .palette_colors()
+            .len(),
+        9
+    );
+
+    let before_unknown = fs::read_to_string(&project).unwrap();
+    assert!(before_unknown.contains("\"strategy\": \"project\""));
+    assert_ne!(before_unknown, before);
+    let unknown = pixelforge(&arg(&[
+        "convert",
+        "--file",
+        png_arg,
+        "--project",
+        project.to_str().unwrap(),
+        "--palette-strategy",
+        "no-such",
+    ]));
+    assert_eq!(status(&unknown), 1);
+    assert_eq!(
+        json_lines(&unknown)[0]["error"]["code"],
+        json!("PaletteStrategyUnknown")
+    );
+    assert_eq!(fs::read_to_string(&project).unwrap(), before_unknown);
+
+    let both = pixelforge(&arg(&[
+        "convert",
+        "--file",
+        png_arg,
+        "--project",
+        project.to_str().unwrap(),
+        "--palette",
+        "project",
+        "--palette-strategy",
+        "source",
+    ]));
+    assert_eq!(status(&both), 2);
+    assert_eq!(json_lines(&both)[0]["error"]["code"], json!("Cli"));
+}

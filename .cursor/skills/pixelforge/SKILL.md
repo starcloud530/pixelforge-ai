@@ -311,23 +311,27 @@ pixelforge import-aseprite --file hero.aseprite --project hero.json
 
 五个开源引擎：`center-sample`（默认）、`dominant`、`kmeans`、`contrast-outline`、`grid-snap`。调用字段相同，用 `--engine` 或 `engine set` 选择。`pixelforge-native` 未安装，选它得到 `EngineUnavailable`，不换引擎，也不下载。`engine set` 把默认 id 写进工程。`convert --engine` 只覆盖这一次。成功后 `transform` 记下 id、版本和参数，同一输入输出一致。
 
-`--output` 新建工程，默认从采样颜色封顶（`--palette source`，`--max-colors` 默认 16）。`--project` 默认压进当前调色板。`--palette-file` 用调用方的 `.gpl` 或十六进制列表。`--params` 是该引擎的 JSON 对象。`--feature` 只记录，这一版不参与采样。`palette source` 不是 #126 的完整色板产品。质量基准不是这条命令。
+`--palette-strategy source` 沿用原图色板。`--palette-strategy limit` 把不透明色收到 `--max-colors`（默认 16）。`--palette-strategy project` 映射到工程里的固定色板。未知 id 是 `PaletteStrategyUnknown`，不换策略。`result.paletteReport` 给出合并项和平方 RGB 误差。没写策略时，`--output` 仍从采样颜色封顶（`--palette source`，`--max-colors` 默认 16），`--project` 仍压进当前调色板。`--palette-file` 用调用方的 `.gpl` 或十六进制列表。`--params` 是该引擎的 JSON 对象。`--feature` 只记录，这一版不参与采样。质量基准不是这条命令。
 
 ```bash
 pixelforge engine list
 pixelforge engine set center-sample --project hero.json
 pixelforge convert --file ref.png --width 64 --height 64 --engine center-sample --output hero.json
-pixelforge convert --file ref.png --project hero.json --checkpoint hero.ckpt.json
+pixelforge convert --file ref.png --output hero.json --width 64 --height 64 --palette-strategy source
+pixelforge convert --file ref.png --project hero.json --palette-strategy limit --max-colors 8
+pixelforge convert --file ref.png --project hero.json --palette-strategy project --checkpoint hero.ckpt.json
 pixelforge undo --project hero.json --checkpoint hero.ckpt.json
 ```
 
 ```json
 { "tool": "listEngines" }
 { "tool": "setTransformEngine", "params": { "id": "kmeans" } }
-{ "tool": "convertPng", "params": { "png": "<base64>", "width": 64, "height": 64, "engine": "center-sample", "palette": { "mode": "project" } } }
+{ "tool": "convertPng", "params": { "png": "<base64>", "width": 64, "height": 64, "engine": "center-sample", "palette": { "strategy": "project" } } }
+{ "tool": "convertPng", "params": { "png": "<base64>", "palette": { "strategy": "source" } } }
+{ "tool": "convertPng", "params": { "png": "<base64>", "palette": { "strategy": "limit", "maxColors": 8 } } }
 ```
 
-*An arbitrary PNG uses `convert`. Cells stay palette indices. Alpha below 128 is index 0. The five open-source engines share one request. `pixelforge-native` returns `EngineUnavailable` and does not fall back. `engine set` stores the default id. `transform` records the id, version, and parameters. `--output` caps sampled colors. `--project` uses the current palette. `--feature` is stored and not applied. Source edges above 4096 are refused. This is not issue 126 or 127.*
+*An arbitrary PNG uses `convert`. Cells stay palette indices. Alpha below 128 is index 0. The five open-source engines share one request. `pixelforge-native` returns `EngineUnavailable` and does not fall back. `engine set` stores the default id. `transform` records the id, version, and parameters. `--palette-strategy` is `source`, `limit`, or `project`. An unknown id is `PaletteStrategyUnknown` and does not fall back. `paletteReport` is the merge and squared-RGB error record. Without a strategy, `--output` caps sampled colors and `--project` uses the current palette. `--feature` is stored and not applied. Source edges above 4096 are refused. This is not issue 127.*
 
 ```json
 { "tool": "importAseprite", "params": { "bytes": "<base64>" } }

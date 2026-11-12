@@ -41,7 +41,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::constraint::{solve_order, Constraint, ConstraintKind, Contact};
-use crate::convert::{self, PaletteMode, TransformSnapshot};
+use crate::convert::{self, TransformSnapshot};
 use crate::curve::{Curve, CurveChannel, CurveKey, Ease};
 use crate::direction::DirectionLayout;
 use crate::document::Document;
@@ -159,6 +159,8 @@ struct TransformFile {
 struct TransformPaletteFile {
     mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     max_colors: Option<u64>,
 }
 
@@ -171,6 +173,9 @@ impl TransformFile {
             height: u64::from(snapshot.height),
             palette: TransformPaletteFile {
                 mode: snapshot.palette_mode.as_str().to_string(),
+                strategy: snapshot
+                    .palette_strategy
+                    .map(|strategy| strategy.as_str().to_string()),
                 max_colors: snapshot.max_colors.map(u64::from),
             },
             features: snapshot.features.clone(),
@@ -605,20 +610,12 @@ fn transform_from_file(
     else {
         return Err(fail());
     };
-    let max_colors = match (mode, file.palette.max_colors) {
-        (PaletteMode::Source, Some(value)) => {
-            let Some(value) = u8::try_from(value)
-                .ok()
-                .filter(|value| (1..=255).contains(value))
-            else {
-                return Err(fail());
-            };
-            Some(value)
-        }
-        (PaletteMode::Source, None) => Some(convert::DEFAULT_MAX_COLORS),
-        (_, None) => None,
-        (_, Some(_)) => return Err(fail()),
-    };
+    let (palette_strategy, max_colors) = convert::stored_palette(
+        mode,
+        file.palette.strategy.as_deref(),
+        file.palette.max_colors,
+    )
+    .map_err(|()| fail())?;
     let features = convert::normalize_features(&file.features).map_err(|_| fail())?;
     let params = convert::normalize_params(&file.id, &file.params).map_err(|_| fail())?;
     Ok(Some(TransformSnapshot {
@@ -627,6 +624,7 @@ fn transform_from_file(
         width,
         height,
         palette_mode: mode,
+        palette_strategy,
         max_colors,
         features,
         params,

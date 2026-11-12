@@ -76,6 +76,7 @@ fn execute(cli: Cli) -> i32 {
             height,
             engine,
             palette,
+            palette_strategy,
             palette_file,
             max_colors,
             feature,
@@ -91,6 +92,7 @@ fn execute(cli: Cli) -> i32 {
             height,
             engine.as_deref(),
             palette,
+            palette_strategy.as_deref(),
             palette_file.as_deref(),
             max_colors,
             &feature,
@@ -800,6 +802,7 @@ fn cmd_convert(
     height: Option<u16>,
     engine: Option<&str>,
     palette: Option<ConvertPaletteMode>,
+    palette_strategy: Option<&str>,
     palette_file: Option<&Path>,
     max_colors: Option<u8>,
     features: &[String],
@@ -841,13 +844,21 @@ fn cmd_convert(
             "convert needs --width and --height together, or neither to keep the canvas",
         ));
     }
+    if palette_strategy.is_some() && (palette.is_some() || palette_file.is_some()) {
+        return emit(CliFailure::new(
+            "Cli",
+            "convert takes --palette-strategy or --palette / --palette-file, not both",
+        ));
+    }
     if palette.is_some() && palette_file.is_some() {
         return emit(CliFailure::new(
             "Cli",
             "convert takes --palette or --palette-file, not both",
         ));
     }
-    let mode = if palette_file.is_some() {
+    let mode = if palette_strategy.is_some() {
+        ""
+    } else if palette_file.is_some() {
         "provided"
     } else if let Some(palette) = palette {
         palette.as_str()
@@ -856,10 +867,10 @@ fn cmd_convert(
     } else {
         "project"
     };
-    if max_colors.is_some() && mode != "source" {
+    if palette_strategy.is_none() && max_colors.is_some() && mode != "source" {
         return emit(CliFailure::new(
             "Cli",
-            "convert --max-colors is only for --palette source",
+            "convert --max-colors is only for --palette source or --palette-strategy limit",
         ));
     }
     let bytes = match fs::read(file) {
@@ -874,7 +885,11 @@ fn cmd_convert(
     if let Some(engine) = engine {
         params["engine"] = json!(engine);
     }
-    let mut palette_json = json!({ "mode": mode });
+    let mut palette_json = if let Some(strategy) = palette_strategy {
+        json!({ "strategy": strategy })
+    } else {
+        json!({ "mode": mode })
+    };
     if let Some(path) = palette_file {
         let text = match fs::read_to_string(path) {
             Ok(text) => text,

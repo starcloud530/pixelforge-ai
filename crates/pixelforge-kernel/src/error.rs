@@ -258,6 +258,10 @@ pub enum KernelError {
     ConvertFeature,
     /// The source PNG is outside the convert edge limit. Pixels are not expanded.
     ConvertSource { width: u32, height: u32 },
+    /// `convertPng` was asked for a palette strategy id this build does not register.
+    ///
+    /// Choosing it does not run another strategy.
+    PaletteStrategyUnknown { id: String },
 }
 
 /// Why [`KernelError::ProjectFile`] rejected a project file.
@@ -480,6 +484,7 @@ impl KernelError {
             Self::EngineParams { .. } => "EngineParams",
             Self::ConvertFeature => "ConvertFeature",
             Self::ConvertSource { .. } => "ConvertSource",
+            Self::PaletteStrategyUnknown { .. } => "PaletteStrategyUnknown",
         }
     }
 }
@@ -746,6 +751,9 @@ impl fmt::Display for KernelError {
                 "png {width}x{height} is outside the convert source limit of {}",
                 crate::convert::MAX_CONVERT_SOURCE_EDGE
             ),
+            Self::PaletteStrategyUnknown { id } => {
+                write!(f, "palette strategy \"{id}\" is not registered")
+            }
         }
     }
 }

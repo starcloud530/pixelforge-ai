@@ -25,6 +25,7 @@ use crate::history::{Change, History};
 use crate::palette::{IndexPolicy, Palette};
 use crate::palette_file::{parse_palette_text, PaletteImportMode};
 use crate::palette_map::{self, DecodedPng, MapReport, PalettePlan};
+use crate::palette_strategy;
 use crate::part::{
     anchor_offset_i64, normalize_part_name, parts_after_flatten, parts_after_layer_insert,
     parts_after_layer_remove, parts_after_reorder, parts_after_resize, Anchor, LayerAttach, Part,
@@ -1405,6 +1406,10 @@ impl Document {
             Some(id) => convert::require_available(id)?,
             None => convert::require_available(self.transform_engine())?,
         };
+        let known_strategy = match &request.palette {
+            ConvertPalette::Strategy(strategy) => Some(palette_strategy::require_known(strategy)?),
+            _ => None,
+        };
         let features = convert::normalize_features(&request.features)?;
         let decoded = match palette_map::decode_png_limited(&request.png, MAX_CONVERT_SOURCE_EDGE)?
         {
@@ -1432,11 +1437,28 @@ impl Document {
             height,
             &request.params,
         )?;
-        let destination = self.destination_palette(&request.palette, &sampled)?;
+        let prepared = match known_strategy {
+            Some(strategy) => Some(palette_strategy::prepare(
+                strategy,
+                &request.png,
+                &decoded.2,
+                &sampled.rgba,
+                self.palette.colors(),
+            )?),
+            None => None,
+        };
+        let destination = if let Some(prepared) = &prepared {
+            prepared.colors.clone()
+        } else {
+            self.destination_palette(&request.palette, &sampled)?
+        };
         if destination.as_slice() != self.palette.colors() && self.palette_locked {
             return Err(KernelError::PaletteLocked);
         }
         let (indices, mut map_report) = palette_map::crush_rgba(&destination, &sampled.rgba)?;
+        let palette_report = prepared
+            .as_ref()
+            .map(|prepared| palette_strategy::finish_report(prepared, &sampled.rgba, &indices));
         let index_map = if destination.as_slice() == self.palette.colors() {
             None
         } else {
@@ -1448,7 +1470,12 @@ impl Document {
             width,
             height,
             palette_mode: request.palette.mode(),
-            max_colors: request.palette.max_colors(),
+            palette_strategy: known_strategy.map(|strategy| strategy.id()),
+            max_colors: match known_strategy {
+                Some(palette_strategy::KnownStrategy::Limit { max_colors }) => Some(max_colors),
+                Some(_) => None,
+                None => request.palette.max_colors(),
+            },
             features: features.clone(),
             params: sampled.params.clone(),
         };
@@ -1524,6 +1551,7 @@ impl Document {
             snapshot,
             report: sampled.report,
             map: map_report,
+            palette_report,
             features_ignored: features,
         })
     }
@@ -1555,6 +1583,9 @@ impl Document {
                 Palette::new(capped.clone())?;
                 Ok(capped)
             }
+            ConvertPalette::Strategy(_) => Err(KernelError::PaletteStrategyUnknown {
+                id: "unresolved".to_string(),
+            }),
         }
     }
 
