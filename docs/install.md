@@ -1,8 +1,8 @@
 # Install & quick start
 
-No Rust toolchain needed for the prebuilt CLI. Current tag: **[v0.1.0-rc.4](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.4)** (prerelease). Prefer the installer scripts below; do not use `releases/latest` until a non-prerelease ships.
+No Rust toolchain needed for the prebuilt CLI. Current tag: **[v0.1.0-rc.5](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)** (prerelease). Prefer the installer scripts below; do not use `releases/latest` until a non-prerelease ships.
 
-预编译 CLI 不需要 Rust。当前标签：**v0.1.0-rc.4**（预发布）。用下面的安装脚本；在正式版之前不要用 `releases/latest`。
+预编译 CLI 不需要 Rust。当前标签：**v0.1.0-rc.5**（预发布）。用下面的安装脚本；在正式版之前不要用 `releases/latest`。
 
 ## Installer / 安装脚本
 
@@ -10,17 +10,17 @@ macOS / Linux:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.4/pixelforge-cli-installer.sh | sh
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.4/pixelforge-cli-installer.ps1 | iex"
+  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.ps1 | iex"
 ```
 
-The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when possible). Archives are also on the [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.4) page if you prefer a manual unpack.
+The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when possible). Archives are also on the [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5) page if you prefer a manual unpack.
 
 安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。也可在 Releases 页手动下载对应平台压缩包。
 
