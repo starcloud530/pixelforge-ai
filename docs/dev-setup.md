@@ -151,6 +151,7 @@ Pull request 上只跑 `dist plan`，把计划上传为 Actions artifact `artifa
 | `v0.1.0-rc.2` | `0.1.0-rc.2` | 预发布 |
 | `v0.1.0-rc.3` | `0.1.0-rc.3` | 预发布 |
 | `v0.1.0-rc.4` | `0.1.0-rc.4` | 预发布 |
+| `v0.1.0-rc.5` | `0.1.0-rc.5` | 预发布 |
 
 版本和工作区对不上时，这个标签不会被发布成 CLI 包。
 
@@ -163,7 +164,7 @@ Pull request 上只跑 `dist plan`，把计划上传为 Actions artifact `artifa
 
 Release 上的文件：上表四个压缩包、每个压缩包的 `.sha256`、汇总 `sha256.sum`、`pixelforge-cli-installer.sh`、`pixelforge-cli-installer.ps1`，以及一份源码 `source.tar.gz`。Windows zip 的根目录是 `pixelforge.exe`。Unix tar.gz 解压后有一层同名目录，里面是 `pixelforge`。压缩包带 `LICENSE`、`LICENSE-MIT`、`LICENSE-APACHE` 和 `README.md`（cargo-dist 按 `LICENSE*` 自动收录工作区根目录许可文件；crate 的 `license = "MIT OR Apache-2.0"` 由 workspace 继承）。Windows 二进制静态链接 C 运行库。安装脚本把命令放进 `~/.pixelforge/bin`。
 
-仓库已公开：优先用 [install.md](install.md) 里的安装脚本直链。预发布不是 GitHub 的 `latest`；在打出不带预发布后缀的正式版之前，安装脚本 URL 要写具体标签，例如 `.../releases/download/v0.1.0-rc.4/pixelforge-cli-installer.sh`。也可在 Releases 页下载压缩包，或 `gh release download <tag> --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'`。
+仓库已公开：优先用 [install.md](install.md) 里的安装脚本直链。预发布不是 GitHub 的 `latest`；在打出不带预发布后缀的正式版之前，安装脚本 URL 要写具体标签，例如 `.../releases/download/v0.1.0-rc.5/pixelforge-cli-installer.sh`。也可在 Releases 页下载压缩包，或 `gh release download <tag> --repo starcloud530/pixelforge-ai --pattern 'pixelforge-cli-*'`。
 
 安装后的第一条命令见 [install.md](install.md)。
 
@@ -194,7 +195,7 @@ git push origin v0.1.0-rc.1
 
 *The Release contains the four archives, a `.sha256` next to each, `sha256.sum`, `pixelforge-cli-installer.sh`, `pixelforge-cli-installer.ps1`, and `source.tar.gz`. The Windows zip has `pixelforge.exe` at its root. A Unix tarball has one top directory and `pixelforge` inside it. Archives include `LICENSE`, `LICENSE-MIT`, `LICENSE-APACHE`, and `README.md` (cargo-dist auto-includes workspace-root `LICENSE*` files; crate `license = "MIT OR Apache-2.0"` is inherited from the workspace). The Windows binary links the C runtime statically. The installer scripts place the command in `~/.pixelforge/bin`.*
 
-*The repository is public: prefer the installer URLs in [install.md](install.md). A prerelease is not GitHub `latest`; until a stable tag exists, the installer URL must name the tag, for example `.../releases/download/v0.1.0-rc.4/pixelforge-cli-installer.sh`. Archives on the Releases page and `gh release download` remain valid.*
+*The repository is public: prefer the installer URLs in [install.md](install.md). A prerelease is not GitHub `latest`; until a stable tag exists, the installer URL must name the tag, for example `.../releases/download/v0.1.0-rc.5/pixelforge-cli-installer.sh`. Archives on the Releases page and `gh release download` remain valid.*
 
 *The first commands after install are in [install.md](install.md). Do not push a `v*` tag from an ordinary PR. For the first candidate, set `[workspace.package].version` to `0.1.0-rc.1`, merge that commit to `main`, tag that commit `v0.1.0-rc.1`, and push the tag. The Release workflow then builds the four platforms and opens a GitHub Release marked prerelease. A stable cut sets the version to `0.1.0` and pushes `v0.1.0`.*
 
