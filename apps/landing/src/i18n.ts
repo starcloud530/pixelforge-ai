@@ -103,7 +103,7 @@ export const copy: Record<Lang, Copy> = {
     videoCaption: "Optional walkthrough of scarf, shield, and boot edits via the CLI.",
     statusHeading: "Honest status",
     statusBody:
-      "Early / WIP. Prebuilt CLI v0.1.0-rc.3 is a prerelease. Prefer that tag over GitHub latest until a stable release exists. Structural validation is not aesthetic approval.",
+      "Early / WIP. Prebuilt CLI v0.1.0-rc.4 is a prerelease. Prefer that tag over GitHub latest until a stable release exists. Structural validation is not aesthetic approval.",
     notClaims: [
       "Not a full Aseprite clone",
       "Not diffusion fake-pixel",
@@ -169,7 +169,7 @@ export const copy: Record<Lang, Copy> = {
     videoCaption: "围巾、盾牌与落脚修改的可选 CLI 操作短片。",
     statusHeading: "如实说明",
     statusBody:
-      "早期 / WIP。预编译 CLI v0.1.0-rc.3 为预发布。正式版前请优先用该标签，不要依赖 GitHub latest。结构校验不等于审美通过。",
+      "早期 / WIP。预编译 CLI v0.1.0-rc.4 为预发布。正式版前请优先用该标签，不要依赖 GitHub latest。结构校验不等于审美通过。",
     notClaims: [
       "不是完整 Aseprite 克隆",
       "不是扩散假像素",

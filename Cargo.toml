@@ -8,9 +8,9 @@ members = [
 
 [workspace.package]
 edition = "2021"
-# A release tag is `v` plus this string (`v0.1.0`, or `v0.1.0-rc.3` after
+# A release tag is `v` plus this string (`v0.1.0`, or `v0.1.0-rc.4` after
 # this field is set to that). Every crate inherits it. See docs/dev-setup.md.
-version = "0.1.0-rc.3"
+version = "0.1.0-rc.4"
 license = "MIT OR Apache-2.0"
 publish = false
 
