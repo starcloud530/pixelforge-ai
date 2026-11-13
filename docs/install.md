@@ -54,9 +54,9 @@ pixelforge export apng --project hero.json --output walk.apng --tag walk_down
 
 ## Agents / Agent
 
-External agents (Cursor, Codex, Claude Code, …) drive the same local binary. Skills live under `.cursor/skills/<name>/SKILL.md`. Cursor matches `description`. Codex and Claude Code open the files listed in `AGENTS.md` / `CLAUDE.md`. The same binary lists and reads bundled skills with `pixelforge skills list` and `pixelforge skills read <name>` (optional path, or `--json`), so an agent does not need the git checkout. Command reference: [agent-skill](agent-skill.md). Tool catalog: [tool-api](tool-api.md).
+External agents (Cursor, Codex, Claude Code, …) drive the same local binary. Product skills live under `skills/<name>/SKILL.md` and are embedded in that binary. Use `pixelforge skills list` and `pixelforge skills read <name>` (optional path, or `--json`) so an agent does not need the git checkout. In a checkout, open the files listed in `AGENTS.md` / `CLAUDE.md`. Command reference: [agent-skill](agent-skill.md). Tool catalog: [tool-api](tool-api.md).
 
-外部 Agent 调用同一支本地二进制。技能是 `.cursor/skills/<name>/SKILL.md`。Cursor 按 `description` 选择；Codex 和 Claude Code 从 `AGENTS.md` / `CLAUDE.md` 打开列表里的文件。同一支二进制可用 `pixelforge skills list` 和 `pixelforge skills read <name>` 列出并读取打包的 skill，不依赖仓库检出。命令速查：[agent-skill](agent-skill.md)。工具目录：[tool-api](tool-api.md)。
+外部 Agent 调用同一支本地二进制。产品 skill 在 `skills/<name>/SKILL.md`，并打进该二进制。用 `pixelforge skills list` 和 `pixelforge skills read <name>` 列出并读取，不依赖仓库检出。打开仓库时，从 `AGENTS.md` / `CLAUDE.md` 打开列表里的文件。命令速查：[agent-skill](agent-skill.md)。工具目录：[tool-api](tool-api.md)。
 
 ## Source build / 源码构建
 

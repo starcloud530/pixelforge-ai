@@ -47,7 +47,7 @@ package.json               pnpm 脚本，含 build:wasm / build:landing
 pnpm-workspace.yaml
 apps/web                   Vite + React 外壳（工作室 GUI）
 apps/landing               Vite + React 营销落地页（Pages 根路径）
-.cursor/skills/            外部 Agent 技能：pixelforge、pixelforge-draw、
+skills/            外部 Agent 技能：pixelforge、pixelforge-draw、
                            pixelforge-sprite-4dir、pixelforge-layers、pixelforge-critique、
                            pixel-art-craft
 docs/index.md              文档站首页

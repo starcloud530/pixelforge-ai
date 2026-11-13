@@ -1,6 +1,6 @@
 //! List and read agent skills bundled into this CLI binary.
 //!
-//! Skills are compiled in from `.cursor/skills` so a packaged install can
+//! Skills are compiled in from repository-root `skills/` so a packaged install can
 //! discover and read them without the git checkout or a private bot tree.
 
 use crate::failure::CliFailure;
@@ -319,21 +319,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn catalog_includes_canonical_and_tutorial_skills() {
-        let names: Vec<&str> = SKILLS.iter().map(|s| s.name).collect();
-        for required in [
-            "pixelforge",
-            "pixelforge-draw",
-            "pixelforge-sprite-4dir",
-            "pixelforge-layers",
-            "pixelforge-critique",
-            "pixel-art-craft",
-        ] {
-            assert!(
-                names.contains(&required),
-                "bundled catalog missing {required}: {names:?}"
-            );
+    fn catalog_is_exactly_the_product_skills() {
+        let mut names: Vec<&str> = SKILLS.iter().map(|s| s.name).collect();
+        names.sort_unstable();
+        assert_eq!(
+            names,
+            [
+                "pixel-art-craft",
+                "pixelforge",
+                "pixelforge-critique",
+                "pixelforge-draw",
+                "pixelforge-layers",
+                "pixelforge-sprite-4dir",
+            ]
+        );
+    }
+
+    #[test]
+    fn bundled_sources_come_from_skills_dir_not_cursor() {
+        let generated = include_str!(concat!(env!("OUT_DIR"), "/bundled_skills.rs"));
+        assert!(
+            !generated.contains(".cursor"),
+            "embed catalog must not reference .cursor"
+        );
+        let mut saw_include = false;
+        for line in generated.lines() {
+            if line.contains("include_str!") {
+                saw_include = true;
+                assert!(
+                    line.contains("/skills/") && !line.contains(".cursor"),
+                    "unexpected include path: {line}"
+                );
+            }
         }
+        assert!(saw_include, "generated catalog had no include_str! paths");
     }
 
     #[test]

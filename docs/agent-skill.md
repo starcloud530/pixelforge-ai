@@ -8,20 +8,20 @@ Skill 补观改流程，不代替专业像素画师的审美。阶段走完、�
 
 ## 技能表 Skills
 
-Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.cursor/skills/<name>/SKILL.md`。本仓库不复制到 `.agents/skills/` 或 `.claude/skills/`。Codex、Claude Code 读 `AGENTS.md` / `CLAUDE.md` 后打开下表里的文件。某个运行时若只扫描 Agent Skills 标准目录，把 `.cursor/skills` 链过去，不要另写一份正文。
+产品 skill 正文只在仓库根目录的 `skills/<name>/SKILL.md`（以及同目录 `references/`）。已安装的 CLI 在编译期把它们打进二进制。本仓库不把产品 skill 再复制到 `.cursor/skills/`、`.agents/skills/` 或 `.claude/skills/`。检出仓库后，从 `AGENTS.md` / `CLAUDE.md` 或下表打开这些文件。
 
 创作类 skill 先遵守 `pixelforge` 的索引色不变量。命令语义以 `pixelforge` 和本文件的速查为准；剪影、四向、分层、挑错的步骤以对应 skill 为准。走路、机位、运动轨迹的工艺学习以 `pixel-art-craft` 为准。
 
-*Cursor matches `description` in `.cursor/skills/<name>/SKILL.md`. This repository does not keep a second copy under `.agents/skills/` or `.claude/skills/`. Codex and Claude Code open the files below from `AGENTS.md` and `CLAUDE.md`. Creative skills follow the `pixelforge` invariants first.*
+*Product skills live in `skills/<name>/SKILL.md` and are embedded in a packaged `pixelforge` binary. This repository does not keep a second copy under `.cursor/skills/`, `.agents/skills/`, or `.claude/skills/`. In a checkout, open the files below from `AGENTS.md` and `CLAUDE.md`. Creative skills follow the `pixelforge` invariants first.*
 
 | Skill | 路径 | 何时加载 | 说明 |
 | --- | --- | --- | --- |
-| `pixelforge` | [.cursor/skills/pixelforge/SKILL.md](../.cursor/skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、validate-atlas、图块集、四邻接 autotile、tilemap、Tiled `.tmj`、项目清单 `project init` / `show` / `validate`、资产登记 `asset add` / `list` / `show` / `graph` / `dependents` / `validate`、角色矩阵 `character matrix` / `character check`、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。图块集是画布等于 16 或 32 的工程，一帧一块；地图、autotile 和 `.tmj` 见该 skill 的「图块与地图」。项目清单是约定加资产 id，不是画布。其它创作 skill 先遵守这里。 |
-| `pixelforge-draw` | [.cursor/skills/pixelforge-draw/SKILL.md](../.cursor/skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
-| `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签、`direction fill` | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。导出后先 `validate-atlas`，再进游戏。#18 的 64×64 包在 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published)，`validate.py` 重跑 strict。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 或 `direction fill --mode mirror` 之后修高光。`copy` 只是占位，不是自然步态。 |
-| `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢、隐藏、透明度 | body / gear / limbs。合成预览、`--layer`、`layer hide` / `opacity`、`layer flatten`。 |
-| `pixelforge-critique` | [.cursor/skills/pixelforge-critique/SKILL.md](../.cursor/skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。输出必须列缺陷，不能只说看起来不错。 |
-| `pixel-art-craft` | [.cursor/skills/pixel-art-craft/SKILL.md](../.cursor/skills/pixel-art-craft/SKILL.md) | 学像素画、走路循环、机位、运动轨迹 | 工艺学习。公开教程链接按初级 / 中级 / 高级 / 大师放在 `references/`。不是 CLI 配方。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 不变量，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。不要摘抄付费课文。 |
+| `pixelforge` | [skills/pixelforge/SKILL.md](../skills/pixelforge/SKILL.md) | 用 pixelforge、改工程、CLI、调色板、部件锚点、部件变换、关键帧曲线、约束、烘焙、导出、validate-atlas、图块集、四邻接 autotile、tilemap、Tiled `.tmj`、项目清单 `project init` / `show` / `validate`、资产登记 `asset add` / `list` / `show` / `graph` / `dependents` / `validate`、角色矩阵 `character matrix` / `character check`、缩短编辑路径 | 核心。安装、索引色不变量、退出码、`inspect` / `tools` / `call`。最少编辑路径：同姿复制后改差、合并相邻同色 `fillRect`、一次批量 `call` 仍按请求计数。部件平移、旋转、翻转落在索引格上。曲线按帧下标采样这些参数，不写像素。`bake` 把采样写进像素帧，曲线留在文件里。图块集是画布等于 16 或 32 的工程，一帧一块；地图、autotile 和 `.tmj` 见该 skill 的「图块与地图」。项目清单是约定加资产 id，不是画布。其它创作 skill 先遵守这里。 |
+| `pixelforge-draw` | [skills/pixelforge-draw/SKILL.md](../skills/pixelforge-draw/SKILL.md) | 从零画角色、立绘、剪影、选画布 | 强制剪影（单色）→ 色块 → 细节。每阶段 `preview --scale` 加 ASCII。禁止一像素刷屏。读图要查破洞、头身、体积断点，禁止把完成度说高。 |
+| `pixelforge-sprite-4dir` | [skills/pixelforge-sprite-4dir/SKILL.md](../skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签、`direction fill` | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。导出后先 `validate-atlas`，再进游戏。#18 的 64×64 包在 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published)，`validate.py` 重跑 strict。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 或 `direction fill --mode mirror` 之后修高光。`copy` 只是占位，不是自然步态。 |
+| `pixelforge-layers` | [skills/pixelforge-layers/SKILL.md](../skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢、隐藏、透明度 | body / gear / limbs。合成预览、`--layer`、`layer hide` / `opacity`、`layer flatten`。 |
+| `pixelforge-critique` | [skills/pixelforge-critique/SKILL.md](../skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。输出必须列缺陷，不能只说看起来不错。 |
+| `pixel-art-craft` | [skills/pixel-art-craft/SKILL.md](../skills/pixel-art-craft/SKILL.md) | 学像素画、走路循环、机位、运动轨迹 | 工艺学习。公开教程链接按初级 / 中级 / 高级 / 大师放在 `references/`。不是 CLI 配方。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 不变量，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。不要摘抄付费课文。 |
 
 怎么读：已安装的 `pixelforge` 把上表 skill（`SKILL.md` 和 `references/**/*.md`）打进二进制。外部 Agent 应先用 CLI 自助发现和读取，这样不依赖仓库检出或其它私有目录：
 
@@ -33,9 +33,9 @@ pixelforge skills read pixel-art-craft references/beginner.md
 pixelforge skills read pixel-art-craft --json
 ```
 
-`skills list` 始终打出 JSON（`--json` 可写，没有额外效果）。`skills read NAME` 默认把 `SKILL.md` 原文打到 stdout，提示在 stderr；加 `--json` 则包一层对象。路径可以是 `NAME/path` 或 `NAME path`。打开本仓库后，Cursor 仍会按 `description` 加载这些 `SKILL.md`。Codex 和 Claude Code 先读 `AGENTS.md` 或 `CLAUDE.md`，再打开上表路径。只扫描 `.agents/skills/` 或 `.claude/skills/` 的运行时，把 `.cursor/skills` 链过去，不要另写一份正文。人可以直接打开上表链接，或本页（[GitHub Pages](https://starcloud530.github.io/pixelforge-ai/agent-skill/)）。仓库不提供、也不记录 `npx skills` 或其它技能市场安装命令。
+`skills list` 始终打出 JSON（`--json` 可写，没有额外效果）。`skills read NAME` 默认把 `SKILL.md` 原文打到 stdout，提示在 stderr；加 `--json` 则包一层对象。路径可以是 `NAME/path` 或 `NAME path`。打开本仓库后，从 `AGENTS.md`、`CLAUDE.md` 或上表打开 `skills/` 里的文件。人也可以直接打开上表链接，或本页（[GitHub Pages](https://starcloud530.github.io/pixelforge-ai/agent-skill/)）。仓库不提供、也不记录 `npx skills` 或其它技能市场安装命令。
 
-*A packaged `pixelforge` binary lists and reads the bundled skills with `pixelforge skills list` and `pixelforge skills read <name>`. Cursor and other editors can still open the markdown in `.cursor/skills/`. This repository does not document an `npx skills` install path.*
+*A packaged `pixelforge` binary lists and reads the bundled skills with `pixelforge skills list` and `pixelforge skills read <name>`. In a checkout, editors can open the markdown in `skills/`. This repository does not document an `npx skills` install path.*
 
 ## 安装与运行 Install and run
 
@@ -106,7 +106,7 @@ stdout 是紧凑 JSON，一行一个响应，给 Agent 解析。stderr 是给人
 
 ## 命令速查 Command reference
 
-画布尺寸、三阶段画法和完成度用词在 [pixelforge-draw](../.cursor/skills/pixelforge-draw/SKILL.md)。四向行序在 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。层怎么摆在 [pixelforge-layers](../.cursor/skills/pixelforge-layers/SKILL.md)。只读清单在 [pixelforge-critique](../.cursor/skills/pixelforge-critique/SKILL.md)。下面是和当前 CLI 一致的命令。
+画布尺寸、三阶段画法和完成度用词在 [pixelforge-draw](../skills/pixelforge-draw/SKILL.md)。四向行序在 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)。层怎么摆在 [pixelforge-layers](../skills/pixelforge-layers/SKILL.md)。只读清单在 [pixelforge-critique](../skills/pixelforge-critique/SKILL.md)。下面是和当前 CLI 一致的命令。
 
 *`resize` copies stored indices into a new canvas and does not invent detail. Omit both offsets to center; pass `--offset-x` and `--offset-y` together. The size table lives in pixelforge-draw.*
 
@@ -291,7 +291,7 @@ pixelforge export apng --project hero.json --output walk.apng --tag walk_down
 
 *duplicateFrame does not select the copy. `frame add` appends a blank 100 ms frame. `export png` writes `pixelforge-000.png` onward. `export apng --tag` writes a looping APNG preview of that tag. It is not the engine sheet. `export sheet --cols N` keeps one facing on one row when N is the frame count of that facing. `--atlas FILE` writes `pixelforge-atlas` JSON beside the sheet. Omit it and the export result stays the PNG fields. After export, run `validate-atlas` before game import. An error exits 1. Warnings alone stay 0. Tag names for a four-direction sheet live in pixelforge-sprite-4dir. The #18 handoff is in export.md. The 64×64 worked pack is [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published).*
 
-`tag add` / `addTag` 给一段闭区间起名，并写上 `loop`（`forward`、`reverse`、`pingpong`、`once`，缺省 `forward`）。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。`inspect` 和 `scene` 始终带 `tags`，空的时候是 `[]`。标签不是 cel 链接：复制帧仍然复制像素。整条时间轴的循环预览不改成按标签播放。插帧、删帧会在同一步撤销里挪已经存在的标签；复制某个标签的最后一帧时，新帧不自动进这个标签。四向名字在帧排好之后再打，见 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。
+`tag add` / `addTag` 给一段闭区间起名，并写上 `loop`（`forward`、`reverse`、`pingpong`、`once`，缺省 `forward`）。`tag set` 改区间、循环或改名。`tag remove` 只删标签。没有标签时工程文件不写 `tags`。`inspect` 和 `scene` 始终带 `tags`，空的时候是 `[]`。标签不是 cel 链接：复制帧仍然复制像素。整条时间轴的循环预览不改成按标签播放。插帧、删帧会在同一步撤销里挪已经存在的标签；复制某个标签的最后一帧时，新帧不自动进这个标签。四向名字在帧排好之后再打，见 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)。
 
 *`tag add` names an inclusive range. `loop` is `forward`, `reverse`, `pingpong`, or `once`, and defaults to `forward`. `tag set` changes the range, the loop, or the name. `tag remove` drops the tag and leaves the frames. A project with no tags omits `tags`. `inspect` and `scene` always include `tags`, and an empty list is `[]`. Tags are not cel links. Playback of the whole timeline is unchanged. Adding or deleting a frame moves existing tags in that same undo step. Duplicating the last frame of a tag does not pull the copy into the tag. Name a four-direction sheet after the frames exist. `direction set` stores that row grid (4, or 8 with diagonals). `direction validate` is a hard error when a facing or an idle/walk span is missing. It does not judge the gait. `direction fill` copies cardinal pixels after those tags exist.*
 
@@ -304,13 +304,13 @@ pixelforge direction fill --project hero.json --from down --mode copy
 pixelforge direction export --project hero.json --facing south --output south.png
 ```
 
-`direction set --count 4` 是 N/E/S/W，行序仍是 down、left、right、up（S、W、E、N）。`--count 8` 在这四行后面加 downleft、downright、upleft、upright，不挪前四行。`--apply` 按现有标签规则写 idle/walk，不画像素。`direction fill --mode mirror` 把 left 水平翻到 right，或反过来；`--mode copy` 把源朝向原样拷到其余基本朝向，用来占位，不是新的走路。已有墨水的目标帧默认跳过，`--overwrite` 才盖掉。八向的对角行不填。缺源朝向的 idle/walk 或其它 `{动作}_{朝向}` 帧段时整次不写。填充不写标签，也不修高光。`direction validate` 缺方向或缺关键帧段时退出码 1。通过不是自然步态，也不是审美通过，更不是 PixelLab 自动画四向。细节在 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。小例子是 [pixelforge-demos](../pixelforge-demos/README.md)。
+`direction set --count 4` 是 N/E/S/W，行序仍是 down、left、right、up（S、W、E、N）。`--count 8` 在这四行后面加 downleft、downright、upleft、upright，不挪前四行。`--apply` 按现有标签规则写 idle/walk，不画像素。`direction fill --mode mirror` 把 left 水平翻到 right，或反过来；`--mode copy` 把源朝向原样拷到其余基本朝向，用来占位，不是新的走路。已有墨水的目标帧默认跳过，`--overwrite` 才盖掉。八向的对角行不填。缺源朝向的 idle/walk 或其它 `{动作}_{朝向}` 帧段时整次不写。填充不写标签，也不修高光。`direction validate` 缺方向或缺关键帧段时退出码 1。通过不是自然步态，也不是审美通过，更不是 PixelLab 自动画四向。细节在 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)。小例子是 [pixelforge-demos](../pixelforge-demos/README.md)。
 
 *`direction set --count 4` is N/E/S/W in sheet order: down, left, right, up. `--count 8` appends the diagonals and does not move those rows. `--apply` writes idle/walk tags and does not paint. `direction fill --mode mirror` flips left into right, or right into left. `--mode copy` repeats one cardinal on the others as a placeholder, not a new walk. A target frame that already has ink is skipped unless `--overwrite` is set. Diagonal rows are not filled. A missing source idle/walk segment, or any other `{action}_{facing}` the layout already uses, writes nothing. Fill does not write tags and does not repair highlights. `direction validate` exits 1 when a facing or a key span is missing. A pass is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw. The worked commands are in [pixelforge-demos](../pixelforge-demos/README.md).*
 
 ### 部件与锚点 Parts and anchors
 
-部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。最近邻会做覆盖补洞，但 `dropped` 仍记下碰撞。同时看 `sealed` 和 `breaks`。1px 斜线和接近 45° 的细线仍可能断或变短。旋转不能代替手修。多帧上的抬枪用 `curve`，采样不写像素。手跟握持、枪托贴肩、脚底固定用 `constraint solve`，它写这一帧。整段帧用 `bake`。士兵示例在 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」、「部件变换」、「部件曲线」、「约束」和「烘焙」，外部脚本是 [an external driver script (companion demos when published)](https://github.com/starcloud530/pixelforge-demos)。
+部件不是层。原点 `x,y` 是画布格，也是本地 `(0, 0)`。锚点是相对原点的像素格。枪的像素仍画在 `gear` 上；`layer` 只是指向那一层。没有部件时工程文件不写 `parts`。`part list` 不改文件。矩形翻转和旋转不搬锚点。`part translate` / `part rotate` / `part flip` 才把这一层的墨水和原点、锚点一起搬走。直角是精确整数映射；其它角度先量化到 0.01°，再最近邻落到格子上，枢轴是原点或 `--anchor` 那一格的中心。最近邻会做覆盖补洞，但 `dropped` 仍记下碰撞。同时看 `sealed` 和 `breaks`。1px 斜线和接近 45° 的细线仍可能断或变短。旋转不能代替手修。多帧上的抬枪用 `curve`，采样不写像素。手跟握持、枪托贴肩、脚底固定用 `constraint solve`，它写这一帧。整段帧用 `bake`。士兵示例在 [pixelforge skill](../skills/pixelforge/SKILL.md) 的「士兵的枪和握持点」、「部件变换」、「部件曲线」、「约束」和「烘焙」，外部脚本是 [an external driver script (companion demos when published)](https://github.com/starcloud530/pixelforge-demos)。
 
 *A part is not a layer. Its `x,y` is the canvas cell that is local `(0, 0)`. An anchor is a pixel offset from that cell. Gun pixels stay on `gear`; `layer` only names that layer. A project with no parts omits `parts`. `part list` does not write the file. Rectangle flip and rotate do not move anchors. `part translate`, `part rotate`, and `part flip` move that layer's ink together with the origin and anchors. Quarter turns are an exact integer map. Any other angle quantizes to 0.01° and then to the nearest cell, around the origin or the `--anchor` cell. A nearest rotation seals covered notches, and `dropped` still counts the collisions. Read `sealed` and `breaks` too. A 1px diagonal, and a thin line near 45°, can still break or shorten. Rotation does not replace hand cleanup. A raise across frames uses `curve`. Sampling does not write pixels. A hand, a butt, and a planted foot use `constraint solve`, which writes that one frame. `bake` writes the span. The soldier commands are in the pixelforge skill, and the external script is an external driver script (kept out of this repo; see companion demos when published).*
 
@@ -324,7 +324,7 @@ pixelforge curve set --project soldier.json --part gun --channel rotation --fram
 pixelforge curve sample --project soldier.json --part gun --channel rotation --frame 2
 ```
 
-`curve` 的帧下标和标签相同。`--frame 2` 在 0 与 4 的中点上，`easeInOut`（`u = t² (3 − 2t)`）和线性一样是 45。`--frame 1` 是四分点，`easeInOut` 是 14.0625。翻转通道只 `hold`。没有曲线时工程文件不写 `curves`。采样不写像素。公式和通道见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「部件曲线」。
+`curve` 的帧下标和标签相同。`--frame 2` 在 0 与 4 的中点上，`easeInOut`（`u = t² (3 − 2t)`）和线性一样是 45。`--frame 1` 是四分点，`easeInOut` 是 14.0625。翻转通道只 `hold`。没有曲线时工程文件不写 `curves`。采样不写像素。公式和通道见 [pixelforge skill](../skills/pixelforge/SKILL.md) 的「部件曲线」。
 
 *A `curve` uses the same frame index as a tag. `--frame 2` is the midpoint of 0 and 4. `easeInOut` (`u = t² (3 − 2t)`) matches linear there: 45. `--frame 1` is the quarter point, and `easeInOut` is 14.0625. Flip channels are `hold` only. A project with no curves omits `curves`. Sampling does not write pixels. The formula and the channels are in the pixelforge skill.*
 
@@ -338,7 +338,7 @@ pixelforge constraint solve --project soldier.json --frame 4
 pixelforge constraint solve --project soldier.json --frame 4 --apply
 ```
 
-`follow` 让手掌落到枪的 `grip`。`stick` 存成 `attach`，把枪托锚点贴到肩的 `joint`。`pin` 把脚的 `sole` 钉在画布格上。`ik` 转 2 或 3 节，末端必须正好落到目标或 `--contact` 脚印；够不着是 `IkUnreachable`，不会停在旁边的格。`plant` 只在脚印区间里钉脚底，区间外不钉，所以接触帧不会顺着曲线滑。`solve` 不带 `--apply` 只打印报告。带 `--frame` 时先采样曲线再解约束；不带 `--frame` 时用 `part rotate` 已经写下的姿势，脚印按像素帧取样。环、第二条驱动、缺锚点、出画布都报错并且不写。没有约束时工程文件不写 `constraints`。走路示例是 [an external driver script (companion demos when published)](https://github.com/starcloud530/pixelforge-demos)。求解规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「约束」。
+`follow` 让手掌落到枪的 `grip`。`stick` 存成 `attach`，把枪托锚点贴到肩的 `joint`。`pin` 把脚的 `sole` 钉在画布格上。`ik` 转 2 或 3 节，末端必须正好落到目标或 `--contact` 脚印；够不着是 `IkUnreachable`，不会停在旁边的格。`plant` 只在脚印区间里钉脚底，区间外不钉，所以接触帧不会顺着曲线滑。`solve` 不带 `--apply` 只打印报告。带 `--frame` 时先采样曲线再解约束；不带 `--frame` 时用 `part rotate` 已经写下的姿势，脚印按像素帧取样。环、第二条驱动、缺锚点、出画布都报错并且不写。没有约束时工程文件不写 `constraints`。走路示例是 [an external driver script (companion demos when published)](https://github.com/starcloud530/pixelforge-demos)。求解规则见 [pixelforge skill](../skills/pixelforge/SKILL.md) 的「约束」。
 
 *A `follow` puts the palm on the gun's `grip`. `stick` is stored as `attach` and puts the butt anchor on the shoulder `joint`. A `pin` plants the foot's `sole` on a canvas cell. `ik` turns a chain of two or three parts so the end cell is exactly the target or a `--contact` span; a miss is `IkUnreachable` and does not stop on a neighbor. `plant` pins the sole only inside a footprint span, so a contact frame cannot slide along a curve. `solve` without `--apply` prints the report. With `--frame` it samples curves and then solves. Without `--frame` it uses the pose `part rotate` already wrote, and footprint spans sample the pixel frame. A cycle, a second driver, a missing anchor, or a cell off the canvas is an error and writes nothing. A project with no constraints omits `constraints`. The walk script is an external driver script (kept out of this repo; see companion demos when published). The solve rules are in the pixelforge skill.*
 
@@ -348,7 +348,7 @@ pixelforge bake --project soldier.json --part gun --part hand --layer 1
 pixelforge bake --project soldier.json --from 4 --to 4 --curves-only
 ```
 
-`bake` 在 `--from` 到 `--to` 的闭区间上，从 `--source`（缺省第 0 帧）的静止墨水采样曲线并解约束，写成普通像素帧。源帧的像素不改。它重写曲线或约束管着的层，变换回到 0 也从源帧恢复。那一层上改过的格子会被盖掉。精修画在 `layer add --role polish` 的覆盖层上。没绑定的覆盖层 `bake` 不写，格子留在画下的画布格。`layer bind --part 手 --anchor 指尖` 把这一层绑到部件：本地 `(0, 0)` 是锚点，省略 `--anchor` 时是部件原点。这一次烘焙如果摆了那个部件，就把源帧上的修正和显式擦除按同一套变换盖到目标帧，报告里的 `followed` 是这些层。`layer unbind` 回到不跟随。受管理的部件挂在精修层上仍是 `PolishLayer`，整次不写；部件的挂接层保持 `default`。`--fps` 把区间里每一帧的 `delayMs` 设成 `round(1000/fps)`，12 是 83。`--part` 和 `--layer` 可重复。`--curves-only` 不解约束。曲线、约束和存着的原点都留下。像素或时长有变化才是一步撤销。先 `frame duplicate` 静止帧，身体那一层才会留在已有帧上。没有内置脚本。规则见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的「烘焙」。
+`bake` 在 `--from` 到 `--to` 的闭区间上，从 `--source`（缺省第 0 帧）的静止墨水采样曲线并解约束，写成普通像素帧。源帧的像素不改。它重写曲线或约束管着的层，变换回到 0 也从源帧恢复。那一层上改过的格子会被盖掉。精修画在 `layer add --role polish` 的覆盖层上。没绑定的覆盖层 `bake` 不写，格子留在画下的画布格。`layer bind --part 手 --anchor 指尖` 把这一层绑到部件：本地 `(0, 0)` 是锚点，省略 `--anchor` 时是部件原点。这一次烘焙如果摆了那个部件，就把源帧上的修正和显式擦除按同一套变换盖到目标帧，报告里的 `followed` 是这些层。`layer unbind` 回到不跟随。受管理的部件挂在精修层上仍是 `PolishLayer`，整次不写；部件的挂接层保持 `default`。`--fps` 把区间里每一帧的 `delayMs` 设成 `round(1000/fps)`，12 是 83。`--part` 和 `--layer` 可重复。`--curves-only` 不解约束。曲线、约束和存着的原点都留下。像素或时长有变化才是一步撤销。先 `frame duplicate` 静止帧，身体那一层才会留在已有帧上。没有内置脚本。规则见 [pixelforge skill](../skills/pixelforge/SKILL.md) 的「烘焙」。
 
 *`bake` samples curves and solves constraints from the rest ink on `--source` (frame 0 by default) across the inclusive `--from`..`--to` range, and writes ordinary pixel frames. The source frame's pixels stay. It rebuilds every layer a curve or constraint manages, including a pose that returned to zero, so a retouch on that layer is replaced. Paint the fix on `layer add --role polish`. An unbound overlay is not written, so those cells stay where they were painted. `layer bind --part hand --anchor tip` binds that layer to the part: local `(0, 0)` is the anchor, or the part origin when `--anchor` is omitted. When this bake poses that part, it stamps the source frame's corrections and explicit erases through the same transform. `followed` lists those layers. `layer unbind` leaves the overlay on canvas coordinates. A managed part linked to the polish layer is still `PolishLayer` and the call writes nothing; keep the part's linked layer `default`. `--fps` sets `delayMs` on every frame in the range to `round(1000/fps)`; 12 is 83. Repeat `--part` and `--layer`. `--curves-only` skips constraints. Curves, constraints, and the stored origins stay. A change to pixels or delays is one undo step. Duplicate the rest frame first so a body layer remains on frames that already exist. There is no script runtime. The rules are in the pixelforge skill.*
 
@@ -426,7 +426,7 @@ pixelforge tools
 pixelforge call --project hero.json --request-file edits.json
 ```
 
-`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（一块矩形、`{rects}`，或 `null`）、图层（`visible` 布尔，`opacity` 为 `0..=255`，缺省可见且 255）、`paletteHash`、帧数、`delayMs`、`tags`（没有标签时是 `[]`）和 `parts`（没有部件时是 `[]`）。不返回像素。怎么读这些字段见 [pixelforge skill](../.cursor/skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。`combineMask` 不接受 `reportDirty`。
+`scene` 是紧凑摘要：画布、`activeFrame` / `activeLayer`、`selection`（一块矩形、`{rects}`，或 `null`）、图层（`visible` 布尔，`opacity` 为 `0..=255`，缺省可见且 255）、`paletteHash`、帧数、`delayMs`、`tags`（没有标签时是 `[]`）和 `parts`（没有部件时是 `[]`）。不返回像素。怎么读这些字段见 [pixelforge skill](../skills/pixelforge/SKILL.md) 的 “How to read state”。`--dirty` 只在绘制命令上多返回 `changed` 和脏区；不写它，结果和以前一样。`combineMask` 不接受 `reportDirty`。
 
 *`scene` is the compact summary: canvas, active frame and layer, layers, `paletteHash`, frame count, delay, `tags` (an empty array when there are none), and `parts` (an empty array when there are none). It does not return pixels. `--dirty` adds `changed` and a dirty box on a drawing command. Omit it and the result stays as it was.*
 
@@ -487,7 +487,7 @@ pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json 
 
 ### 最少编辑路径 Shortest edit path
 
-规范正文和前后对照在 [pixelforge](../.cursor/skills/pixelforge/SKILL.md) 的「最少编辑路径」。四向表上的用法在 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)。只读挑错在 [pixelforge-critique](../.cursor/skills/pixelforge-critique/SKILL.md) 的第 7、8 条。这里是同一条约，缩短后的样子：
+规范正文和前后对照在 [pixelforge](../skills/pixelforge/SKILL.md) 的「最少编辑路径」。四向表上的用法在 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)。只读挑错在 [pixelforge-critique](../skills/pixelforge-critique/SKILL.md) 的第 7、8 条。这里是同一条约，缩短后的样子：
 
 同姿且新帧可以紧挨源帧：`duplicateFrame`，再 `setActiveFrame` 到返回的下标，只改差集。槽位已经占死（例如第 3、4、7 帧）：`copyRect` 的 `fromFrame` / `toFrame` 把身体拷进去，再改差。不要 `addFrame` 出空白再把整个人 `fillRect` 一遍。
 
@@ -511,4 +511,4 @@ pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json 
 
 ### 像素画工艺 pixel-art-craft
 
-规范正文在 [pixel-art-craft](../.cursor/skills/pixel-art-craft/SKILL.md)。等级参考在同目录 `references/beginner.md`、`intermediate.md`、`advanced.md`、`master.md`。这是走路、机位和运动轨迹的工艺学习，只使用公开教程链接；需要某一课时当场打开那个 URL。不要摘抄或复述付费课文（包括 Pixel School）。在本仓库里往索引工程落笔时，先读 `pixelforge`，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。
+规范正文在 [pixel-art-craft](../skills/pixel-art-craft/SKILL.md)。等级参考在同目录 `references/beginner.md`、`intermediate.md`、`advanced.md`、`master.md`。这是走路、机位和运动轨迹的工艺学习，只使用公开教程链接；需要某一课时当场打开那个 URL。不要摘抄或复述付费课文（包括 Pixel School）。在本仓库里往索引工程落笔时，先读 `pixelforge`，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。

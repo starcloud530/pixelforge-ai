@@ -1,7 +1,9 @@
-//! Embed `.cursor/skills` into the CLI at compile time.
+//! Embed repository-root `skills/` into the CLI at compile time.
 //!
-//! The catalog is generated from the same markdown the repo already ships, so
-//! a packaged binary can list and read skills without the git tree.
+//! Product skills live in `skills/<name>/SKILL.md` (and `references/`), the same
+//! layout as official larksuite/cli. The catalog is generated from that tree so
+//! a packaged binary can list and read them without the git checkout. This crate
+//! does not walk `.cursor/`.
 
 use std::env;
 use std::fs;
@@ -10,16 +12,11 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let skills_root = manifest
-        .join("..")
-        .join("..")
-        .join(".cursor")
-        .join("skills");
+    let skills_root = manifest.join("..").join("..").join("skills");
     let skills_root = skills_root.canonicalize().unwrap_or_else(|err| {
         panic!(
-            "cannot read skill tree at {}: {err}\n\
-             pixelforge-cli embeds `.cursor/skills` from the repository root",
-            manifest.join("../../.cursor/skills").display()
+            "cannot read skill tree at {}: {err}; pixelforge-cli embeds repository-root skills/ only, not .cursor/",
+            manifest.join("../../skills").display()
         )
     });
 
