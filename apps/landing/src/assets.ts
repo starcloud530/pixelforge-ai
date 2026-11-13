@@ -38,7 +38,7 @@ export function mediaFor(lang: Lang) {
 }
 
 export const links = {
-  install: "https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3",
+  install: "https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.4",
   docs: "https://starcloud530.github.io/pixelforge-ai/docs/",
   github: "https://github.com/starcloud530/pixelforge-ai",
 } as const;

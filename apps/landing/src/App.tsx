@@ -430,7 +430,7 @@ function Status({ t }: { t: Copy }) {
         ))}
       </ul>
       <p className="mt-5 font-mono text-xs text-cream-dim">
-        aestheticApproval: false · v0.1.0-rc.3
+        aestheticApproval: false · v0.1.0-rc.4
       </p>
     </section>
   );
