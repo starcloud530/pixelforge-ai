@@ -13,7 +13,7 @@ description: >-
 
 # 像素画工艺
 
-本 skill 教像素画工艺：走路、机位和运动轨迹。它不是 `pixelforge` 的命令说明书。已安装的 CLI 用 `pixelforge skills read pixel-art-craft` 读本文件，用 `pixelforge skills read pixel-art-craft references/beginner.md`（以及 intermediate / advanced / master）读参考。正文也在仓库的 `.cursor/skills/pixel-art-craft/SKILL.md`。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 的索引色不变量，再按 `pixelforge-draw` 或 `pixelforge-sprite-4dir` 调用 CLI。
+本 skill 教像素画工艺：走路、机位和运动轨迹。它不是 `pixelforge` 的命令说明书。已安装的 CLI 用 `pixelforge skills read pixel-art-craft` 读本文件，用 `pixelforge skills read pixel-art-craft references/beginner.md`（以及 intermediate / advanced / master）读参考。正文也在仓库的 `skills/pixel-art-craft/SKILL.md`。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 的索引色不变量，再按 `pixelforge-draw` 或 `pixelforge-sprite-4dir` 调用 CLI。
 
 *This is a craft skill, not a CLI recipe. A packaged CLI prints this file with `pixelforge skills read pixel-art-craft` and the level references with `pixelforge skills read pixel-art-craft references/<level>.md`. When painting in a PixelForge project, follow the pixelforge invariants first.*
 

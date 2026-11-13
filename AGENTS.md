@@ -2,7 +2,7 @@
 
 Edit pixels only through the `pixelforge` CLI (`crates/pixelforge-cli`) and the kernel Tool API.
 
-Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Read `pixelforge` before any other PixelForge skill, then the skill for the task. This repository does not copy skills into `.agents/skills/` or `.claude/skills/`. Codex and Claude Code open the same files from this list. A runtime that only scans those directories should link `.cursor/skills`, not fork a second copy. A packaged `pixelforge` binary lists and reads the same bundled skills with `pixelforge skills list` and `pixelforge skills read <name>` (optional path, or `--json`). Use those commands when driving the installed CLI so you do not depend on the git checkout. The index and the command reference are in `docs/agent-skill.md`.
+Product skills live in `skills/<name>/SKILL.md`. Read `pixelforge` before any other PixelForge skill, then the skill for the task. A packaged `pixelforge` binary lists and reads the same bundled skills with `pixelforge skills list` and `pixelforge skills read <name>` (optional path, or `--json`). Use those commands when driving the installed CLI so you do not depend on the git checkout. In a checkout, open the files from this list. This repository does not copy product skills into `.cursor/skills/`, `.agents/skills/`, or `.claude/skills/`. The index and the command reference are in `docs/agent-skill.md`.
 
 | Skill | When |
 | --- | --- |

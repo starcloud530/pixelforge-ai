@@ -672,7 +672,7 @@ pub enum Command {
     },
     /// List or read agent skills bundled into this CLI.
     ///
-    /// The catalog is compiled from `.cursor/skills`. A packaged binary can
+    /// The catalog is compiled from repository-root `skills/`. A packaged binary can
     /// discover and read those files without the git checkout.
     Skills {
         #[command(subcommand)]

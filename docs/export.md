@@ -71,7 +71,7 @@ Tool API 是 `exportApng`。`call` 的 `result.apng` 是标准 base64。CLI 把�
 
 循环模式是 `forward`、`reverse`、`pingpong`、`once`。这是给读取 atlas 的一方用的。文档自己的循环预览仍按整条时间轴走，不按单个标签播。标签不是 cel 链接：帧与帧不共用像素。
 
-四向表的名字约定见 [pixelforge-sprite-4dir](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md)：一行一个朝向时，`idle_down` 是该行第一格，`walk_down` 是该行剩下的走路帧，左、右、上同样用 `idle_left` / `walk_left` 等。
+四向表的名字约定见 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)：一行一个朝向时，`idle_down` 是该行第一格，`walk_down` 是该行剩下的走路帧，左、右、上同样用 `idle_left` / `walk_left` 等。
 
 *Passing `--atlas` writes `pixelforge-atlas` version 1 next to the PNG. Omitting it keeps the PNG-only result. Tool API `exportSpriteSheet` with `atlas: true` returns the same object and does not write a file. Rectangles are sheet pixels after scale. `frames` lists real frames and each one carries `delayMs`. Padding cells are absent. `tags` are inclusive frame ranges. The CLI file adds `image`, the PNG file name. Loop modes are metadata for the reader. Document playback still walks the whole timeline. Tags are not linked cels. Four-direction names live in pixelforge-sprite-4dir.*
 

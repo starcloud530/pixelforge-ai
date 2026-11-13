@@ -105,7 +105,7 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 
 外部 Agent（例如 Codex、Claude Code、GPT-6 Astra，以及日后接入的真像素或像素化模型）是 Tool API 的调用方。一次修订的闭环是：
 
-1. Agent 读 [agent-skill.md](agent-skill.md)，按任务打开 `.cursor/skills/` 里对应的 skill，对磁盘上的工程文件运行 `pixelforge`。
+1. Agent 用 `pixelforge skills list` / `skills read` 读取打包 skill，或在检出仓库时打开 `skills/` 里对应的文件，然后对磁盘上的工程文件运行 `pixelforge`。
 2. CLI 把 Tool API JSON 交给 `Document::call_tool`。Rust 内核执行，并写回工程文件。
 3. 人可以在 TypeScript 外壳里打开同一份工程，继续画，或撤销文件里还留得住的那一步。
 
@@ -115,7 +115,7 @@ M9 若要可安装的桌面演示，用 Tauri 把 TypeScript 外壳和 Rust 内�
 
 *We do not train models.*
 
-*An external agent (for example Codex, Claude Code, GPT-6 Astra, and later true-pixel or pixelation models) is a caller of the Tool API. One revision loop is: the agent reads [agent-skill.md](agent-skill.md), opens the matching skill under `.cursor/skills/`, and runs `pixelforge` on a project file; the CLI passes Tool API JSON to `Document::call_tool`, and the Rust kernel applies it and writes the project; a person can open that same file in the TypeScript shell, keep drawing, or undo a step the file still holds.*
+*An external agent (for example Codex, Claude Code, GPT-6 Astra, and later true-pixel or pixelation models) is a caller of the Tool API. One revision loop is: the agent reads [agent-skill.md](agent-skill.md), reads the matching bundled skill with `pixelforge skills read` (or opens `skills/` in a checkout), and runs `pixelforge` on a project file; the CLI passes Tool API JSON to `Document::call_tool`, and the Rust kernel applies it and writes the project; a person can open that same file in the TypeScript shell, keep drawing, or undo a step the file still holds.*
 
 *Final pixels land on the kernel's indexed grid. An image that only looks pixelated is not written back as the finished asset.*
 

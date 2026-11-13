@@ -42,7 +42,7 @@ impl Isolated {
         let bin = bin_dir.join("pixelforge");
         fs::copy(env!("CARGO_BIN_EXE_pixelforge"), &bin).unwrap();
         // The empty cwd is not the repository, and HOME/XDG dirs here cannot
-        // supply `.cursor/skills` or a bot skill tree.
+        // supply `skills` or a bot skill tree.
         Self { root, bin, cwd }
     }
 
@@ -94,6 +94,9 @@ fn repo_absent(root: &Path) {
         root.join(".cursor"),
         root.join("cwd").join(".cursor"),
         root.join("home").join(".cursor"),
+        root.join("skills"),
+        root.join("cwd").join("skills"),
+        root.join("home").join("skills"),
         root.join("home").join("agent-data"),
     ] {
         assert!(
@@ -124,12 +127,12 @@ fn standalone_binary_lists_canonical_and_tutorial_skills() {
     let mut expected = names.clone();
     expected.sort();
     assert_eq!(names, expected, "skill names should be sorted");
-    for name in CANONICAL {
-        assert!(
-            names.contains(&name.to_string()),
-            "missing {name} in {names:?}"
-        );
-    }
+    let mut expected: Vec<String> = CANONICAL.iter().map(|s| (*s).to_string()).collect();
+    expected.sort();
+    assert_eq!(
+        names, expected,
+        "catalog must be exactly the product skills"
+    );
     for skill in body["skills"].as_array().unwrap() {
         assert_eq!(skill["version"], env!("CARGO_PKG_VERSION"));
         assert!(

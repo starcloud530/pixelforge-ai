@@ -88,7 +88,7 @@ If the docs URL 404s after merge to `main`, enable Pages once: **Settings → Pa
 
 ## Agent skills
 
-Cursor loads `.cursor/skills/<name>/SKILL.md` by `description`. Creative skills follow the `pixelforge` index-color invariants first. A packaged `pixelforge` binary lists and reads those skills with `pixelforge skills list` and `pixelforge skills read <name>`. Command reference: [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/).
+Product skills live in `skills/<name>/SKILL.md`. Creative skills follow the `pixelforge` index-color invariants first. A packaged `pixelforge` binary lists and reads those skills with `pixelforge skills list` and `pixelforge skills read <name>`. Command reference: [agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/).
 
 | Skill | Role |
 | --- | --- |
