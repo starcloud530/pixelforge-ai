@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.2-blue" /></a>
+  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.3-blue" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
@@ -32,20 +32,20 @@
 - **引擎可导出** — PNG 序列、精灵表、图集 JSON、校验门槛
 - **不是**完整 Aseprite 克隆，**不是**假像素扩散，**不是**完整游戏引擎
 
-状态：早期 / WIP。预编译 CLI **[v0.1.0-rc.2](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)** 为预发布。愿景与 L4 长文：[docs/vision.md](docs/vision.md)。能力边界：[docs/known-limits.md](docs/known-limits.md)。
+状态：早期 / WIP。预编译 CLI **[v0.1.0-rc.3](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3)** 为预发布。愿景与 L4 长文：[docs/vision.md](docs/vision.md)。能力边界：[docs/known-limits.md](docs/known-limits.md)。
 
 ## 快速开始
 
-安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。正式版之前请用 **rc.2** 标签（不要用 `latest`）。
+安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。正式版之前请用 **rc.3** 标签（不要用 `latest`）。
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.2/pixelforge-cli-installer.sh | sh
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.3/pixelforge-cli-installer.sh | sh
 ```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.2/pixelforge-cli-installer.ps1 | iex"
+  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.3/pixelforge-cli-installer.ps1 | iex"
 ```
 
 ```bash
@@ -54,7 +54,7 @@ pixelforge new --width 16 --height 16 --output hero.json
 pixelforge preview --project hero.json --scale 4
 ```
 
-手动压缩包、平台说明与源码构建：**[安装文档](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
+手动压缩包、平台说明与源码构建：**[安装文档](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3)
 
 ## 站点与文档
 

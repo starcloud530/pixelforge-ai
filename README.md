@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.2-blue" /></a>
+  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.3-blue" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
@@ -32,20 +32,20 @@
 - **Engine-ready export** — PNG sequences, sprite sheets, atlas JSON, validation gates
 - **Not** a full Aseprite clone, **not** diffusion fake-pixel, **not** a full game engine
 
-Status: early / WIP. Prebuilt CLI **[v0.1.0-rc.2](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)** is a prerelease. Longer vision & L4 framing: [docs/vision.md](docs/vision.md). Honest bounds: [docs/known-limits.md](docs/known-limits.md).
+Status: early / WIP. Prebuilt CLI **[v0.1.0-rc.3](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3)** is a prerelease. Longer vision & L4 framing: [docs/vision.md](docs/vision.md). Honest bounds: [docs/known-limits.md](docs/known-limits.md).
 
 ## Quick start
 
-Installers put `pixelforge` in `~/.pixelforge/bin`. Use the **rc.2** tag (not `latest`) until a stable release ships.
+Installers put `pixelforge` in `~/.pixelforge/bin`. Use the **rc.3** tag (not `latest`) until a stable release ships.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.2/pixelforge-cli-installer.sh | sh
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.3/pixelforge-cli-installer.sh | sh
 ```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.2/pixelforge-cli-installer.ps1 | iex"
+  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.3/pixelforge-cli-installer.ps1 | iex"
 ```
 
 ```bash
@@ -54,7 +54,7 @@ pixelforge new --width 16 --height 16 --output hero.json
 pixelforge preview --project hero.json --scale 4
 ```
 
-Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)
+Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3)
 
 ## Site & documentation
 

@@ -23,9 +23,9 @@ PixelForge 是 **AI 原生的真像素 CLI / 工作室**：外部 Agent 驱动�
 
 ## Status / 状态
 
-Early / WIP. Current prebuilt CLI: **[v0.1.0-rc.2](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.2)** (prerelease). Installer scripts: `pixelforge-cli-installer.sh` / `.ps1`.
+Early / WIP. Current prebuilt CLI: **[v0.1.0-rc.3](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.3)** (prerelease). Installer scripts: `pixelforge-cli-installer.sh` / `.ps1`.
 
-早期开发中。当前预编译：**v0.1.0-rc.2**（预发布）。用安装脚本，不要依赖 GitHub `latest`，直到正式版。
+早期开发中。当前预编译：**v0.1.0-rc.3**（预发布）。用安装脚本，不要依赖 GitHub `latest`，直到正式版。
 
 ## Start here / 从这里开始
 
