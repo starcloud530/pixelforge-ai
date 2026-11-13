@@ -225,7 +225,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "pixelforge-cli"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 dependencies = [
  "base64",
  "clap",
@@ -235,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "pixelforge-kernel"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 dependencies = [
  "flate2",
  "png",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "pixelforge-kernel-wasm"
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 dependencies = [
  "console_error_panic_hook",
  "pixelforge-kernel",
