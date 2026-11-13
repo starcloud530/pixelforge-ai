@@ -36,8 +36,8 @@ description: >-
   drawing request inside one batched call. `direction fill` mirrors or copies
   one cardinal facing into the other cardinals.
   Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
-  pixelforge-layers, pixelforge-critique) must follow this skill's index-color
-  invariants before their own workflow.
+  pixelforge-layers, pixelforge-critique, pixel-art-craft) must follow this
+  skill's index-color invariants before their own workflow.
 ---
 
 # PixelForge（shared）

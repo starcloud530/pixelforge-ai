@@ -123,6 +123,7 @@ fn help_lists_the_agent_commands() {
         "validate-atlas",
         "inspect",
         "--checkpoint",
+        "skills",
         "Stdout",
         "Tool API",
     ] {

@@ -6,6 +6,7 @@ license.workspace = true
 publish.workspace = true
 description = "Local pixelforge command: open a pixelforge-project and call the kernel Tool API."
 repository = "https://github.com/starcloud530/pixelforge-ai"
+build = "build.rs"
 
 [[bin]]
 name = "pixelforge"

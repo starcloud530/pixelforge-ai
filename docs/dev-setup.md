@@ -48,7 +48,8 @@ pnpm-workspace.yaml
 apps/web                   Vite + React 外壳（工作室 GUI）
 apps/landing               Vite + React 营销落地页（Pages 根路径）
 .cursor/skills/            外部 Agent 技能：pixelforge、pixelforge-draw、
-                           pixelforge-sprite-4dir、pixelforge-layers、pixelforge-critique
+                           pixelforge-sprite-4dir、pixelforge-layers、pixelforge-critique、
+                           pixel-art-craft
 docs/index.md              文档站首页
 docs/install.md            预编译安装与快速开始
 docs/tech-stack.md         已锁定的技术栈

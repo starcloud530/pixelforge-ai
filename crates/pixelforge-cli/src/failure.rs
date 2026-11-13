@@ -8,6 +8,7 @@ use pixelforge_kernel::KernelError;
 pub struct CliFailure {
     code: String,
     message: String,
+    hint: Option<String>,
 }
 
 impl CliFailure {
@@ -15,7 +16,13 @@ impl CliFailure {
         Self {
             code: code.into(),
             message: message.into(),
+            hint: None,
         }
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
     }
 
     pub fn io(path: &Path, err: std::io::Error) -> Self {
@@ -32,5 +39,9 @@ impl CliFailure {
 
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
     }
 }
