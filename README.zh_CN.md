@@ -88,7 +88,7 @@ mkdocs serve
 
 ## Agent 技能
 
-Cursor 按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。命令速查：[agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/)。
+Cursor 按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 skill 先遵守 `pixelforge` 的索引色不变量。已安装的 `pixelforge` 可用 `pixelforge skills list` 和 `pixelforge skills read <name>` 列出并读取同一套打包 skill。命令速查：[agent-skill](https://starcloud530.github.io/pixelforge-ai/agent-skill/)。
 
 | Skill | 作用 |
 | --- | --- |
@@ -97,6 +97,7 @@ Cursor 按 `description` 加载 `.cursor/skills/<name>/SKILL.md`。创作类 ski
 | `pixelforge-sprite-4dir` | 四向闲 + 走精灵表 |
 | `pixelforge-layers` | body / gear / limbs |
 | `pixelforge-critique` | 只读列出缺陷 |
+| `pixel-art-craft` | 走路、机位、运动轨迹工艺（公开教程链接） |
 
 ## 展示媒体
 

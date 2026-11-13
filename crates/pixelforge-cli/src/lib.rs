@@ -16,6 +16,7 @@ mod output;
 mod preview;
 mod requests;
 mod session;
+mod skills;
 mod tiles_cmd;
 mod validate_atlas;
 
@@ -38,7 +39,7 @@ use crate::cli::{
     DirectionCmd, EllipseArgs, EngineCmd, EraseRectArgs, ExportCmd, FillRectArgs, FlipArgs,
     FloodArgs, FrameCmd, ImportMode, LayerCmd, LineArgs, MaskArgs, MaskCmd, PaintArgs, PaletteCmd,
     PartCmd, PolygonArgs, ProjectArgs, ReplaceIndexArgs, ResizeArgs, RotateArgs, ScopeArgs,
-    SelectionCmd, StrokeRectArgs, TagCmd,
+    SelectionCmd, SkillsCmd, StrokeRectArgs, TagCmd,
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
@@ -185,6 +186,10 @@ fn execute(cli: Cli) -> i32 {
         Command::Project { command } => manifest_cmd::run(command),
         Command::Asset { command } => asset_cmd::run(command),
         Command::Character { command } => character_cmd::run(command),
+        Command::Skills { command } => match command {
+            SkillsCmd::List { name, json } => skills::list(name.as_deref(), json),
+            SkillsCmd::Read { name, path, json } => skills::read(&name, path.as_deref(), json),
+        },
         Command::Tools => cmd_tools(),
     }
 }

@@ -91,6 +91,11 @@ Examples:
   pixelforge asset graph --manifest pixelforge.manifest.json zombie
   pixelforge asset dependents --manifest pixelforge.manifest.json zombie
   pixelforge asset validate --manifest pixelforge.manifest.json
+  pixelforge skills list
+  pixelforge skills list pixel-art-craft
+  pixelforge skills read pixelforge
+  pixelforge skills read pixel-art-craft references/beginner.md
+  pixelforge skills read pixel-art-craft --json
 
 `scene` prints a compact summary (canvas, active frame and layer, layer
 names, visibility, opacity, palette hash, frame delays) and does not dump
@@ -665,8 +670,44 @@ pub enum Command {
         #[command(subcommand)]
         command: CharacterCmd,
     },
+    /// List or read agent skills bundled into this CLI.
+    ///
+    /// The catalog is compiled from `.cursor/skills`. A packaged binary can
+    /// discover and read those files without the git checkout.
+    Skills {
+        #[command(subcommand)]
+        command: SkillsCmd,
+    },
     /// Print the Tool API tool names as JSON.
     Tools,
+}
+
+#[derive(Subcommand)]
+pub enum SkillsCmd {
+    /// List bundled skills, or the files in one skill or subdirectory.
+    ///
+    /// Always prints compact JSON. `--json` is accepted and has no extra
+    /// effect.
+    List {
+        /// Skill name, or `name/path` for one directory layer.
+        name: Option<String>,
+        /// Accepted for compatibility. List output is already JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print a bundled skill file.
+    ///
+    /// `read NAME` prints `SKILL.md`. A relative path may be `NAME/path` or
+    /// `NAME path`. Default stdout is the raw markdown. `--json` wraps it.
+    Read {
+        /// Skill name, or `name/path`.
+        name: String,
+        /// Relative path inside the skill, if not already in `name`.
+        path: Option<String>,
+        /// Wrap the file in a JSON object instead of printing raw markdown.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args)]

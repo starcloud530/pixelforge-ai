@@ -10,7 +10,7 @@ Skill 补观改流程，不代替专业像素画师的审美。阶段走完、�
 
 Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.cursor/skills/<name>/SKILL.md`。本仓库不复制到 `.agents/skills/` 或 `.claude/skills/`。Codex、Claude Code 读 `AGENTS.md` / `CLAUDE.md` 后打开下表里的文件。某个运行时若只扫描 Agent Skills 标准目录，把 `.cursor/skills` 链过去，不要另写一份正文。
 
-创作类 skill 先遵守 `pixelforge` 的索引色不变量。命令语义以 `pixelforge` 和本文件的速查为准；剪影、四向、分层、挑错的步骤以对应 skill 为准。
+创作类 skill 先遵守 `pixelforge` 的索引色不变量。命令语义以 `pixelforge` 和本文件的速查为准；剪影、四向、分层、挑错的步骤以对应 skill 为准。走路、机位、运动轨迹的工艺学习以 `pixel-art-craft` 为准。
 
 *Cursor matches `description` in `.cursor/skills/<name>/SKILL.md`. This repository does not keep a second copy under `.agents/skills/` or `.claude/skills/`. Codex and Claude Code open the files below from `AGENTS.md` and `CLAUDE.md`. Creative skills follow the `pixelforge` invariants first.*
 
@@ -21,6 +21,21 @@ Cursor 按每个 `SKILL.md` 的 `description` 选择技能。正文只在 `.curs
 | `pixelforge-sprite-4dir` | [.cursor/skills/pixelforge-sprite-4dir/SKILL.md](../.cursor/skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签、`direction fill` | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。导出后先 `validate-atlas`，再进游戏。#18 的 64×64 包在 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published)，`validate.py` 重跑 strict。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 或 `direction fill --mode mirror` 之后修高光。`copy` 只是占位，不是自然步态。 |
 | `pixelforge-layers` | [.cursor/skills/pixelforge-layers/SKILL.md](../.cursor/skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢、隐藏、透明度 | body / gear / limbs。合成预览、`--layer`、`layer hide` / `opacity`、`layer flatten`。 |
 | `pixelforge-critique` | [.cursor/skills/pixelforge-critique/SKILL.md](../.cursor/skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。输出必须列缺陷，不能只说看起来不错。 |
+| `pixel-art-craft` | [.cursor/skills/pixel-art-craft/SKILL.md](../.cursor/skills/pixel-art-craft/SKILL.md) | 学像素画、走路循环、机位、运动轨迹 | 工艺学习。公开教程链接按初级 / 中级 / 高级 / 大师放在 `references/`。不是 CLI 配方。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 不变量，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。不要摘抄付费课文。 |
+
+怎么读：已安装的 `pixelforge` 把上表 skill（`SKILL.md` 和 `references/**/*.md`）打进二进制。外部 Agent 应先用 CLI 自助发现和读取，这样不依赖仓库检出或其它私有目录：
+
+```bash
+pixelforge skills list
+pixelforge skills list pixel-art-craft
+pixelforge skills read pixelforge
+pixelforge skills read pixel-art-craft references/beginner.md
+pixelforge skills read pixel-art-craft --json
+```
+
+`skills list` 始终打出 JSON（`--json` 可写，没有额外效果）。`skills read NAME` 默认把 `SKILL.md` 原文打到 stdout，提示在 stderr；加 `--json` 则包一层对象。路径可以是 `NAME/path` 或 `NAME path`。打开本仓库后，Cursor 仍会按 `description` 加载这些 `SKILL.md`。Codex 和 Claude Code 先读 `AGENTS.md` 或 `CLAUDE.md`，再打开上表路径。只扫描 `.agents/skills/` 或 `.claude/skills/` 的运行时，把 `.cursor/skills` 链过去，不要另写一份正文。人可以直接打开上表链接，或本页（[GitHub Pages](https://starcloud530.github.io/pixelforge-ai/agent-skill/)）。仓库不提供、也不记录 `npx skills` 或其它技能市场安装命令。
+
+*A packaged `pixelforge` binary lists and reads the bundled skills with `pixelforge skills list` and `pixelforge skills read <name>`. Cursor and other editors can still open the markdown in `.cursor/skills/`. This repository does not document an `npx skills` install path.*
 
 ## 安装与运行 Install and run
 
@@ -493,3 +508,7 @@ pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json 
 ### 只读检查 pixelforge-critique
 
 不改文件。用 `inspect`、`preview --scale 4`、`diff`。输出必须逐条写剪影、头身、侧向深度、腿体积连续、脚接触、色阶。有编辑记录时再写可合并的 `fillRect`（相邻同色扫描行应合成一块更高的矩形）。多帧时再写重复帧未复制（同姿却 `addFrame` 后整帧重画；没有记录则写未核）。有缺陷就列出来。没有缺陷的条写「未发现」并附上帧号或字形。不要只回答「看起来不错」。打不开彩色 PNG 时色阶写「未核」。一次 `call` 里的每个绘制请求各算一次。
+
+### 像素画工艺 pixel-art-craft
+
+规范正文在 [pixel-art-craft](../.cursor/skills/pixel-art-craft/SKILL.md)。等级参考在同目录 `references/beginner.md`、`intermediate.md`、`advanced.md`、`master.md`。这是走路、机位和运动轨迹的工艺学习，只使用公开教程链接；需要某一课时当场打开那个 URL。不要摘抄或复述付费课文（包括 Pixel School）。在本仓库里往索引工程落笔时，先读 `pixelforge`，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。

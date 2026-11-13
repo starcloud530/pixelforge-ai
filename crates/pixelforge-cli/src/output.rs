@@ -6,19 +6,26 @@ use crate::failure::CliFailure;
 use pixelforge_kernel::TOOL_API_VERSION;
 
 pub fn emit(failure: CliFailure) -> i32 {
+    let mut error = json!({
+        "code": failure.code(),
+        "message": failure.message(),
+    });
+    if let Some(hint) = failure.hint() {
+        error["hint"] = json!(hint);
+    }
     let body = json!({
         "ok": false,
         "apiVersion": TOOL_API_VERSION,
-        "error": {
-            "code": failure.code(),
-            "message": failure.message(),
-        },
+        "error": error,
     });
     let line = serde_json::to_string(&body).expect("cli error is JSON");
     if !print_line(&line) {
         return 2;
     }
     eprintln!("pixelforge: {}: {}", failure.code(), failure.message());
+    if let Some(hint) = failure.hint() {
+        eprintln!("pixelforge: hint: {hint}");
+    }
     2
 }
 

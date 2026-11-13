@@ -2,7 +2,7 @@
 
 Edit pixels only through the `pixelforge` CLI (`crates/pixelforge-cli`) and the kernel Tool API.
 
-Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Read `pixelforge` before any other PixelForge skill, then the skill for the task. This repository does not copy skills into `.agents/skills/` or `.claude/skills/`. Codex and Claude Code open the same files from this list. A runtime that only scans those directories should link `.cursor/skills`, not fork a second copy. The index and the command reference are in `docs/agent-skill.md`.
+Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Read `pixelforge` before any other PixelForge skill, then the skill for the task. This repository does not copy skills into `.agents/skills/` or `.claude/skills/`. Codex and Claude Code open the same files from this list. A runtime that only scans those directories should link `.cursor/skills`, not fork a second copy. A packaged `pixelforge` binary lists and reads the same bundled skills with `pixelforge skills list` and `pixelforge skills read <name>` (optional path, or `--json`). Use those commands when driving the installed CLI so you do not depend on the git checkout. The index and the command reference are in `docs/agent-skill.md`.
 
 | Skill | When |
 | --- | --- |
@@ -11,6 +11,7 @@ Cursor loads `.cursor/skills/<name>/SKILL.md` and matches the `description`. Rea
 | `pixelforge-sprite-4dir` | 四向走 + 闲. Rows are facings, columns are idle plus walk. `export sheet --cols`, tags named `idle_down` / `walk_down`, `--atlas` JSON, `diff` for foot slide, fix highlights after `hflip` or `direction fill --mode mirror`. `copy` is a placeholder, not a gait. After export, run `validate-atlas` before game import. Worked #18 pack: [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published). Duplicate a column and edit the diff. |
 | `pixelforge-layers` | body / gear / limbs. Composite preview, draw with `--layer`, `preview --compare`, `layer flatten`. |
 | `pixelforge-critique` | Read-only review. List defects. Do not answer with praise alone. Also flag mergeable fillRects and poses redrawn instead of duplicated. |
+| `pixel-art-craft` | 学像素画, 走路循环, 机位, 运动轨迹. Public tutorial links on walk, camera/projection, and motion paths. Not a CLI recipe. When painting in a PixelForge project, follow `pixelforge` invariants, then `pixelforge-draw` or `pixelforge-sprite-4dir`. |
 
 Skills add a look-then-revise loop. They do not replace a pixel artist's judgment.
 
