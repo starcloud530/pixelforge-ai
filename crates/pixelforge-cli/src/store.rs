@@ -80,7 +80,10 @@ impl Drop for ProjectLock {
         // Closing the handle also releases the OS lock. Unlock first so a
         // later open in this process does not observe a leftover exclusive
         // range on Windows.
-        let _ = self.file.unlock();
+        // Call the trait method by name. Rust 1.89 adds `File::unlock`, and
+        // that inherent method would hide `fs4`'s. CI stable is past 1.89;
+        // the repo floor is 1.83, which does not have the inherent method.
+        let _ = fs4::FileExt::unlock(&self.file);
     }
 }
 
@@ -197,7 +200,9 @@ fn lock_timeout() -> Result<Duration, CliFailure> {
 fn wait_exclusive(file: &File, timeout: Duration, user: &Path) -> Result<(), CliFailure> {
     let start = Instant::now();
     loop {
-        match file.try_lock() {
+        // Same reason as `unlock`: do not call inherent `File::try_lock`.
+        // That method returns `std::fs::TryLockError` on Rust 1.89+.
+        match fs4::FileExt::try_lock(file) {
             Ok(()) => return Ok(()),
             Err(fs4::TryLockError::WouldBlock) => {
                 if start.elapsed() >= timeout {
