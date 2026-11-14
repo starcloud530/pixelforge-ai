@@ -142,9 +142,18 @@ impl Checkpoint {
             "undo": self.undo,
             "redo": self.redo,
         });
+        if crate::store::test_fail("checkpoint") {
+            return Err(CliFailure::new(
+                "CheckpointFile",
+                format!(
+                    "refusing to write checkpoint {} (test hook)",
+                    self.path.display()
+                ),
+            ));
+        }
         let mut text = serde_json::to_string_pretty(&body).expect("checkpoint fields are JSON");
         text.push('\n');
-        write_atomic(&self.path, &text)?;
+        crate::store::write_atomic(&self.path, text.as_bytes())?;
         self.dirty = false;
         Ok(true)
     }
@@ -239,31 +248,6 @@ fn file_error(path: &Path, reason: &str) -> CliFailure {
         "CheckpointFile",
         format!("checkpoint {}: {reason}", path.display()),
     )
-}
-
-pub(crate) fn write_atomic(path: &Path, text: &str) -> Result<(), CliFailure> {
-    if path.file_name().is_none() {
-        return Err(CliFailure::new(
-            "Cli",
-            format!("path has no file name: {}", path.display()),
-        ));
-    }
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|err| CliFailure::io(parent, err))?;
-        }
-    }
-    let mut tmp_name = path
-        .file_name()
-        .expect("file name checked above")
-        .to_os_string();
-    tmp_name.push(".tmp");
-    let tmp = path.with_file_name(tmp_name);
-    fs::write(&tmp, text).map_err(|err| CliFailure::io(&tmp, err))?;
-    fs::rename(&tmp, path).map_err(|err| {
-        let _ = fs::remove_file(&tmp);
-        CliFailure::io(path, err)
-    })
 }
 
 #[cfg(test)]

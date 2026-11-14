@@ -14,8 +14,18 @@ use std::path::{Path, PathBuf};
 use pixelforge_kernel::{Document, TOOL_API_VERSION};
 use serde_json::{json, Value};
 
-use crate::checkpoint::{write_atomic, Checkpoint};
+use crate::checkpoint::Checkpoint;
 use crate::failure::CliFailure;
+use crate::store::{self, ProjectLock};
+
+/// Whether this command may publish a new project file.
+#[derive(Clone, Copy)]
+pub enum Access {
+    /// Read the bytes now. Do not take the exclusive lock and do not write.
+    ReadOnly,
+    /// Lock, then read. Hold the lock until this session is dropped.
+    Exclusive,
+}
 
 pub struct SaveReport {
     pub project: bool,
@@ -23,11 +33,18 @@ pub struct SaveReport {
 }
 
 pub struct Session {
+    /// Path the caller passed, used in messages.
     path: PathBuf,
+    /// Canonical file the lock covers. Renames land here.
+    write_path: PathBuf,
     document: Document,
     /// Canonical project text last known to be on disk.
     disk: String,
     checkpoint: Option<Checkpoint>,
+    /// Held so the OS lock stays acquired until the command finishes.
+    #[allow(dead_code)]
+    lock: Option<ProjectLock>,
+    writable: bool,
 }
 
 enum HistoryTool {
@@ -36,54 +53,121 @@ enum HistoryTool {
 }
 
 impl Session {
-    pub fn open(path: &Path) -> Result<Self, CliFailure> {
-        let text = fs::read_to_string(path).map_err(|err| CliFailure::io(path, err))?;
-        let document = Document::load_project(&text).map_err(CliFailure::kernel)?;
-        let disk = document.save_project();
-        Ok(Self {
-            path: path.to_path_buf(),
-            document,
-            disk,
-            checkpoint: None,
-        })
+    /// Locks `path`, then loads it. A missing file is an I/O error.
+    pub fn open_with(
+        path: &Path,
+        checkpoint: Option<&Path>,
+        access: Access,
+    ) -> Result<Self, CliFailure> {
+        match access {
+            Access::ReadOnly => Self::open_readonly(path, checkpoint),
+            Access::Exclusive => {
+                let lock = ProjectLock::acquire(path)?;
+                Self::open_locked(lock, checkpoint)
+            }
+        }
     }
 
-    /// Opens the project and, when `checkpoint` is set, its sidecar.
-    pub fn open_with(path: &Path, checkpoint: Option<&Path>) -> Result<Self, CliFailure> {
-        let mut session = Self::open(path)?;
-        if let Some(file) = checkpoint {
-            if paths_same(path, file) {
-                return Err(CliFailure::new(
-                    "Cli",
-                    "checkpoint path and project path are the same file",
-                ));
-            }
-            session.checkpoint = Some(Checkpoint::attach(file, &session.disk)?);
-        }
+    /// The caller already holds `lock`. The project is read after that lock.
+    pub fn open_locked(lock: ProjectLock, checkpoint: Option<&Path>) -> Result<Self, CliFailure> {
+        let text =
+            fs::read_to_string(lock.target()).map_err(|err| CliFailure::io(lock.target(), err))?;
+        let document = Document::load_project(&text).map_err(CliFailure::kernel)?;
+        let disk = document.save_project();
+        let path = lock.user_path().to_path_buf();
+        let write_path = lock.target().to_path_buf();
+        let mut session = Self {
+            path,
+            write_path,
+            document,
+            disk: disk.clone(),
+            checkpoint: None,
+            lock: Some(lock),
+            writable: true,
+        };
+        session.attach_checkpoint(checkpoint, &disk)?;
         Ok(session)
     }
 
-    pub fn blank(width: u16, height: u16, path: &Path) -> Result<Self, CliFailure> {
+    fn open_readonly(path: &Path, checkpoint: Option<&Path>) -> Result<Self, CliFailure> {
+        let text = fs::read_to_string(path).map_err(|err| CliFailure::io(path, err))?;
+        let document = Document::load_project(&text).map_err(CliFailure::kernel)?;
+        let disk = document.save_project();
+        let mut session = Self {
+            path: path.to_path_buf(),
+            write_path: path.to_path_buf(),
+            document,
+            disk: disk.clone(),
+            checkpoint: None,
+            lock: None,
+            writable: false,
+        };
+        session.attach_checkpoint(checkpoint, &disk)?;
+        Ok(session)
+    }
+
+    /// Locks `path` and prepares a new document. The file is created on save.
+    /// An existing canonical file is refused and left unchanged.
+    pub fn create_blank(width: u16, height: u16, path: &Path) -> Result<Self, CliFailure> {
+        let lock = ProjectLock::acquire(path)?;
+        if lock.target().exists() {
+            return Err(CliFailure::new(
+                "Cli",
+                format!("project file already exists: {}", path.display()),
+            ));
+        }
         let document = Document::new(width, height).map_err(CliFailure::kernel)?;
         Ok(Self {
             path: path.to_path_buf(),
+            write_path: lock.target().to_path_buf(),
             document,
             // Empty so the first save always writes the new file.
             disk: String::new(),
             checkpoint: None,
+            lock: Some(lock),
+            writable: true,
         })
     }
 
-    /// A 1×1 document that matches its baseline, so a failed import does not create `path`.
-    pub fn placeholder(path: &Path) -> Result<Self, CliFailure> {
+    /// Locks `path` for a create. The baseline matches the placeholder, so a
+    /// failed import does not create the project file.
+    pub fn create_placeholder(path: &Path) -> Result<Self, CliFailure> {
+        let lock = ProjectLock::acquire(path)?;
+        if lock.target().exists() {
+            return Err(CliFailure::new(
+                "Cli",
+                format!("project file already exists: {}", path.display()),
+            ));
+        }
         let document = Document::new(1, 1).map_err(CliFailure::kernel)?;
         let disk = document.save_project();
         Ok(Self {
             path: path.to_path_buf(),
+            write_path: lock.target().to_path_buf(),
             document,
             disk,
             checkpoint: None,
+            lock: Some(lock),
+            writable: true,
         })
+    }
+
+    fn attach_checkpoint(
+        &mut self,
+        checkpoint: Option<&Path>,
+        disk: &str,
+    ) -> Result<(), CliFailure> {
+        let Some(file) = checkpoint else {
+            return Ok(());
+        };
+        if paths_same(&self.path, file) || paths_same(&self.write_path, file) {
+            return Err(CliFailure::new(
+                "Cli",
+                "checkpoint path and project path are the same file",
+            ));
+        }
+        self.checkpoint = Some(Checkpoint::attach(file, disk)?);
+        Ok(())
     }
 
     pub fn path(&self) -> &Path {
@@ -114,6 +198,10 @@ impl Session {
     }
 
     /// Writes the kernel's project text when a tool changed it, then the sidecar.
+    ///
+    /// The project replace and the checkpoint replace are two publishes. If
+    /// the checkpoint write fails after the project write, the project file
+    /// already contains this edit.
     pub fn save_if_changed(&mut self) -> Result<SaveReport, CliFailure> {
         let text = self.document.save_project();
         let mut report = SaveReport {
@@ -121,14 +209,39 @@ impl Session {
             checkpoint: false,
         };
         if text != self.disk {
-            write_atomic(&self.path, &text)?;
+            if !self.writable {
+                return Err(CliFailure::new(
+                    "Cli",
+                    "refusing to write a project opened for reading",
+                ));
+            }
+            store::test_edit_barrier();
+            store::write_atomic(&self.write_path, text.as_bytes())?;
             self.disk = text.clone();
             report.project = true;
         }
+        let project_display = self.path.display().to_string();
         if let Some(checkpoint) = &mut self.checkpoint {
+            let checkpoint_display = checkpoint.path().display().to_string();
             checkpoint.note_change(&text);
-            if checkpoint.flush()? {
-                report.checkpoint = true;
+            match checkpoint.flush() {
+                Ok(wrote) => {
+                    if wrote {
+                        report.checkpoint = true;
+                    }
+                }
+                Err(failure) => {
+                    if report.project {
+                        return Err(CliFailure::new(
+                            "CheckpointFile",
+                            format!(
+                                "wrote {project_display} but could not update checkpoint {checkpoint_display}: {}. The project file already has this edit; the checkpoint was not updated. These two files are not one atomic commit",
+                                failure.message()
+                            ),
+                        ));
+                    }
+                    return Err(failure);
+                }
             }
         }
         Ok(report)

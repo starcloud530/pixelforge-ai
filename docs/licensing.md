@@ -10,9 +10,9 @@
 
 *No dependency in the checked set conflicts with MIT OR Apache-2.0 redistribution. There is no GPL, AGPL, LGPL, MPL, SSPL, or other copyleft. Every license found is permissive.*
 
-核对日期：2026-10-27。版本取自当时的 `Cargo.lock` 与 `pnpm-lock.yaml`。Rust crate 的许可证字符串来自 crates.io 上该版本的 `license` 字段。npm 包来自 registry 上该版本的 `license` 字段。工作区自己的 crate（`pixelforge-kernel`、`pixelforge-kernel-wasm`、`pixelforge-cli`）不计入第三方。
+核对日期：2026-10-27；2026-11-14 增补 CLI 文件锁依赖（`fs4`、`libc`、`rustix`、`windows-sys` 及其传递项）。版本取自当时的 `Cargo.lock` 与 `pnpm-lock.yaml`。npm 包清单没有在 2026-11-14 重核。Rust crate 的许可证字符串来自 crates.io 上该版本的 `license` 字段。npm 包来自 registry 上该版本的 `license` 字段。工作区自己的 crate（`pixelforge-kernel`、`pixelforge-kernel-wasm`、`pixelforge-cli`）不计入第三方。
 
-*Checked on 2026-10-27 against `Cargo.lock` and `pnpm-lock.yaml`. License strings are the registry fields for those locked versions. Workspace crates are not third-party.*
+*Checked on 2026-10-27 against `Cargo.lock` and `pnpm-lock.yaml`. On 2026-11-14 the CLI file-lock crates (`fs4`, `libc`, `rustix`, `windows-sys`, and their transitive crates) were added; the npm list was not rechecked that day. License strings are the registry fields for those locked versions. Workspace crates are not third-party.*
 
 ## 直接依赖
 
@@ -22,6 +22,8 @@
 | --- | --- | --- |
 | base64 | 0.22.1 | MIT OR Apache-2.0 |
 | clap | 4.5.23 | MIT OR Apache-2.0 |
+| fs4 | 1.1.0 | MIT OR Apache-2.0 |
+| libc | 0.2.169 | MIT OR Apache-2.0 |
 | console_error_panic_hook | 0.1.7 | Apache-2.0/MIT |
 | flate2 | 1.1.10 | MIT OR Apache-2.0 |
 | png | 0.17.16 | MIT OR Apache-2.0 |
@@ -53,6 +55,12 @@
 | Crate | 锁定版本 | 许可证 |
 | --- | --- | --- |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
+| bitflags | 2.13.2 | MIT OR Apache-2.0 |
+| errno | 0.3.15 | MIT OR Apache-2.0 |
+| linux-raw-sys | 0.9.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| rustix | 1.0.8 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| windows-link | 0.2.1 | MIT OR Apache-2.0 |
+| windows-sys | 0.60.2、0.61.2 | MIT OR Apache-2.0 |
 | memchr | 2.8.3 | Unlicense OR MIT |
 | miniz_oxide | 0.8.9、0.9.1 | MIT OR Zlib OR Apache-2.0 |
 | simd-adler32 | 0.3.10 | MIT |

@@ -12,6 +12,7 @@ use crate::cli::AssetCmd;
 use crate::failure::CliFailure;
 use crate::manifest_cmd::{gather, load, probe_json};
 use crate::output::{emit, print_line, tool_refusal};
+use crate::store::{self, ProjectLock};
 
 pub fn run(command: AssetCmd) -> i32 {
     match command {
@@ -140,9 +141,13 @@ pub fn run(command: AssetCmd) -> i32 {
 }
 
 fn mutate(path: &Path, tool: &str, params: Value) -> i32 {
-    let text = match std::fs::read_to_string(path) {
+    let lock = match ProjectLock::acquire(path) {
+        Ok(lock) => lock,
+        Err(failure) => return emit(failure),
+    };
+    let text = match std::fs::read_to_string(lock.target()) {
         Ok(text) => text,
-        Err(err) => return emit(CliFailure::io(path, err)),
+        Err(err) => return emit(CliFailure::io(lock.target(), err)),
     };
     let mut manifest = match pixelforge_kernel::ArtManifest::load(&text) {
         Ok(manifest) => manifest,
@@ -156,8 +161,8 @@ fn mutate(path: &Path, tool: &str, params: Value) -> i32 {
     }
     let updated = manifest.save();
     if updated != original {
-        if let Err(err) = std::fs::write(path, updated) {
-            return emit(CliFailure::io(path, err));
+        if let Err(failure) = store::write_atomic(lock.target(), updated.as_bytes()) {
+            return emit(failure);
         }
         eprintln!("pixelforge: wrote {}", path.display());
     }
