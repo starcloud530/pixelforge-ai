@@ -2,11 +2,13 @@
 //! the git checkout or a private bot filesystem.
 
 use serde_json::Value;
-use std::fs;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const CANONICAL: &[&str] = &[
     "pixelforge",
@@ -40,25 +42,58 @@ impl Isolated {
         fs::create_dir_all(&bin_dir).unwrap();
         fs::create_dir_all(&cwd).unwrap();
         let bin = bin_dir.join("pixelforge");
-        fs::copy(env!("CARGO_BIN_EXE_pixelforge"), &bin).unwrap();
+        install_binary(Path::new(env!("CARGO_BIN_EXE_pixelforge")), &bin);
         // The empty cwd is not the repository, and HOME/XDG dirs here cannot
         // supply `skills` or a bot skill tree.
         Self { root, bin, cwd }
     }
 
     fn run(&self, args: &[&str]) -> Output {
-        Command::new(&self.bin)
-            .args(args)
-            .current_dir(&self.cwd)
-            .env_clear()
-            .env("HOME", self.root.join("home"))
-            .env("XDG_CONFIG_HOME", self.root.join("config"))
-            .env("XDG_DATA_HOME", self.root.join("data"))
-            .env("PATH", self.bin.parent().unwrap())
-            .env("TERM", "dumb")
-            .env("LC_ALL", "C")
-            .output()
-            .expect("spawn isolated pixelforge")
+        // GitHub's runner can return ETXTBSY for a binary that was just
+        // written. Retry only that spawn error; a running CLI is not involved.
+        let mut last = None;
+        for attempt in 0..20 {
+            match Command::new(&self.bin)
+                .args(args)
+                .current_dir(&self.cwd)
+                .env_clear()
+                .env("HOME", self.root.join("home"))
+                .env("XDG_CONFIG_HOME", self.root.join("config"))
+                .env("XDG_DATA_HOME", self.root.join("data"))
+                .env("PATH", self.bin.parent().unwrap())
+                .env("TERM", "dumb")
+                .env("LC_ALL", "C")
+                .output()
+            {
+                Ok(output) => return output,
+                Err(err) if err.kind() == io::ErrorKind::ExecutableFileBusy => {
+                    last = Some(err);
+                    thread::sleep(Duration::from_millis(25 * (attempt + 1)));
+                }
+                Err(err) => panic!("spawn isolated pixelforge: {err}"),
+            }
+        }
+        panic!(
+            "spawn isolated pixelforge: {}",
+            last.expect("ETXTBSY was recorded")
+        );
+    }
+}
+
+fn install_binary(source: &Path, dest: &Path) {
+    let bytes = fs::read(source).unwrap_or_else(|err| panic!("read {source:?}: {err}"));
+    let mut file = File::create(dest).unwrap_or_else(|err| panic!("create {dest:?}: {err}"));
+    file.write_all(&bytes)
+        .unwrap_or_else(|err| panic!("write {dest:?}: {err}"));
+    file.sync_all()
+        .unwrap_or_else(|err| panic!("sync {dest:?}: {err}"));
+    drop(file);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(dest).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(dest, perms).unwrap();
     }
 }
 
