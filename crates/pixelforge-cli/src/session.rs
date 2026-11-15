@@ -57,23 +57,32 @@ impl Session {
     pub fn open_with(
         path: &Path,
         checkpoint: Option<&Path>,
+        expected: Option<&str>,
         access: Access,
     ) -> Result<Self, CliFailure> {
         match access {
-            Access::ReadOnly => Self::open_readonly(path, checkpoint),
+            Access::ReadOnly => Self::open_readonly(path, checkpoint, expected),
             Access::Exclusive => {
                 let lock = ProjectLock::acquire(path)?;
-                Self::open_locked(lock, checkpoint)
+                Self::open_locked(lock, checkpoint, expected)
             }
         }
     }
 
     /// The caller already holds `lock`. The project is read after that lock.
-    pub fn open_locked(lock: ProjectLock, checkpoint: Option<&Path>) -> Result<Self, CliFailure> {
+    ///
+    /// `expected` is compared to the canonical text of this load, before the
+    /// checkpoint sidecar is attached and before any tool runs.
+    pub fn open_locked(
+        lock: ProjectLock,
+        checkpoint: Option<&Path>,
+        expected: Option<&str>,
+    ) -> Result<Self, CliFailure> {
         let text =
             fs::read_to_string(lock.target()).map_err(|err| CliFailure::io(lock.target(), err))?;
         let document = Document::load_project(&text).map_err(CliFailure::kernel)?;
         let disk = document.save_project();
+        store::check_revision(expected, &disk)?;
         let path = lock.user_path().to_path_buf();
         let write_path = lock.target().to_path_buf();
         let mut session = Self {
@@ -89,10 +98,15 @@ impl Session {
         Ok(session)
     }
 
-    fn open_readonly(path: &Path, checkpoint: Option<&Path>) -> Result<Self, CliFailure> {
+    fn open_readonly(
+        path: &Path,
+        checkpoint: Option<&Path>,
+        expected: Option<&str>,
+    ) -> Result<Self, CliFailure> {
         let text = fs::read_to_string(path).map_err(|err| CliFailure::io(path, err))?;
         let document = Document::load_project(&text).map_err(CliFailure::kernel)?;
         let disk = document.save_project();
+        store::check_revision(expected, &disk)?;
         let mut session = Self {
             path: path.to_path_buf(),
             write_path: path.to_path_buf(),
@@ -172,6 +186,11 @@ impl Session {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Fingerprint of the document currently in memory, not a second disk read.
+    pub fn revision(&self) -> String {
+        store::revision_of(&self.document.save_project())
     }
 
     pub fn checkpoint_path(&self) -> Option<&Path> {

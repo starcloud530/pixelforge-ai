@@ -13,6 +13,9 @@ pub fn emit(failure: CliFailure) -> i32 {
     if let Some(hint) = failure.hint() {
         error["hint"] = json!(hint);
     }
+    for (key, value) in failure.fields() {
+        error[key] = json!(value);
+    }
     let body = json!({
         "ok": false,
         "apiVersion": TOOL_API_VERSION,
@@ -27,6 +30,26 @@ pub fn emit(failure: CliFailure) -> i32 {
         eprintln!("pixelforge: hint: {hint}");
     }
     2
+}
+
+/// Attach the fingerprint of the snapshot this response was built from.
+///
+/// `revision` is the top-level token. `result.revision` is the same value
+/// when `result` is an object, so `scene` and `inspect` expose it beside the
+/// view. The caller passes the canonical text of that same in-memory value.
+pub fn annotate_revision(response: &str, revision: &str) -> String {
+    let mut value: Value = match serde_json::from_str(response) {
+        Ok(value) => value,
+        Err(_) => return response.to_string(),
+    };
+    let Some(object) = value.as_object_mut() else {
+        return response.to_string();
+    };
+    object.insert("revision".to_string(), json!(revision));
+    if let Some(result) = object.get_mut("result").and_then(Value::as_object_mut) {
+        result.insert("revision".to_string(), json!(revision));
+    }
+    value.to_string()
 }
 
 pub fn print_line(line: &str) -> bool {

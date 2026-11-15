@@ -43,7 +43,7 @@ use crate::cli::{
     SelectionCmd, SkillsCmd, StrokeRectArgs, TagCmd,
 };
 use crate::failure::CliFailure;
-use crate::output::{emit, print_line, request_tool_name, tool_refusal};
+use crate::output::{annotate_revision, emit, print_line, request_tool_name, tool_refusal};
 use crate::requests::{batch_mutates, parse_request_blob};
 use crate::session::{Access, SaveReport, Session};
 use crate::store::ProjectLock;
@@ -64,17 +64,25 @@ fn execute(cli: Cli) -> i32 {
             width,
             height,
             output,
-        } => cmd_new(width, height, &output),
+            expected_revision,
+        } => cmd_new(width, height, &output, expected_revision.as_deref()),
         Command::ImportAseprite {
             file,
             output,
             project,
-        } => cmd_import_aseprite(&file, output.as_deref(), project.as_deref()),
+            expected_revision,
+        } => cmd_import_aseprite(
+            &file,
+            output.as_deref(),
+            project.as_deref(),
+            expected_revision.as_deref(),
+        ),
         Command::Convert {
             file,
             output,
             project,
             checkpoint,
+            expected_revision,
             width,
             height,
             engine,
@@ -102,6 +110,7 @@ fn execute(cli: Cli) -> i32 {
             params.as_deref(),
             frame,
             layer,
+            expected_revision.as_deref(),
         ),
         Command::Engine { command } => cmd_engine(command),
         Command::Inspect { doc, preview } => {
@@ -196,7 +205,10 @@ fn execute(cli: Cli) -> i32 {
     }
 }
 
-fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
+fn cmd_new(width: u16, height: u16, output: &Path, expected: Option<&str>) -> i32 {
+    if expected.is_some() {
+        return emit(store::revision_unsupported("pixelforge new"));
+    }
     if output.exists() {
         return emit(CliFailure::new(
             "Cli",
@@ -215,7 +227,10 @@ fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
         }
         Err(failure) => return emit(failure),
     }
-    let response = session.call(&request("inspect", json!({})));
+    let response = annotate_revision(
+        &session.call(&request("inspect", json!({}))),
+        &session.revision(),
+    );
     if !print_line(&response) {
         return 2;
     }
@@ -727,7 +742,12 @@ fn mirror_params(
     with_dirty(with_layer(params, layer), dirty)
 }
 
-fn cmd_import_aseprite(file: &Path, output: Option<&Path>, project: Option<&Path>) -> i32 {
+fn cmd_import_aseprite(
+    file: &Path,
+    output: Option<&Path>,
+    project: Option<&Path>,
+    expected: Option<&str>,
+) -> i32 {
     let target = match (output, project) {
         (Some(output), None) => output,
         (None, Some(project)) => project,
@@ -738,6 +758,9 @@ fn cmd_import_aseprite(file: &Path, output: Option<&Path>, project: Option<&Path
             ))
         }
     };
+    if output.is_some() && expected.is_some() {
+        return emit(store::revision_unsupported("import-aseprite --output"));
+    }
     if output.is_some() && target.exists() {
         return emit(CliFailure::new(
             "Cli",
@@ -757,7 +780,7 @@ fn cmd_import_aseprite(file: &Path, output: Option<&Path>, project: Option<&Path
         };
         apply_session(&mut session, request, false)
     } else {
-        let mut session = match Session::open_with(target, None, Access::Exclusive) {
+        let mut session = match Session::open_with(target, None, expected, Access::Exclusive) {
             Ok(session) => session,
             Err(failure) => return emit(failure),
         };
@@ -781,6 +804,7 @@ fn cmd_engine_list(project: Option<&Path>) -> i32 {
             &ProjectArgs {
                 project: path.to_path_buf(),
                 checkpoint: None,
+                expected_revision: None,
             },
             vec![request("listEngines", json!({}))],
         );
@@ -816,6 +840,7 @@ fn cmd_convert(
     params_text: Option<&str>,
     frame: Option<u32>,
     layer: Option<u32>,
+    expected: Option<&str>,
 ) -> i32 {
     let target = match (output, project) {
         (Some(output), None) => output,
@@ -827,6 +852,9 @@ fn cmd_convert(
             ))
         }
     };
+    if output.is_some() && expected.is_some() {
+        return emit(store::revision_unsupported("convert --output"));
+    }
     if output.is_some() && target.exists() {
         return emit(CliFailure::new(
             "Cli",
@@ -947,6 +975,7 @@ fn cmd_convert(
             &ProjectArgs {
                 project: target.to_path_buf(),
                 checkpoint: checkpoint.map(Path::to_path_buf),
+                expected_revision: expected.map(str::to_string),
             },
             requests,
         )
@@ -1075,7 +1104,10 @@ fn cmd_preview(
         "tool": "previewFrame",
         "result": result,
     });
-    let line = serde_json::to_string(&body).expect("preview is JSON");
+    let line = annotate_revision(
+        &serde_json::to_string(&body).expect("preview is JSON"),
+        &session.revision(),
+    );
     if !print_line(&line) {
         return 2;
     }
@@ -1187,7 +1219,10 @@ fn cmd_diff(
             }
         }
     }
-    let line = serde_json::to_string(&summary).expect("diff is JSON");
+    let line = annotate_revision(
+        &serde_json::to_string(&summary).expect("diff is JSON"),
+        &session.revision(),
+    );
     if !print_line(&line) {
         return 2;
     }
@@ -1854,7 +1889,10 @@ fn cmd_direction(command: DirectionCmd) -> i32 {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
-            let response = session.call(&request("validateDirections", json!({})));
+            let response = annotate_revision(
+                &session.call(&request("validateDirections", json!({}))),
+                &session.revision(),
+            );
             if !print_line(&response) {
                 return 2;
             }
@@ -2084,7 +2122,12 @@ fn apply(doc: &ProjectArgs, requests: Vec<String>) -> i32 {
 }
 
 fn open_project(doc: &ProjectArgs, access: Access) -> Result<Session, CliFailure> {
-    Session::open_with(&doc.project, doc.checkpoint.as_deref(), access)
+    Session::open_with(
+        &doc.project,
+        doc.checkpoint.as_deref(),
+        doc.expected_revision.as_deref(),
+        access,
+    )
 }
 
 fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
@@ -2116,7 +2159,12 @@ fn dispatch_locked(
                     "a project manifest does not use --checkpoint",
                 ));
             }
-            manifest_cmd::apply_call_locked(lock, requests, preview)
+            manifest_cmd::apply_call_locked(
+                lock,
+                requests,
+                preview,
+                doc.expected_revision.as_deref(),
+            )
         }
         manifest_cmd::Sidecar::Tilemap => {
             if doc.checkpoint.is_some() {
@@ -2125,10 +2173,14 @@ fn dispatch_locked(
                     "a tilemap does not use --checkpoint",
                 ));
             }
-            tiles_cmd::apply_call_locked(lock, requests, preview)
+            tiles_cmd::apply_call_locked(lock, requests, preview, doc.expected_revision.as_deref())
         }
         manifest_cmd::Sidecar::Other => {
-            let mut session = match Session::open_locked(lock, doc.checkpoint.as_deref()) {
+            let mut session = match Session::open_locked(
+                lock,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+            ) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -2150,7 +2202,12 @@ fn dispatch_readonly(doc: &ProjectArgs, requests: Vec<String>, preview: bool) ->
                     "a project manifest does not use --checkpoint",
                 ));
             }
-            manifest_cmd::apply_call(&doc.project, requests, preview)
+            manifest_cmd::apply_call(
+                &doc.project,
+                requests,
+                preview,
+                doc.expected_revision.as_deref(),
+            )
         }
         manifest_cmd::Sidecar::Tilemap => {
             if doc.checkpoint.is_some() {
@@ -2159,7 +2216,12 @@ fn dispatch_readonly(doc: &ProjectArgs, requests: Vec<String>, preview: bool) ->
                     "a tilemap does not use --checkpoint",
                 ));
             }
-            tiles_cmd::apply_call(&doc.project, requests, preview)
+            tiles_cmd::apply_call(
+                &doc.project,
+                requests,
+                preview,
+                doc.expected_revision.as_deref(),
+            )
         }
         manifest_cmd::Sidecar::Other => {
             let mut session = match open_project(doc, Access::ReadOnly) {
@@ -2174,7 +2236,7 @@ fn dispatch_readonly(doc: &ProjectArgs, requests: Vec<String>, preview: bool) ->
 fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) -> i32 {
     let mut status = 0;
     for request in &requests {
-        let response = session.call(request);
+        let response = annotate_revision(&session.call(request), &session.revision());
         if !print_line(&response) {
             return 2;
         }

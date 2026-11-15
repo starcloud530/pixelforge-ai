@@ -37,6 +37,14 @@ fn status(output: &Output) -> i32 {
     output.status.code().expect("process exited")
 }
 
+/// A tool result with no payload still carries the content fingerprint.
+fn assert_bare_result(body: &Value) {
+    let result = body["result"].as_object().expect("result object");
+    assert_eq!(result.len(), 1, "{result:?}");
+    assert_eq!(body["result"]["revision"], body["revision"]);
+    assert_eq!(body["revision"].as_str().unwrap().len(), 16);
+}
+
 struct Scratch {
     path: PathBuf,
 }
@@ -185,7 +193,7 @@ fn new_paint_export_and_call_round_trip() {
     let paint_body = &json_lines(&painted)[0];
     assert_eq!(paint_body["ok"], true);
     assert_eq!(paint_body["apiVersion"], 1);
-    assert_eq!(paint_body["result"], serde_json::json!({}));
+    assert_bare_result(paint_body);
     assert_eq!(load(&project).get(1, 2).unwrap(), 3);
 
     let batch = pixelforge(&arg(&[
@@ -854,7 +862,7 @@ fn fill_rect_and_preview_show_the_active_frame() {
     assert_eq!(status(&filled), 0, "{}", stderr(&filled));
     assert_eq!(json_lines(&filled).len(), 1);
     assert_eq!(json_lines(&filled)[0]["ok"], true);
-    assert_eq!(json_lines(&filled)[0]["result"], serde_json::json!({}));
+    assert_bare_result(&json_lines(&filled)[0]);
     let notes = stderr(&filled);
     assert!(notes.contains("preview 16x8 frame 0"), "{notes}");
     assert!(notes.contains(".444............"), "{notes}");
@@ -1987,7 +1995,7 @@ fn scene_dirty_preview_and_diff_are_structured() {
         "--color-index",
         "3",
     ]));
-    assert_eq!(json_lines(&plain)[0]["result"], serde_json::json!({}));
+    assert_bare_result(&json_lines(&plain)[0]);
 
     let painted = pixelforge(&arg(&[
         "paint",

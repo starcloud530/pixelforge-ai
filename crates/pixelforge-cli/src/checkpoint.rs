@@ -17,17 +17,10 @@ use crate::failure::CliFailure;
 pub const CHECKPOINT_FORMAT: &str = "pixelforge-checkpoint";
 const CHECKPOINT_VERSION: u64 = 1;
 
-/// FNV-1a 64, same offset and prime as the palette hash, over the canonical
-/// project text. An identity for the sidecar, not a secret.
+/// Same fingerprint as [`crate::store::revision_of`]: canonical project text,
+/// not the raw file bytes.
 fn project_hash(text: &str) -> String {
-    const OFFSET: u64 = 14_695_981_039_346_656_037;
-    const PRIME: u64 = 1_099_511_628_211;
-    let mut hash = OFFSET;
-    for byte in text.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(PRIME);
-    }
-    format!("{hash:016x}")
+    crate::store::revision_of(text)
 }
 
 #[derive(Debug)]
