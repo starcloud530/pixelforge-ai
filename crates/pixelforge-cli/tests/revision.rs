@@ -505,6 +505,169 @@ fn a_symlink_sees_the_same_fingerprint_as_the_target() {
 }
 
 #[test]
+fn tileset_set_and_clear_do_not_drop_expected_revision() {
+    let scratch = Scratch::new();
+    let project = scratch.child("tile.json");
+    let checkpoint = scratch.child("tile.ckpt.json");
+    let created = pixelforge(&[
+        "new",
+        "--width",
+        "16",
+        "--height",
+        "16",
+        "--output",
+        project.to_str().unwrap(),
+    ]);
+    assert_eq!(status(&created), 0, "{}", stderr(&created));
+    let original = revision_of(&scene(&project));
+    let painted = paint(&project, "0", None);
+    assert_eq!(status(&painted), 0, "{}", stderr(&painted));
+    let current = revision_of(&json_lines(&painted)[0]);
+    assert_ne!(current, original);
+    let painted_bytes = fs::read(&project).unwrap();
+
+    let stale_set = pixelforge(&[
+        "tileset",
+        "set",
+        "--project",
+        project.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--expected-revision",
+        &original,
+        "--tile-width",
+        "16",
+        "--tile-height",
+        "16",
+    ]);
+    assert_conflict(&stale_set, &original);
+    assert_eq!(fs::read(&project).unwrap(), painted_bytes);
+    assert!(!checkpoint.exists());
+
+    let bad_set = pixelforge(&[
+        "tileset",
+        "set",
+        "--project",
+        project.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--expected-revision",
+        "not-a-token",
+        "--tile-width",
+        "16",
+        "--tile-height",
+        "16",
+    ]);
+    assert_eq!(status(&bad_set), 2, "{}", stderr(&bad_set));
+    assert_eq!(json_lines(&bad_set)[0]["error"]["code"], "RevisionInvalid");
+    assert_eq!(json_lines(&bad_set).len(), 1);
+    assert_eq!(fs::read(&project).unwrap(), painted_bytes);
+    assert!(!checkpoint.exists());
+
+    let set = pixelforge(&[
+        "tileset",
+        "set",
+        "--project",
+        project.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--expected-revision",
+        &current,
+        "--tile-width",
+        "16",
+        "--tile-height",
+        "16",
+    ]);
+    assert_eq!(status(&set), 0, "{}", stderr(&set));
+    let saved = fs::read(&project).unwrap();
+    let sidecar = fs::read(&checkpoint).unwrap();
+    assert_ne!(saved, painted_bytes);
+    assert!(String::from_utf8_lossy(&saved).contains("tileset"));
+
+    let stale_clear = pixelforge(&[
+        "tileset",
+        "clear",
+        "--project",
+        project.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--expected-revision",
+        &current,
+    ]);
+    assert_conflict(&stale_clear, &current);
+    assert_eq!(fs::read(&project).unwrap(), saved);
+    assert_eq!(fs::read(&checkpoint).unwrap(), sidecar);
+
+    let bad_clear = pixelforge(&[
+        "tileset",
+        "clear",
+        "--project",
+        project.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--expected-revision",
+        "NOTOKEN",
+    ]);
+    assert_eq!(status(&bad_clear), 2, "{}", stderr(&bad_clear));
+    assert_eq!(
+        json_lines(&bad_clear)[0]["error"]["code"],
+        "RevisionInvalid"
+    );
+    assert_eq!(fs::read(&project).unwrap(), saved);
+    assert_eq!(fs::read(&checkpoint).unwrap(), sidecar);
+
+    let after_set = revision_of(&scene(&project));
+    let cleared = pixelforge(&[
+        "tileset",
+        "clear",
+        "--project",
+        project.to_str().unwrap(),
+        "--checkpoint",
+        checkpoint.to_str().unwrap(),
+        "--expected-revision",
+        &after_set,
+    ]);
+    assert_eq!(status(&cleared), 0, "{}", stderr(&cleared));
+    assert!(!String::from_utf8_lossy(&fs::read(&project).unwrap()).contains("\"tileset\""));
+
+    let plain = scratch.child("plain.json");
+    let made = pixelforge(&[
+        "new",
+        "--width",
+        "16",
+        "--height",
+        "16",
+        "--output",
+        plain.to_str().unwrap(),
+    ]);
+    assert_eq!(status(&made), 0, "{}", stderr(&made));
+    let unguarded = pixelforge(&[
+        "tileset",
+        "set",
+        "--project",
+        plain.to_str().unwrap(),
+        "--tile-width",
+        "16",
+        "--tile-height",
+        "16",
+    ]);
+    assert_eq!(status(&unguarded), 0, "{}", stderr(&unguarded));
+    assert!(fs::read_to_string(&plain).unwrap().contains("tileset"));
+    let plain_bytes = fs::read(&plain).unwrap();
+
+    let validate = pixelforge(&[
+        "tileset",
+        "validate",
+        "--project",
+        plain.to_str().unwrap(),
+        "--expected-revision",
+        &original,
+    ]);
+    assert_conflict(&validate, &original);
+    assert_eq!(fs::read(&plain).unwrap(), plain_bytes);
+}
+
+#[test]
 fn tilemap_subcommand_does_not_silently_accept_the_flag() {
     let output = pixelforge(&["tilemap", "set", "--expected-revision", "0123456789abcdef"]);
     assert_eq!(status(&output), 2, "{}", stderr(&output));

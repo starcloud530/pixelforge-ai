@@ -25,11 +25,15 @@ pub fn tileset(command: TilesetCmd) -> i32 {
             tile_width,
             tile_height,
         } => {
-            let mut session =
-                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::Exclusive) {
-                    Ok(session) => session,
-                    Err(failure) => return emit(failure),
-                };
+            let mut session = match open_session(
+                &doc.project,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+                Access::Exclusive,
+            ) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
             let response = session.call(&request(
                 "setTileset",
                 json!({"tileWidth": tile_width, "tileHeight": tile_height}),
@@ -37,20 +41,28 @@ pub fn tileset(command: TilesetCmd) -> i32 {
             finish_session(&mut session, &response)
         }
         TilesetCmd::Clear { doc } => {
-            let mut session =
-                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::Exclusive) {
-                    Ok(session) => session,
-                    Err(failure) => return emit(failure),
-                };
+            let mut session = match open_session(
+                &doc.project,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+                Access::Exclusive,
+            ) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
             let response = session.call(&request("clearTileset", json!({})));
             finish_session(&mut session, &response)
         }
         TilesetCmd::Validate { doc } => {
-            let mut session =
-                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::ReadOnly) {
-                    Ok(session) => session,
-                    Err(failure) => return emit(failure),
-                };
+            let mut session = match open_session(
+                &doc.project,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+                Access::ReadOnly,
+            ) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
             let response = session.call(&request("validateTileset", json!({})));
             finish_session(&mut session, &response)
         }
@@ -609,9 +621,10 @@ fn request(tool: &str, params: Value) -> String {
 fn open_session(
     path: &Path,
     checkpoint: Option<&Path>,
+    expected: Option<&str>,
     access: Access,
 ) -> Result<Session, CliFailure> {
-    Session::open_with(path, checkpoint, None, access)
+    Session::open_with(path, checkpoint, expected, access)
 }
 
 fn finish_session(session: &mut Session, response: &str) -> i32 {
