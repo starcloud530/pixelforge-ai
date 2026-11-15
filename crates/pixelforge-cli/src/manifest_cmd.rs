@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use crate::cli::{PerspectiveArg, ProjectCmd};
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, tool_refusal};
+use crate::store::{self, ProjectLock};
 
 /// Which sidecar `pixelforge call --project` should dispatch.
 pub enum Sidecar {
@@ -67,6 +68,15 @@ pub fn run(command: ProjectCmd) -> i32 {
 }
 
 pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
+    edit_manifest(path, false, requests, preview)
+}
+
+pub fn apply_call_locked(lock: ProjectLock, requests: Vec<String>, preview: bool) -> i32 {
+    let path = lock.target().to_path_buf();
+    edit_manifest(&path, true, requests, preview)
+}
+
+fn edit_manifest(path: &Path, writable: bool, requests: Vec<String>, preview: bool) -> i32 {
     if preview {
         return emit(CliFailure::new(
             "Cli",
@@ -98,8 +108,14 @@ pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
     }
     let updated = manifest.save();
     if updated != original {
-        if let Err(err) = fs::write(path, updated) {
-            return emit(CliFailure::io(path, err));
+        if !writable {
+            return emit(CliFailure::new(
+                "Cli",
+                "refusing to write a manifest opened for reading",
+            ));
+        }
+        if let Err(failure) = store::write_atomic(path, updated.as_bytes()) {
+            return emit(failure);
         }
         eprintln!("pixelforge: wrote {}", path.display());
     }
@@ -158,8 +174,18 @@ fn init(
         Err(error) => return emit(CliFailure::new(error.code(), error.message())),
     };
     let text = manifest.save();
-    if let Err(err) = fs::write(output, &text) {
-        return emit(CliFailure::io(output, err));
+    let lock = match ProjectLock::acquire(output) {
+        Ok(lock) => lock,
+        Err(failure) => return emit(failure),
+    };
+    if lock.target().exists() {
+        return emit(CliFailure::new(
+            "Cli",
+            format!("manifest file already exists: {}", output.display()),
+        ));
+    }
+    if let Err(failure) = store::write_atomic(lock.target(), text.as_bytes()) {
+        return emit(failure);
     }
     let response = manifest.call_tool(r#"{"tool":"inspectManifest"}"#);
     if !print_line(&response) {

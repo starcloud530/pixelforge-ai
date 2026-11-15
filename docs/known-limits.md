@@ -4,6 +4,28 @@ After `new` / `preview` work, read these bounds. They are the CLI and kernel as 
 
 装好并跑通 `new` / `preview` 之后，先看这些边界。测试通过、示例能跑、校验退出码是 0，仍然落在这些边界里。
 
+## Same-project edits wait; they are not merged
+
+会改同一份工程、图块地图或清单的命令，在读取要当作编辑依据的内容之前，先取得该路径的跨进程排他锁，并一直持有到这次命令结束。锁文件是规范化路径旁边的 `<文件名>.pixelforge.lock`。实现用的是 `fs4` 的 `flock(2)`（Unix）和 `LockFileEx`（Windows）。进程被杀掉时由操作系统放开这把锁。命令结束只解锁、关句柄，不删除锁文件：删除后，正在等的进程仍占着旧 inode，新进程会在同名路径上新建另一份文件，两把锁就不再互斥。不同路径互不阻塞。这不是后台队列，也不保证先来先服务。
+
+默认最多等 30000 毫秒。`PIXELFORGE_LOCK_TIMEOUT_MS` 可以改成别的毫秒数，`0` 表示试一次。超时的 stdout 只有一行 `error.code` 为 `LockTimeout` 的 JSON，退出码 2，进程没有读取、也没有改写工程。`inspect`、`scene`、`preview`、`diff`、`export`，以及一批里全部是只读工具的 `call`，不取这把排他锁。只读命令看到的是替换之前或之后的完整文件。
+
+指向已经存在的文件的符号链接，和真实路径用同一把锁，写入落在规范化后的目标上。悬空符号链接，以及锁文件本身是符号链接，都是 `UnsupportedPath`，退出码 2，不改工程。硬链接（链接数大于 1）同样拒绝：锁身份是路径，盖不住同一个 inode 的另一个名字。编辑过程中若有人从外面再做硬链接，这一次检查发现不了。
+
+保存是同目录里的唯一临时文件：写完、在 Unix 上尽量沿用原文件的权限位、`sync_all`，再改名替换。替换前失败会删掉临时文件，原路径的字节不动。进程在替换前退出时，原文件还在；可能留下 `.<名字>.<pid>.<纳秒>.<序号>.tmp`，那不是工程，确认没有 `pixelforge` 正在写它之后可以删。Unix 在改名后再同步父目录；文件系统返回 `EINVAL`、`ENOTSUP` 或 `ENOSYS` 时，保存仍然成功，因为新内容已经可见，但这次不声称目录项能扛掉断电。其它目录同步错误是 `DirectorySync`：新内容已经在原路径上。Windows 不复制原来的 ACL，也不做目录同步；成功只表示读者会看到一份完整的旧文件或一份完整的新文件。网络盘、云同步目录，以及不经过这把锁直接写 JSON 的程序，都不在这个保证里。
+
+工程文件和 `--checkpoint` 是两次替换。工程已经写下、检查点还没写下时进程失败，工程保留这次编辑，检查点仍是旧的；下一次带这个检查点的命令得到 `CheckpointMismatch`，不会把工程改回去。这不是一次事务。一批请求仍是「失败前的编辑保存，失败后的不再执行」，锁超时发生在任何一个请求之前，所以这一批不会留下半截。这一版没有预期版本，也没有内容指纹；那是 [#132](https://github.com/starcloud530/pixelforge-ai/issues/132) 的后续，不在这次写入协议里。
+
+*A command that can change a project, tilemap, or manifest takes an exclusive cross-process lock before it reads the bytes it will edit, and holds that lock until the command finishes. The sidecar is `<filename>.pixelforge.lock` beside the canonical path. The primitive is `fs4`: `flock(2)` on Unix and `LockFileEx` on Windows. The OS releases it when the process dies. The command unlocks and closes the handle; it does not delete the sidecar. Deleting the sidecar lets a waiter keep the old inode while a new process creates another file at the same name. Different paths do not block each other. The wait is not a queue and is not first-in-first-out.*
+
+*The default bound is 30000 milliseconds. `PIXELFORGE_LOCK_TIMEOUT_MS` changes it; `0` tries once. A timeout prints one JSON line with `error.code` `LockTimeout`, exits 2, and does not read or change the project. `inspect`, `scene`, `preview`, `diff`, `export`, and a `call` whose tools are all read-only do not take this exclusive lock. A reader sees one complete old file or one complete new file.*
+
+*A symlink to an existing file shares the lock with the real path, and the write lands on the canonical target. A dangling symlink, or a lock sidecar that is itself a symlink, is `UnsupportedPath`, exit 2, and does not change the project. A hard link (link count above 1) is refused for the same reason: the lock identity is the path, so a second name for the inode is not covered. A hard link added from outside during the edit is not detected.*
+
+*The save writes a unique temp file in the same directory, copies the existing Unix mode bits when the file is already there, calls `sync_all`, and renames it into place. A failure before the rename removes the temp and leaves the original bytes. A crash before the rename leaves the original file and may leave `.<name>.<pid>.<nanos>.<salt>.tmp`; that file is not the project, and it can be removed once no `pixelforge` process is writing it. After the rename, Unix syncs the parent directory. `EINVAL`, `ENOTSUP`, and `ENOSYS` still count as a successful save, because the new bytes are already visible, and that save does not claim the directory entry survives power loss. Any other directory-sync error is `DirectorySync`: the new contents are already at the original path. Windows does not copy the previous ACL and does not sync the directory. Success means a reader sees one complete old file or one complete new file. Network drives, cloud-sync folders, and a program that writes the JSON without this lock are outside this guarantee.*
+
+*The project file and `--checkpoint` are two replacements. If the process fails after the project write and before the checkpoint write, the project keeps the edit and the checkpoint stays old. The next command with that checkpoint returns `CheckpointMismatch` and does not roll the project back. That is not one transaction. A batch is still "save the edits that ran, stop at the first refusal". A lock timeout happens before any request, so that batch does not leave a prefix. This release has no expected revision and no content fingerprint. Those remain on [#132](https://github.com/starcloud530/pixelforge-ai/issues/132).*
+
 ## Unbound polish stays on canvas cells
 
 绑定到部件的 `polish` 层按部件局部坐标理解：本地 `(0, 0)` 是部件原点，或 `layer bind --anchor` 点名的锚点。`bake` 以及 `part translate` / `rotate` / `flip` 会把这一层的修正连同显式擦除一起搬走。没绑定的覆盖层仍是 [#72](https://github.com/starcloud530/pixelforge-ai/issues/72) 的行为：`bake` 不写它，格子留在画下的那一格。显式擦除是覆盖层上的透明格，和「这一格没改过」不是一回事；`erase-rect --unmodified`（Tool API `mode: pass`）才清回未修改。曲线或约束管着的生成层仍从源帧整层重建，修正不要画在那一层上。旋转补洞仍然有损，绑在部件上的精修跟着转时一样。一层只绑一个部件。见 [#99](https://github.com/starcloud530/pixelforge-ai/issues/99)。烘焙命令见 [agent-skill](agent-skill.md)。

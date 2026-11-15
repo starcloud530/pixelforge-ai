@@ -15,7 +15,8 @@ use crate::cli::{
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, tool_refusal};
-use crate::session::Session;
+use crate::session::{Access, Session};
+use crate::store::{self, ProjectLock};
 
 pub fn tileset(command: TilesetCmd) -> i32 {
     match command {
@@ -24,10 +25,11 @@ pub fn tileset(command: TilesetCmd) -> i32 {
             tile_width,
             tile_height,
         } => {
-            let mut session = match open_session(&doc.project, doc.checkpoint.as_deref()) {
-                Ok(session) => session,
-                Err(failure) => return emit(failure),
-            };
+            let mut session =
+                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::Exclusive) {
+                    Ok(session) => session,
+                    Err(failure) => return emit(failure),
+                };
             let response = session.call(&request(
                 "setTileset",
                 json!({"tileWidth": tile_width, "tileHeight": tile_height}),
@@ -35,18 +37,20 @@ pub fn tileset(command: TilesetCmd) -> i32 {
             finish_session(&mut session, &response)
         }
         TilesetCmd::Clear { doc } => {
-            let mut session = match open_session(&doc.project, doc.checkpoint.as_deref()) {
-                Ok(session) => session,
-                Err(failure) => return emit(failure),
-            };
+            let mut session =
+                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::Exclusive) {
+                    Ok(session) => session,
+                    Err(failure) => return emit(failure),
+                };
             let response = session.call(&request("clearTileset", json!({})));
             finish_session(&mut session, &response)
         }
         TilesetCmd::Validate { doc } => {
-            let mut session = match open_session(&doc.project, doc.checkpoint.as_deref()) {
-                Ok(session) => session,
-                Err(failure) => return emit(failure),
-            };
+            let mut session =
+                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::ReadOnly) {
+                    Ok(session) => session,
+                    Err(failure) => return emit(failure),
+                };
             let response = session.call(&request("validateTileset", json!({})));
             finish_session(&mut session, &response)
         }
@@ -72,8 +76,12 @@ pub fn tilemap(command: TilemapCmd) -> i32 {
             &output,
             &layers,
         ),
-        TilemapCmd::Inspect { map } => one_call(&map, request("inspectTilemap", json!({}))),
-        TilemapCmd::Get(args) => one_call(&args.map, request("getTile", cell_params(&args, None))),
+        TilemapCmd::Inspect { map } => one_call(&map, request("inspectTilemap", json!({})), false),
+        TilemapCmd::Get(args) => one_call(
+            &args.map,
+            request("getTile", cell_params(&args, None)),
+            false,
+        ),
         TilemapCmd::Set(args) => {
             let mut params = cell_params(&args.cell, None);
             params["tile"] = match args.tile {
@@ -88,7 +96,7 @@ pub fn tilemap(command: TilemapCmd) -> i32 {
                     params["flipV"] = json!(true);
                 }
             }
-            one_call(&args.cell.map, request("setTile", params))
+            one_call(&args.cell.map, request("setTile", params), true)
         }
         TilemapCmd::Fill(args) => {
             let mut params = rect_params(&args.rect);
@@ -99,14 +107,16 @@ pub fn tilemap(command: TilemapCmd) -> i32 {
             if args.flip_v {
                 params["flipV"] = json!(true);
             }
-            one_call(&args.rect.cell.map, request("fillTiles", params))
+            one_call(&args.rect.cell.map, request("fillTiles", params), true)
         }
-        TilemapCmd::Clear(args) => {
-            one_call(&args.cell.map, request("clearTiles", rect_params(&args)))
-        }
+        TilemapCmd::Clear(args) => one_call(
+            &args.cell.map,
+            request("clearTiles", rect_params(&args)),
+            true,
+        ),
         TilemapCmd::Layer { command } => match command {
             crate::cli::TileLayerCmd::Add { map, name } => {
-                one_call(&map, request("addTileLayer", json!({"name": name})))
+                one_call(&map, request("addTileLayer", json!({"name": name})), true)
             }
         },
     }
@@ -131,7 +141,7 @@ pub fn autotile(command: AutotileCmd) -> i32 {
             if let Some(name) = name {
                 params["name"] = json!(name);
             }
-            one_call(&map, request("autotile", params))
+            one_call(&map, request("autotile", params), true)
         }
         AutotileCmd::Validate { rules, tile_count } => {
             let text = match fs::read_to_string(&rules) {
@@ -363,6 +373,15 @@ pub fn export_tilemap(
 }
 
 pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
+    edit_requests(path, false, requests, preview)
+}
+
+pub fn apply_call_locked(lock: ProjectLock, requests: Vec<String>, preview: bool) -> i32 {
+    let path = lock.target().to_path_buf();
+    edit_requests(&path, true, requests, preview)
+}
+
+fn edit_requests(path: &Path, writable: bool, requests: Vec<String>, preview: bool) -> i32 {
     if preview {
         return emit(CliFailure::new(
             "Cli",
@@ -390,11 +409,11 @@ pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
             break;
         }
     }
-    if map.save() != original {
-        if let Err(err) = fs::write(path, map.save()) {
-            return emit(CliFailure::io(path, err));
+    let updated = map.save();
+    if updated != original {
+        if let Err(failure) = publish_map(path, writable, &updated) {
+            return emit(failure);
         }
-        eprintln!("pixelforge: wrote {}", path.display());
     }
     status
 }
@@ -464,8 +483,19 @@ fn tilemap_new(
             return 1;
         }
     }
-    if let Err(err) = fs::write(output, map.save()) {
-        return emit(CliFailure::io(output, err));
+    let lock = match ProjectLock::acquire(output) {
+        Ok(lock) => lock,
+        Err(failure) => return emit(failure),
+    };
+    if lock.target().exists() {
+        return emit(CliFailure::new(
+            "Cli",
+            format!("tilemap file already exists: {}", output.display()),
+        ));
+    }
+    let text = map.save();
+    if let Err(failure) = store::write_atomic(lock.target(), text.as_bytes()) {
+        return emit(failure);
     }
     eprintln!("pixelforge: wrote {}", output.display());
     let response = map.call_tool(&request("inspectTilemap", json!({})));
@@ -475,10 +505,21 @@ fn tilemap_new(
     0
 }
 
-fn one_call(args: &MapArgs, request: String) -> i32 {
-    let text = match fs::read_to_string(&args.map) {
+fn one_call(args: &MapArgs, request: String, mutate: bool) -> i32 {
+    if !mutate {
+        return edit_map(&args.map, false, request);
+    }
+    let lock = match ProjectLock::acquire(&args.map) {
+        Ok(lock) => lock,
+        Err(failure) => return emit(failure),
+    };
+    edit_map(lock.target(), true, request)
+}
+
+fn edit_map(path: &Path, writable: bool, request: String) -> i32 {
+    let text = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(err) => return emit(CliFailure::io(&args.map, err)),
+        Err(err) => return emit(CliFailure::io(path, err)),
     };
     let mut map = match TileMap::load(&text) {
         Ok(map) => map,
@@ -495,13 +536,25 @@ fn one_call(args: &MapArgs, request: String) -> i32 {
     } else {
         0
     };
-    if map.save() != original {
-        if let Err(err) = fs::write(&args.map, map.save()) {
-            return emit(CliFailure::io(&args.map, err));
+    let updated = map.save();
+    if updated != original {
+        if let Err(failure) = publish_map(path, writable, &updated) {
+            return emit(failure);
         }
-        eprintln!("pixelforge: wrote {}", args.map.display());
     }
     status
+}
+
+fn publish_map(path: &Path, writable: bool, text: &str) -> Result<(), CliFailure> {
+    if !writable {
+        return Err(CliFailure::new(
+            "Cli",
+            "refusing to write a tilemap opened for reading",
+        ));
+    }
+    store::write_atomic(path, text.as_bytes())?;
+    eprintln!("pixelforge: wrote {}", path.display());
+    Ok(())
 }
 
 fn cell_params(args: &TileRefArgs, extra: Option<Value>) -> Value {
@@ -533,8 +586,12 @@ fn request(tool: &str, params: Value) -> String {
     .to_string()
 }
 
-fn open_session(path: &Path, checkpoint: Option<&Path>) -> Result<Session, CliFailure> {
-    Session::open_with(path, checkpoint)
+fn open_session(
+    path: &Path,
+    checkpoint: Option<&Path>,
+    access: Access,
+) -> Result<Session, CliFailure> {
+    Session::open_with(path, checkpoint, access)
 }
 
 fn finish_session(session: &mut Session, response: &str) -> i32 {

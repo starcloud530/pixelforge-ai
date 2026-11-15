@@ -17,6 +17,7 @@ mod preview;
 mod requests;
 mod session;
 mod skills;
+mod store;
 mod tiles_cmd;
 mod validate_atlas;
 
@@ -43,8 +44,9 @@ use crate::cli::{
 };
 use crate::failure::CliFailure;
 use crate::output::{emit, print_line, request_tool_name, tool_refusal};
-use crate::requests::parse_request_blob;
-use crate::session::{SaveReport, Session};
+use crate::requests::{batch_mutates, parse_request_blob};
+use crate::session::{Access, SaveReport, Session};
+use crate::store::ProjectLock;
 
 /// Parse argv and run one command. `0` success, `1` a tool refused, `2` the
 /// command did not finish a tool call (usage errors exit from clap itself).
@@ -201,7 +203,7 @@ fn cmd_new(width: u16, height: u16, output: &Path) -> i32 {
             format!("project file already exists: {}", output.display()),
         ));
     }
-    let mut session = match Session::blank(width, height, output) {
+    let mut session = match Session::create_blank(width, height, output) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -749,13 +751,13 @@ fn cmd_import_aseprite(file: &Path, output: Option<&Path>, project: Option<&Path
     let params = json!({ "bytes": STANDARD.encode(&bytes) });
     let request = vec![request("importAseprite", params)];
     if output.is_some() {
-        let mut session = match Session::placeholder(target) {
+        let mut session = match Session::create_placeholder(target) {
             Ok(session) => session,
             Err(failure) => return emit(failure),
         };
         apply_session(&mut session, request, false)
     } else {
-        let mut session = match Session::open(target) {
+        let mut session = match Session::open_with(target, None, Access::Exclusive) {
             Ok(session) => session,
             Err(failure) => return emit(failure),
         };
@@ -935,7 +937,7 @@ fn cmd_convert(
     }
     let requests = vec![request("convertPng", params)];
     if output.is_some() {
-        let mut session = match Session::placeholder(target) {
+        let mut session = match Session::create_placeholder(target) {
             Ok(session) => session,
             Err(failure) => return emit(failure),
         };
@@ -992,7 +994,7 @@ fn cmd_preview(
             "preview --compare draws the full composite; omit --layer and any mask",
         ));
     }
-    let mut session = match open_project(doc) {
+    let mut session = match open_project(doc, Access::ReadOnly) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -1107,7 +1109,7 @@ fn cmd_diff(
     layer: Option<u32>,
     scope: &ScopeArgs,
 ) -> i32 {
-    let mut session = match open_project(doc) {
+    let mut session = match open_project(doc, Access::ReadOnly) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -1311,7 +1313,7 @@ fn cmd_apply_png(doc: &ProjectArgs, file: &Path, frame: Option<u32>, layer: Opti
 }
 
 fn cmd_import(doc: &ProjectArgs, mode: ImportMode, file: &Path) -> i32 {
-    let mut session = match open_project(doc) {
+    let mut session = match open_project(doc, Access::Exclusive) {
         Ok(session) => session,
         Err(failure) => return emit(failure),
     };
@@ -1848,7 +1850,7 @@ fn cmd_direction(command: DirectionCmd) -> i32 {
         ),
         DirectionCmd::List { doc } => apply(&doc, vec![request("listDirections", json!({}))]),
         DirectionCmd::Validate { doc } => {
-            let mut session = match open_project(&doc) {
+            let mut session = match open_project(&doc, Access::ReadOnly) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -1886,7 +1888,7 @@ fn cmd_direction(command: DirectionCmd) -> i32 {
             output,
             scale,
         } => {
-            let mut session = match open_project(&doc) {
+            let mut session = match open_project(&doc, Access::ReadOnly) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -1951,7 +1953,7 @@ fn cmd_export(command: ExportCmd) -> i32 {
             out_dir,
             scale,
         } => {
-            let mut session = match open_project(&doc) {
+            let mut session = match open_project(&doc, Access::ReadOnly) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -1964,7 +1966,7 @@ fn cmd_export(command: ExportCmd) -> i32 {
             cols,
             atlas,
         } => {
-            let mut session = match open_project(&doc) {
+            let mut session = match open_project(&doc, Access::ReadOnly) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -1979,7 +1981,7 @@ fn cmd_export(command: ExportCmd) -> i32 {
             to,
             loop_mode,
         } => {
-            let mut session = match open_project(&doc) {
+            let mut session = match open_project(&doc, Access::ReadOnly) {
                 Ok(session) => session,
                 Err(failure) => return emit(failure),
             };
@@ -2081,11 +2083,61 @@ fn apply(doc: &ProjectArgs, requests: Vec<String>) -> i32 {
     apply_with(doc, requests, false)
 }
 
-fn open_project(doc: &ProjectArgs) -> Result<Session, CliFailure> {
-    Session::open_with(&doc.project, doc.checkpoint.as_deref())
+fn open_project(doc: &ProjectArgs, access: Access) -> Result<Session, CliFailure> {
+    Session::open_with(&doc.project, doc.checkpoint.as_deref(), access)
 }
 
 fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
+    if batch_mutates(&requests) {
+        let lock = match ProjectLock::acquire(&doc.project) {
+            Ok(lock) => lock,
+            Err(failure) => return emit(failure),
+        };
+        return dispatch_locked(doc, lock, requests, preview);
+    }
+    dispatch_readonly(doc, requests, preview)
+}
+
+fn dispatch_locked(
+    doc: &ProjectArgs,
+    lock: ProjectLock,
+    requests: Vec<String>,
+    preview: bool,
+) -> i32 {
+    let sidecar = match manifest_cmd::peek_sidecar(lock.target()) {
+        Ok(sidecar) => sidecar,
+        Err(failure) => return emit(failure),
+    };
+    match sidecar {
+        manifest_cmd::Sidecar::Manifest => {
+            if doc.checkpoint.is_some() {
+                return emit(CliFailure::new(
+                    "Cli",
+                    "a project manifest does not use --checkpoint",
+                ));
+            }
+            manifest_cmd::apply_call_locked(lock, requests, preview)
+        }
+        manifest_cmd::Sidecar::Tilemap => {
+            if doc.checkpoint.is_some() {
+                return emit(CliFailure::new(
+                    "Cli",
+                    "a tilemap does not use --checkpoint",
+                ));
+            }
+            tiles_cmd::apply_call_locked(lock, requests, preview)
+        }
+        manifest_cmd::Sidecar::Other => {
+            let mut session = match Session::open_locked(lock, doc.checkpoint.as_deref()) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
+            apply_session(&mut session, requests, preview)
+        }
+    }
+}
+
+fn dispatch_readonly(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
     let sidecar = match manifest_cmd::peek_sidecar(&doc.project) {
         Ok(sidecar) => sidecar,
         Err(failure) => return emit(failure),
@@ -2098,7 +2150,7 @@ fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
                     "a project manifest does not use --checkpoint",
                 ));
             }
-            return manifest_cmd::apply_call(&doc.project, requests, preview);
+            manifest_cmd::apply_call(&doc.project, requests, preview)
         }
         manifest_cmd::Sidecar::Tilemap => {
             if doc.checkpoint.is_some() {
@@ -2107,15 +2159,16 @@ fn apply_with(doc: &ProjectArgs, requests: Vec<String>, preview: bool) -> i32 {
                     "a tilemap does not use --checkpoint",
                 ));
             }
-            return tiles_cmd::apply_call(&doc.project, requests, preview);
+            tiles_cmd::apply_call(&doc.project, requests, preview)
         }
-        manifest_cmd::Sidecar::Other => {}
+        manifest_cmd::Sidecar::Other => {
+            let mut session = match open_project(doc, Access::ReadOnly) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
+            apply_session(&mut session, requests, preview)
+        }
     }
-    let mut session = match open_project(doc) {
-        Ok(session) => session,
-        Err(failure) => return emit(failure),
-    };
-    apply_session(&mut session, requests, preview)
 }
 
 fn apply_session(session: &mut Session, requests: Vec<String>, preview: bool) -> i32 {

@@ -36,6 +36,61 @@ pub fn parse_request_blob(text: &str) -> Result<Vec<String>, CliFailure> {
     }
 }
 
+/// Tools that do not change the document. An unknown name is treated as a
+/// write so a new tool cannot publish without the lock.
+const READ_ONLY_TOOLS: &[&str] = &[
+    "inspect",
+    "scene",
+    "previewFrame",
+    "diffFrames",
+    "listEngines",
+    "listLayers",
+    "listParts",
+    "listCurves",
+    "sampleCurve",
+    "samplePart",
+    "listConstraints",
+    "listDirections",
+    "validateDirections",
+    "exportDirection",
+    "exportPngSequence",
+    "exportSpriteSheet",
+    "exportApng",
+    "validateTileset",
+    "exportTileset",
+    "saveProject",
+    "beginGesture",
+    "endGesture",
+    "inspectTilemap",
+    "getTile",
+    "validateTilemap",
+    "exportTilemap",
+    "inspectManifest",
+    "validateManifest",
+    "listAssets",
+    "showAsset",
+    "graphAsset",
+    "dependentsAsset",
+    "validateAssets",
+    "characterMatrix",
+];
+
+/// True when any request might change the file. Malformed JSON counts as a
+/// write: the lock is taken, then the tool reports the parse error.
+pub fn batch_mutates(requests: &[String]) -> bool {
+    requests.iter().any(|request| request_mutates(request))
+}
+
+fn request_mutates(request: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<Value>(request) else {
+        return true;
+    };
+    let Some(tool) = value.get("tool").and_then(Value::as_str) else {
+        return true;
+    };
+    !READ_ONLY_TOOLS.contains(&tool)
+}
+
 fn parse_jsonl(text: &str) -> Result<Vec<String>, CliFailure> {
     let mut requests = Vec::new();
     for (index, line) in text.lines().enumerate() {

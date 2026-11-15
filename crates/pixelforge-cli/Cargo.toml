@@ -19,11 +19,20 @@ dist = true
 
 [dependencies]
 # Pinned for the repo's Rust 1.83 floor. Newer clap releases may raise MSRV.
+# `std::fs::File::lock` arrived in Rust 1.89, so the lock is `fs4`'s
+# `flock(2)` / `LockFileEx` wrapper. Pin it so a later release cannot raise MSRV.
 base64 = "=0.22.1"
 clap = { version = "=4.5.23", features = ["derive"] }
+fs4 = "=1.1.0"
 pixelforge-kernel = { path = "../pixelforge-kernel" }
 serde_json = "1"
 
 [dev-dependencies]
 pixelforge-kernel = { path = "../pixelforge-kernel" }
 serde_json = "1"
+
+[target."cfg(unix)".dependencies]
+libc = "=0.2.169"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
