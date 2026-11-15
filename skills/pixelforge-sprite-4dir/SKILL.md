@@ -1,22 +1,16 @@
 ---
 name: pixelforge-sprite-4dir
 description: >-
-  Build a PixelForge four-direction idle and walk sprite sheet (四向走, 待机,
-  idle, walk, sprite sheet), including 96 and 128 cell sizes. Use when laying
-  out rows as facings and columns as idle plus walk frames, exporting with
-  export sheet --cols, tagging ranges as idle_down / walk_down, writing
-  --atlas JSON, running validate-atlas after export and before game
-  import, copying a rectangle across frames, checking foot slide
-  (脚滑) with diff, mirroring a side view with hflip and then repairing
-  highlights, filling the other cardinal facings with `direction fill`
-  (mirror or copy), or exporting one tag as a playable APNG preview. For a later
-  frame of the same pose, duplicate it and edit
-  the diff, or copyRect into a slot that already exists; merge scanline
-  fillRects into one taller rect. Follow the pixelforge
-  skill's index-color invariants first. Draw a new body with pixelforge-draw's
-  silhouette, flats, and details. Do not use this for a single standing
-  portrait. Separate equipment layers are pixelforge-layers. A read-only
-  review is pixelforge-critique.
+  Build four-direction idle/walk sprite sheets with the pixelforge CLI.
+  Use for facing rows, idle/walk tags, direction layouts and filling,
+  sprite-sheet/APNG export, atlas validation, contact and foot-slide checks,
+  or repairing highlights after mirroring. Follow pixelforge's index-color
+  invariants and draw the first pose with pixelforge-draw. Design the motion
+  before duplicating frames and editing the required differences. Contact
+  stability applies to the support phase, not both feet for the whole cycle.
+  For attack/reaction body mechanics, use pixel-art-craft's action-motion
+  reference; idle/walk layout examples are not attack recipes. Single static
+  portraits use pixelforge-draw; layer organization uses pixelforge-layers.
 ---
 
 # 四向走 + 闲
@@ -29,6 +23,8 @@ description: >-
 
 交付物是四向（下、左、右、上）的待机加走路，并导出一张精灵表。单张站立立绘或变身故事走 `pixelforge-draw`，不要按这张表拆成四行。
 
+攻击和受击的动作设计读 `pixelforge skills read pixel-art-craft references/action-motion.md`。这里的 idle/walk 排表和复制示例只解决布局与复用，不要求攻击时固定躯干或双脚。
+
 ## Size
 
 用 `pixelforge-draw` 的尺寸表，按交付物选行：
@@ -40,7 +36,7 @@ description: >-
 
 更大的边长只是格子更多，不会自动更好看，观改也更贵。96 和 128 的 ASCII 是整帧、一格一字，没有裁行，但整张 stderr 很难一眼读完。阶段检查看 `preview --scale` 的彩色 PNG，ASCII 只抽局部（接触地面的几行、脚、头）。`resize` 只搬已有索引。
 
-俯视小体型的朝向靠外轮廓和一格「鼻子」或眼睛，不靠一张脸。接触地面的那几格在整个循环里留在相同的格子上，动的是上面的身体。小图上滑一格就像在溜冰。
+俯视小体型的朝向靠外轮廓和一格「鼻子」或眼睛，不靠一张脸。接触地面的脚在支撑阶段相对地面稳定，离地摆动时可以移动；不要在整个循环里固定双脚。原地循环与带根位移的区别见下面的 Feet。
 
 较大的身体让每一朝向的脚落在同一条地面行上。破损、衣服、金属面罩用不同索引，不要和皮肤糊成一个索引。
 
@@ -156,7 +152,7 @@ pixelforge direction fill --project hero.json --from left --mode copy
 
 1. 画好该朝向的 idle（新身体走剪影 → 色块 → 细节，每阶段 `preview --scale 4`）。
 2. `frame duplicate`，然后 `frame select` 到返回的下标。复制不选中新帧。
-3. 新帧来自 `frame duplicate` 时，身体已经在上面，`move-rect` 只挪腿或手臂。目标槽已经是空白、不能再插入时，才 `copy-rect --from-frame` 把身体拷进去。不要逐格重画一整个人。见「最少编辑路径」。
+3. 新帧来自 `frame duplicate` 时，身体已经在上面，按关键姿势用 `move-rect` 等工具修改所需部位，包括躯干。目标槽已经是空白、不能再插入时，才 `copy-rect --from-frame` 把身体拷进去。不要逐格重画一整个人。见「最少编辑路径」。
 4. `diff` 对 idle 和这一步 walk，看脚，再画下一帧。
 
 新列可以插在 idle 后面时，复制之后身体已经在新帧上，接着只改差，再 `diff`：
@@ -179,13 +175,13 @@ pixelforge copy-rect --project hero.json --from-frame 0 --to-frame 5 \
 
 ## 最少编辑路径
 
-四条规则和前后对照在 `pixelforge` 的「最少编辑路径」。这张表上的短路径是：这一行的下一列从本行 idle 来，只改腿和手臂；右朝向从左朝向镜像，再把高光画回光源一侧。2026-10-25 士兵射击那种 1,133 次 `fillRect`，就是同姿重画加扫描行，不要带到走表上。
+四条规则和前后对照在 `pixelforge` 的「最少编辑路径」。这张表上的短路径是：这一行的下一列从本行 idle 来，按动作改差（不限于腿和手臂）；右朝向从左朝向镜像，再把高光画回光源一侧。2026-10-25 士兵射击那种 1,133 次 `fillRect`，就是同姿重画加扫描行，不要带到走表上。
 
 帧可以紧挨在源帧后面时，`frame duplicate` 再 `frame select` 返回的下标，然后 `move-rect` 或一小块 `fill-rect` / `erase-rect`。槽位已经占死（16 帧已经铺好，第 3 列必须留在这一行）时，用 `copy-rect --from-frame --to-frame` 把 idle 的身体拷进那个槽，再改差。`duplicateFrame` 会插入一帧并后移后面的列，不能用来填一个已经定死的下标。
 
 之前，walk A 是 `frame add` 的空白，再把 idle 里已经有的头和躯干按扫描行 `fillRect`。一次 `call` 里排几十个 `--request` 仍是几十次 `fillRect`。`beginGesture` 只把它们收成一步撤销。
 
-之后，从 idle 复制，只挪小腿，再 `diff`：
+下面只演示复制后挪小腿的命令，不是一套完整步态；实际姿势还需按设计修改躯干等部位，再 `diff`：
 
 ```bash
 pixelforge frame duplicate --project hero.json --index 0
@@ -204,7 +200,9 @@ pixelforge diff --project hero.json --frame 0 --with 1 --scale 4
 
 `diff` 只读。stderr 上 `.` 是相同索引，`!` 是两边都有墨且不同，其它字形是唯一有墨的一边。彩色 PNG 在 `result.path`（默认 `<stem>.diff.png`），三格是 frame、with、洋葱皮。洋葱皮不写回像素。
 
-看地面那一行：最低的非 `.` 格如果在 idle 和 walk 之间横着挪了，而设计是踩在原地，就是脚滑。俯视小体型看身体最下面那一圈接触格，循环里让它们留在原格。改脚用 `fill-rect` / `erase-rect` 或一小块 `move-rect`，再 `diff` 一次。不要只看彩色缩略图就导出。
+先标明哪只脚处于支撑、离地或再接触，再看脚底或接触锚点相对地面的轨迹。带根位移时，结合角色的位移检查支撑脚；原地播放、由游戏移动角色的走路循环里，支撑脚可在画布上向后移动来抵消前进。抬脚、换脚、蹬地和跨步本来就会改像素，不能只凭 idle 与 walk 的地面行出现横移就判脚滑。火焰、影子或布条的最低像素也不能代替脚底。
+
+改脚用 `fill-rect` / `erase-rect` 或一小块 `move-rect`，再 `diff` 一次，并按实际帧时长播放循环检查。躯干起伏、骨盆与手臂的变化按动作设计决定；复制 idle 后可以修改全身，不局限于前面示例里的小腿。无法查看播放效果时标明时序未核。
 
 ## hflip and highlights
 

@@ -243,7 +243,13 @@ fn standalone_binary_reads_canonical_skill_and_tutorial_references() {
         .iter()
         .map(|e| e["path"].as_str().unwrap().to_string())
         .collect();
-    for name in ["beginner.md", "intermediate.md", "advanced.md", "master.md"] {
+    for name in [
+        "beginner.md",
+        "intermediate.md",
+        "advanced.md",
+        "master.md",
+        "action-motion.md",
+    ] {
         assert!(
             ref_paths.contains(&format!("references/{name}")),
             "missing {name} in {ref_paths:?}"
@@ -284,6 +290,18 @@ fn standalone_binary_reads_canonical_skill_and_tutorial_references() {
     assert_eq!(body["path"], "references/beginner.md");
     assert_eq!(body["content"].as_str().unwrap(), beginner_md);
     assert!(body.get("guidance").is_none());
+
+    let action = cli.run(&[
+        "skills",
+        "read",
+        "pixel-art-craft",
+        "references/action-motion.md",
+    ]);
+    assert_eq!(status(&action), 0, "{}", stderr(&action));
+    assert_eq!(
+        stdout(&action),
+        include_str!("../../../skills/pixel-art-craft/references/action-motion.md")
+    );
 
     repo_absent(&cli.root);
 }

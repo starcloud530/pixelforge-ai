@@ -364,6 +364,7 @@ mod tests {
             "references/intermediate.md",
             "references/advanced.md",
             "references/master.md",
+            "references/action-motion.md",
         ] {
             assert!(
                 skill_file(skill, path).is_some(),

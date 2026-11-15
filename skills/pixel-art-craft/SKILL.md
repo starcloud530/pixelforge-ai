@@ -1,17 +1,20 @@
 ---
 name: pixel-art-craft
 description: >-
-  Learn or practice pixel-art craft from scratch, especially walk cycles,
+  Learn or practice pixel-art craft from scratch, especially attacks, reactions, walk cycles,
   camera angles and projections, and motion paths for different bodies and
   structures. Use when the user says 像素画, 学像素画, 走路循环, 机位, 运动轨迹,
-  or asks how to walk, choose a view, or animate another species or structure.
-  This is a craft-and-study skill with public tutorial links, not a pixelforge
+  攻击动画, 受击, 重心, 布料惯性, or asks how to walk, choose a view,
+  or animate another species or structure.
+  This is a craft-and-study skill with action-motion guidance and public tutorial links, not a pixelforge
   CLI command reference. When editing a PixelForge project, follow the
   pixelforge skill's index-color invariants first, then pixelforge-draw or
   pixelforge-sprite-4dir for the CLI workflow.
 ---
 
 # 像素画工艺
+
+制作或评审攻击、受击、重心转移和布料惯性时，先读 [动作与接触](references/action-motion.md)（CLI：`pixelforge skills read pixel-art-craft references/action-motion.md`）。这是动作设计指导；四向待机和走路的排表规则不作为攻击动作配方。
 
 本 skill 教像素画工艺：走路、机位和运动轨迹。它不是 `pixelforge` 的命令说明书。已安装的 CLI 用 `pixelforge skills read pixel-art-craft` 读本文件，用 `pixelforge skills read pixel-art-craft references/beginner.md`（以及 intermediate / advanced / master）读参考。正文也在仓库的 `skills/pixel-art-craft/SKILL.md`。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 的索引色不变量，再按 `pixelforge-draw` 或 `pixelforge-sprite-4dir` 调用 CLI。
 

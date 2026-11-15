@@ -1,43 +1,16 @@
 ---
 name: pixelforge
 description: >-
-  Edit PixelForge indexed-pixel projects with the pixelforge CLI and the kernel
-  Tool API. Use when the user says 用 pixelforge, 改工程, or CLI, or when
-  installing or running pixelforge, creating or changing a pixelforge-project,
-  painting or erasing cells, filling or erasing a rectangle, drawing a line,
-  an ellipse, a polygon, a rectangle outline, a flood fill, or a connected
-  component selection (`selection wand`), copying or
-  moving a rectangle, editing the palette, locking, quantizing, or remapping it,
-  crushing a PNG onto the palette, importing an indexed .aseprite file,
-  converting an arbitrary-size PNG into an indexed frame (`convert`, `engine list`, `engine set`),
-  flipping a rectangle horizontally or vertically, rotating it by 90, 180, or
-  270 degrees, naming parts and anchors, translating, rotating, or flipping a
-  named part on the pixel grid, keyframing that part's rotation, translation,
-  or flip and sampling the curve, solving a follow, attach, or pin constraint
-  so a hand, a gun butt, or a planted foot tracks an anchor,   baking those
-  sampled poses into editable pixel frames while leaving a polish overlay
-  untouched, adding or
-  duplicating frames, undoing,
-  running inspect, scene, tools, or call,   exporting a PNG sequence or sprite sheet,
-  exporting a looping APNG preview of a tag or frame range,
-  comparing the unquantized RGBA composite with the indices flatten would
-  write (`preview --compare`),
-  validating that sheet with validate-atlas before game import,
-  or building a tileset, a 4-neighbor autotile, a tilemap, and a Tiled `.tmj`,
-  or reading and writing a pixelforge-manifest with `project init`, `project show`,
-  and `project validate`, or registering assets with `asset add`, `asset list`,
-  `asset show`, `asset graph`, `asset dependents`, and `asset validate`, or
-  checking a character facing × action matrix with `character matrix` /
-  `character check` (canvas tiers, perspective, directory rules, palette path,
-  stable asset ids and relations, matrix gaps from existing tags; project
-  memory, not a canvas).
-  Take the shortest edit path: duplicate a same-pose frame and edit the diff,
-  merge adjacent same-color fillRects into one taller rect, and count every
-  drawing request inside one batched call. `direction fill` mirrors or copies
-  one cardinal facing into the other cardinals.
-  Other creative skills (pixelforge-draw, pixelforge-sprite-4dir,
-  pixelforge-layers, pixelforge-critique, pixel-art-craft) must follow this
-  skill's index-color invariants before their own workflow.
+  Edit PixelForge indexed-pixel projects through the pixelforge CLI and kernel
+  Tool API. Use for project creation, pixel drawing, palettes, selections,
+  frames, layers, parts and anchors, transforms, curves, constraints, bake,
+  imports, conversion, previews, diffs, exports, and atlas validation. Also use
+  for tilesets, tilemaps, autotiles, project manifests, asset relations, and
+  character facing/action matrices. Follow the index-color invariants before
+  other creative skills. Design motion before optimizing edits; reuse existing
+  poses and edit all required differences. For equivalent results, merge
+  adjacent same-color fillRects and count each request in a batch. Direction
+  filling mirrors or copies cardinal pixels; it does not author motion.
 ---
 
 # PixelForge（shared）
@@ -173,6 +146,10 @@ pixelforge paint --project hero.json --expected-revision R --x 1 --y 2 --color-i
 *`preview` writes ASCII plus a color PNG at `result.path`. `--preview` on a mutating command is ASCII only. `diff` is read-only. `hflip` and `vflip` mirror indices and do not recolor. `rotate --degrees 90|180|270` turns indices clockwise; 90 and 270 need a square and do not resize the canvas. `resize` copies stored indices. `export sheet --cols N` sets the column count. `--atlas FILE` writes atlas JSON; omit it and the result stays the PNG fields. `export apng --tag` writes a looping APNG preview of that tag. It is not the sheet. Edges of 96 and 128 are inside `1..=256`. ASCII on those canvases is the full grid; read the scaled PNG and a local slice of rows. One undo step is not one kernel operation; see Shortest edit path.*
 
 ## 最少编辑路径
+
+先确定动作的关键姿势、重心和接触阶段，再优化得到这些姿势的操作次数。复制帧是复用已有像素的手段，不是把躯干或双脚冻结的要求；需要全身变化时，差集可以覆盖全身。攻击、受击等动作先读 `pixelforge skills read pixel-art-craft references/action-motion.md`；四向待机和走路的排表仍用 `pixelforge-sprite-4dir`。
+
+*Design key poses, weight shifts, and contact phases first. Optimize edits for equivalent visual results. Duplicating a frame does not freeze the torso or feet; the required delta may cover the whole body. For attacks and reactions, read `pixel-art-craft references/action-motion.md`.*
 
 同一张图，内核操作越少越好。2026-10-25 的士兵射击动画走了 1,191 次工具操作，其中 1,133 次是 `fillRect`：第 3、4、7 帧和已有帧同姿，却各自整帧重画；躯干按扫描行拆成高度为 1 的矩形；新帧先是空白，再把已经画过的身体填回去。下面四条用现有的 `duplicateFrame`、`copyRect`、`fillRect`、`eraseRect`、`diff` 把这条路径缩短。不新增内核工具。
 
