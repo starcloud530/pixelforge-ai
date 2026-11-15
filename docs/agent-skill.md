@@ -21,7 +21,7 @@ Skill 补观改流程，不代替专业像素画师的审美。阶段走完、�
 | `pixelforge-sprite-4dir` | [skills/pixelforge-sprite-4dir/SKILL.md](../skills/pixelforge-sprite-4dir/SKILL.md) | 四向走 + 闲、精灵表、脚滑、动画标签、`direction fill` | 行是朝向，列是 idle 加 walk。`export sheet --cols`。标签名是 `idle_down` / `walk_down`。`--atlas` 写帧矩形和标签。导出后先 `validate-atlas`，再进游戏。#18 的 64×64 包在 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published)，`validate.py` 重跑 strict。同姿列先 `duplicate` 再改差，槽位已占死时用跨帧 `copy-rect`。`diff` 查脚滑。`hflip` 或 `direction fill --mode mirror` 之后修高光。`copy` 只是占位，不是自然步态。 |
 | `pixelforge-layers` | [skills/pixelforge-layers/SKILL.md](../skills/pixelforge-layers/SKILL.md) | 分层、装备、身体、四肢、隐藏、透明度 | body / gear / limbs。合成预览、`--layer`、`layer hide` / `opacity`、`layer flatten`。 |
 | `pixelforge-critique` | [skills/pixelforge-critique/SKILL.md](../skills/pixelforge-critique/SKILL.md) | 检查、评审、问看起来怎么样 | 只读清单：剪影、头身、侧向深度、腿体积、脚接触、色阶。有编辑记录或多帧时再查可合并的 `fillRect` 和未复制的重复帧。输出必须列缺陷，不能只说看起来不错。 |
-| `pixel-art-craft` | [skills/pixel-art-craft/SKILL.md](../skills/pixel-art-craft/SKILL.md) | 学像素画、走路循环、机位、运动轨迹 | 工艺学习。公开教程链接按初级 / 中级 / 高级 / 大师放在 `references/`。不是 CLI 配方。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 不变量，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。不要摘抄付费课文。 |
+| `pixel-art-craft` | [skills/pixel-art-craft/SKILL.md](../skills/pixel-art-craft/SKILL.md) | 学像素画、走路循环、机位、运动轨迹 | 工艺学习。攻击、受击、重心和布料惯性先读 `references/action-motion.md`。公开教程链接按初级 / 中级 / 高级 / 大师放在 `references/`。不是 CLI 配方。在 PixelForge 工程里落笔时，先遵守 `pixelforge` 不变量，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。不要摘抄付费课文。 |
 
 怎么读：已安装的 `pixelforge` 把上表 skill（`SKILL.md` 和 `references/**/*.md`）打进二进制。外部 Agent 应先用 CLI 自助发现和读取，这样不依赖仓库检出或其它私有目录：
 
@@ -490,6 +490,8 @@ pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json 
 
 规范正文和前后对照在 [pixelforge](../skills/pixelforge/SKILL.md) 的「最少编辑路径」。四向表上的用法在 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)。只读挑错在 [pixelforge-critique](../skills/pixelforge-critique/SKILL.md) 的第 7、8 条。这里是同一条约，缩短后的样子：
 
+先设计关键姿势、重心和接触阶段，再优化等价结果的操作次数。复制帧不要求冻结躯干或双脚，差集可以覆盖全身。攻击和受击的动作指导见 [动作与接触](../skills/pixel-art-craft/references/action-motion.md)。
+
 同姿且新帧可以紧挨源帧：`duplicateFrame`，再 `setActiveFrame` 到返回的下标，只改差集。槽位已经占死（例如第 3、4、7 帧）：`copyRect` 的 `fromFrame` / `toFrame` 把身体拷进去，再改差。不要 `addFrame` 出空白再把整个人 `fillRect` 一遍。
 
 相邻同色、同一 `x`、同一 `width`、`y` 相接的扫描行合成一块更高的矩形。`y=20`、`21`、`22` 三笔 `height=1`、`width=12`、`colorIndex=4` 是一笔 `height=3`。左右相接、同 `y`、同 `height`、同色则合成更宽的一笔。
@@ -500,7 +502,7 @@ pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json 
 
 ### 四向走 + 闲 pixelforge-sprite-4dir
 
-行是朝向（下、左、右、上），列是 idle 然后 walk。`export sheet --cols N` 的 `N` 等于每行帧数。下一列从本行 idle `duplicate` 后只改腿和手臂；槽位已经占死时用 `copy-rect --from-frame --to-frame`。脚是否滑看 `diff --frame A --with B --scale 4`：地面行上横移的 `!` 是脚滑。俯视小体型把接触格留在原位，动上面的身体。`hflip` 只搬索引，不改颜色。高光格子跟着身体翻到另一侧，画面上的光源还在原来的一侧，再用 `paint` 把高光画回去。扫描行 `fillRect` 先合成更高的一块。一次批量 `call` 仍按请求计数。
+行是朝向（下、左、右、上），列是 idle 然后 walk。`export sheet --cols N` 的 `N` 等于每行帧数。下一列从本行 idle `duplicate` 后按关键姿势改差（可以包括躯干与全身）；槽位已经占死时用 `copy-rect --from-frame --to-frame`。脚是否滑结合接触阶段、根位移和 `diff --frame A --with B --scale 4` 判断：支撑脚相对地面稳定，摆动脚可以移动；原地走路循环中支撑脚可在画布上向后移动。地面行有横移的 `!` 本身不能判脚滑，也不能把双脚固定整个循环。`hflip` 只搬索引，不改颜色。高光格子跟着身体翻到另一侧，画面上的光源还在原来的一侧，再用 `paint` 把高光画回去。扫描行 `fillRect` 先合成更高的一块。一次批量 `call` 仍按请求计数。
 
 ### 分层 pixelforge-layers
 
@@ -508,8 +510,8 @@ pixelforge character check --manifest pixelforge-demos/pixelforge.manifest.json 
 
 ### 只读检查 pixelforge-critique
 
-不改文件。用 `inspect`、`preview --scale 4`、`diff`。输出必须逐条写剪影、头身、侧向深度、腿体积连续、脚接触、色阶。有编辑记录时再写可合并的 `fillRect`（相邻同色扫描行应合成一块更高的矩形）。多帧时再写重复帧未复制（同姿却 `addFrame` 后整帧重画；没有记录则写未核）。有缺陷就列出来。没有缺陷的条写「未发现」并附上帧号或字形。不要只回答「看起来不错」。打不开彩色 PNG 时色阶写「未核」。一次 `call` 里的每个绘制请求各算一次。
+不改文件。用 `inspect`、`preview --scale 4`、`diff`。动画还需按实际帧时长查看播放，检查发力、接触阶段和附属物跟随；无法播放则标明时序未核。动作缺陷优先于编辑效率。输出必须逐条写剪影、头身、侧向深度、腿体积连续、脚接触、色阶。有编辑记录时再写可合并的 `fillRect`（相邻同色扫描行应合成一块更高的矩形）。多帧时再写重复帧未复制（同姿却 `addFrame` 后整帧重画；没有记录则写未核）。有缺陷就列出来。没有缺陷的条写「未发现」并附上帧号或字形。不要只回答「看起来不错」。打不开彩色 PNG 时色阶写「未核」。一次 `call` 里的每个绘制请求各算一次。
 
 ### 像素画工艺 pixel-art-craft
 
-规范正文在 [pixel-art-craft](../skills/pixel-art-craft/SKILL.md)。等级参考在同目录 `references/beginner.md`、`intermediate.md`、`advanced.md`、`master.md`。这是走路、机位和运动轨迹的工艺学习，只使用公开教程链接；需要某一课时当场打开那个 URL。不要摘抄或复述付费课文（包括 Pixel School）。在本仓库里往索引工程落笔时，先读 `pixelforge`，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。
+规范正文在 [pixel-art-craft](../skills/pixel-art-craft/SKILL.md)。等级参考在同目录 `references/beginner.md`、`intermediate.md`、`advanced.md`、`master.md`。攻击、受击、重心转移和附属物惯性先读 [动作与接触](../skills/pixel-art-craft/references/action-motion.md)（`pixelforge skills read pixel-art-craft references/action-motion.md`）。其余走路、机位和运动轨迹的课程参考只使用公开教程链接；需要某一课时当场打开那个 URL。不要摘抄或复述付费课文（包括 Pixel School）。在本仓库里往索引工程落笔时，先读 `pixelforge`，再走 `pixelforge-draw` 或 `pixelforge-sprite-4dir`。
