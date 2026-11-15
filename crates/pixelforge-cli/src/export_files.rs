@@ -8,7 +8,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 
 use crate::failure::CliFailure;
-use crate::output::{print_line, tool_refusal};
+use crate::output::{annotate_revision, print_line, tool_refusal};
 use crate::session::Session;
 use pixelforge_kernel::TOOL_API_VERSION;
 
@@ -20,7 +20,7 @@ pub fn export_png_sequence(session: &mut Session, out_dir: &Path, scale: u32) ->
     })
     .to_string();
     let response = session.call(&request);
-    if let Some(code) = refuse_or_print(&response) {
+    if let Some(code) = refuse_or_print(&response, &session.revision()) {
         return code;
     }
     let value: Value = match serde_json::from_str(&response) {
@@ -85,7 +85,7 @@ pub fn export_png_sequence(session: &mut Session, out_dir: &Path, scale: u32) ->
             "height": value["result"]["height"].clone(),
         },
     });
-    finish_summary(&summary)
+    finish_summary(&summary, &session.revision())
 }
 
 pub fn export_sprite_sheet(
@@ -109,7 +109,7 @@ pub fn export_sprite_sheet(
     })
     .to_string();
     let response = session.call(&request);
-    if let Some(code) = refuse_or_print(&response) {
+    if let Some(code) = refuse_or_print(&response, &session.revision()) {
         return code;
     }
     let value: Value = match serde_json::from_str(&response) {
@@ -189,7 +189,7 @@ pub fn export_sprite_sheet(
         "tool": "exportSpriteSheet",
         "result": summary_result,
     });
-    finish_summary(&summary)
+    finish_summary(&summary, &session.revision())
 }
 
 pub fn export_direction(session: &mut Session, facing: &str, output: &Path, scale: u32) -> i32 {
@@ -200,7 +200,7 @@ pub fn export_direction(session: &mut Session, facing: &str, output: &Path, scal
     })
     .to_string();
     let response = session.call(&request);
-    if let Some(code) = refuse_or_print(&response) {
+    if let Some(code) = refuse_or_print(&response, &session.revision()) {
         return code;
     }
     let value: Value = match serde_json::from_str(&response) {
@@ -240,7 +240,7 @@ pub fn export_direction(session: &mut Session, facing: &str, output: &Path, scal
             "scale": result["scale"].clone(),
         },
     });
-    finish_summary(&summary)
+    finish_summary(&summary, &session.revision())
 }
 
 pub fn export_apng(
@@ -272,7 +272,7 @@ pub fn export_apng(
     })
     .to_string();
     let response = session.call(&request);
-    if let Some(code) = refuse_or_print(&response) {
+    if let Some(code) = refuse_or_print(&response, &session.revision()) {
         return code;
     }
     let value: Value = match serde_json::from_str(&response) {
@@ -329,7 +329,7 @@ pub fn export_apng(
         "tool": "exportApng",
         "result": summary_result,
     });
-    finish_summary(&summary)
+    finish_summary(&summary, &session.revision())
 }
 
 fn write_atlas(path: &Path, atlas: &Value) -> Result<(), CliFailure> {
@@ -361,17 +361,20 @@ pub fn write_png_b64(path: &Path, text: Option<&str>) -> Result<usize, CliFailur
     Ok(bytes.len())
 }
 
-fn refuse_or_print(response: &str) -> Option<i32> {
+fn refuse_or_print(response: &str, revision: &str) -> Option<i32> {
     let (code, message) = tool_refusal(response)?;
-    if !print_line(response) {
+    if !print_line(&annotate_revision(response, revision)) {
         return Some(2);
     }
     eprintln!("pixelforge: export failed: {code}: {message}");
     Some(1)
 }
 
-fn finish_summary(summary: &Value) -> i32 {
-    let line = serde_json::to_string(summary).expect("export summary is JSON");
+fn finish_summary(summary: &Value, revision: &str) -> i32 {
+    let line = annotate_revision(
+        &serde_json::to_string(summary).expect("export summary is JSON"),
+        revision,
+    );
     if print_line(&line) {
         0
     } else {

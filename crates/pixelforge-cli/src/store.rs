@@ -19,8 +19,6 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use fs4::FileExt;
-
 use crate::failure::CliFailure;
 
 /// Wait bound when `PIXELFORGE_LOCK_TIMEOUT_MS` is unset.
@@ -437,6 +435,66 @@ fn unsupported(message: String) -> CliFailure {
     CliFailure::new("UnsupportedPath", message)
 }
 
+/// FNV-1a 64 of canonical project text. Same offset and prime as the palette
+/// hash and the checkpoint `projectHash`. This is not stored in the project.
+pub(crate) fn revision_of(canonical: &str) -> String {
+    const OFFSET: u64 = 14_695_981_039_346_656_037;
+    const PRIME: u64 = 1_099_511_628_211;
+    let mut hash = OFFSET;
+    for byte in canonical.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    format!("{hash:016x}")
+}
+
+/// Compare an optional echoed token to the canonical text already loaded.
+///
+/// `None` skips the check. A present value is never ignored.
+pub(crate) fn check_revision(expected: Option<&str>, canonical: &str) -> Result<(), CliFailure> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let expected = expected.trim();
+    if !is_revision_token(expected) {
+        return Err(CliFailure::new(
+            "RevisionInvalid",
+            format!("expected revision {expected:?} is not a 16-digit lowercase hex fingerprint"),
+        )
+        .with_hint("pass result.revision from scene or inspect unchanged"));
+    }
+    let current = revision_of(canonical);
+    if expected != current {
+        return Err(CliFailure::new(
+            "RevisionConflict",
+            format!(
+                "project revision is {current}, not {expected}; this command did not edit"
+            ),
+        )
+        .with_hint(
+            "read the project again, plan from that snapshot, and pass the new revision. Do not retry the old edit",
+        )
+        .with_field("expected", expected)
+        .with_field("current", current));
+    }
+    Ok(())
+}
+
+pub(crate) fn revision_unsupported(what: &str) -> CliFailure {
+    CliFailure::new(
+        "RevisionUnsupported",
+        format!("{what} has no snapshot to match; omit --expected-revision"),
+    )
+    .with_hint("create the project first, then read scene or inspect and edit with that revision")
+}
+
+fn is_revision_token(text: &str) -> bool {
+    text.len() == 16
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
 fn test_barrier(var: &str, prefix: &str) {
     #[cfg(debug_assertions)]
     {
@@ -568,5 +626,20 @@ mod tests {
         let followed = ProjectLock::acquire_for(&other, Duration::ZERO).unwrap_err();
         assert_eq!(followed.code(), "UnsupportedPath");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn revision_tracks_canonical_text_and_rejects_a_bad_token() {
+        assert_eq!(revision_of("same"), revision_of("same"));
+        assert_ne!(revision_of("same"), revision_of("same\n"));
+        assert!(check_revision(None, "same").is_ok());
+        let token = revision_of("same");
+        assert!(check_revision(Some(&token), "same").is_ok());
+        let conflict = check_revision(Some(&token), "other").unwrap_err();
+        assert_eq!(conflict.code(), "RevisionConflict");
+        assert!(conflict.fields().iter().any(|(key, _)| key == "current"));
+        let invalid = check_revision(Some("nope"), "same").unwrap_err();
+        assert_eq!(invalid.code(), "RevisionInvalid");
+        assert!(check_revision(Some("  "), "same").is_err());
     }
 }

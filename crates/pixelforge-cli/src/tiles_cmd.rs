@@ -14,7 +14,7 @@ use crate::cli::{
     AutotileCmd, MapArgs, TileRectArgs, TileRefArgs, TilemapCmd, TilesetCmd, ValidateTilesArgs,
 };
 use crate::failure::CliFailure;
-use crate::output::{emit, print_line, tool_refusal};
+use crate::output::{annotate_revision, emit, print_line, tool_refusal};
 use crate::session::{Access, Session};
 use crate::store::{self, ProjectLock};
 
@@ -25,11 +25,15 @@ pub fn tileset(command: TilesetCmd) -> i32 {
             tile_width,
             tile_height,
         } => {
-            let mut session =
-                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::Exclusive) {
-                    Ok(session) => session,
-                    Err(failure) => return emit(failure),
-                };
+            let mut session = match open_session(
+                &doc.project,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+                Access::Exclusive,
+            ) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
             let response = session.call(&request(
                 "setTileset",
                 json!({"tileWidth": tile_width, "tileHeight": tile_height}),
@@ -37,20 +41,28 @@ pub fn tileset(command: TilesetCmd) -> i32 {
             finish_session(&mut session, &response)
         }
         TilesetCmd::Clear { doc } => {
-            let mut session =
-                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::Exclusive) {
-                    Ok(session) => session,
-                    Err(failure) => return emit(failure),
-                };
+            let mut session = match open_session(
+                &doc.project,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+                Access::Exclusive,
+            ) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
             let response = session.call(&request("clearTileset", json!({})));
             finish_session(&mut session, &response)
         }
         TilesetCmd::Validate { doc } => {
-            let mut session =
-                match open_session(&doc.project, doc.checkpoint.as_deref(), Access::ReadOnly) {
-                    Ok(session) => session,
-                    Err(failure) => return emit(failure),
-                };
+            let mut session = match open_session(
+                &doc.project,
+                doc.checkpoint.as_deref(),
+                doc.expected_revision.as_deref(),
+                Access::ReadOnly,
+            ) {
+                Ok(session) => session,
+                Err(failure) => return emit(failure),
+            };
             let response = session.call(&request("validateTileset", json!({})));
             finish_session(&mut session, &response)
         }
@@ -372,16 +384,32 @@ pub fn export_tilemap(
     }))
 }
 
-pub fn apply_call(path: &Path, requests: Vec<String>, preview: bool) -> i32 {
-    edit_requests(path, false, requests, preview)
+pub fn apply_call(
+    path: &Path,
+    requests: Vec<String>,
+    preview: bool,
+    expected: Option<&str>,
+) -> i32 {
+    edit_requests(path, false, requests, preview, expected)
 }
 
-pub fn apply_call_locked(lock: ProjectLock, requests: Vec<String>, preview: bool) -> i32 {
+pub fn apply_call_locked(
+    lock: ProjectLock,
+    requests: Vec<String>,
+    preview: bool,
+    expected: Option<&str>,
+) -> i32 {
     let path = lock.target().to_path_buf();
-    edit_requests(&path, true, requests, preview)
+    edit_requests(&path, true, requests, preview, expected)
 }
 
-fn edit_requests(path: &Path, writable: bool, requests: Vec<String>, preview: bool) -> i32 {
+fn edit_requests(
+    path: &Path,
+    writable: bool,
+    requests: Vec<String>,
+    preview: bool,
+    expected: Option<&str>,
+) -> i32 {
     if preview {
         return emit(CliFailure::new(
             "Cli",
@@ -397,9 +425,13 @@ fn edit_requests(path: &Path, writable: bool, requests: Vec<String>, preview: bo
         Err(error) => return kernel_line(error),
     };
     let original = map.save();
+    if let Err(failure) = store::check_revision(expected, &original) {
+        return emit(failure);
+    }
     let mut status = 0;
     for request in &requests {
         let response = map.call_tool(request);
+        let response = annotate_revision(&response, &store::revision_of(&map.save()));
         if !print_line(&response) {
             return 2;
         }
@@ -589,9 +621,10 @@ fn request(tool: &str, params: Value) -> String {
 fn open_session(
     path: &Path,
     checkpoint: Option<&Path>,
+    expected: Option<&str>,
     access: Access,
 ) -> Result<Session, CliFailure> {
-    Session::open_with(path, checkpoint, access)
+    Session::open_with(path, checkpoint, expected, access)
 }
 
 fn finish_session(session: &mut Session, response: &str) -> i32 {

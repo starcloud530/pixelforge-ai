@@ -237,6 +237,9 @@ pub enum Command {
         /// Where to write the project file.
         #[arg(short, long, value_name = "FILE")]
         output: PathBuf,
+        /// Not accepted. A new file has no snapshot to match.
+        #[arg(long, value_name = "REV")]
+        expected_revision: Option<String>,
     },
     /// Import an indexed `.aseprite` file. Does not write `.aseprite`.
     ///
@@ -252,6 +255,9 @@ pub enum Command {
         /// Existing project to replace after a successful import.
         #[arg(short, long, value_name = "FILE")]
         project: Option<PathBuf>,
+        /// Fingerprint from `scene` or `inspect`. Only with `--project`.
+        #[arg(long, value_name = "REV")]
+        expected_revision: Option<String>,
     },
     /// Sample an arbitrary-size PNG into one indexed frame.
     ///
@@ -271,6 +277,9 @@ pub enum Command {
         /// Checkpoint sidecar. Only with `--project`.
         #[arg(long, value_name = "FILE")]
         checkpoint: Option<PathBuf>,
+        /// Fingerprint from `scene` or `inspect`. Only with `--project`.
+        #[arg(long, value_name = "REV")]
+        expected_revision: Option<String>,
         /// Target width, from 1 to 256. Required with `--output`.
         #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
         width: Option<u16>,
@@ -722,6 +731,13 @@ pub struct ProjectArgs {
     /// the next process starts from an empty stack.
     #[arg(long, value_name = "FILE")]
     pub checkpoint: Option<PathBuf>,
+    /// Content fingerprint from `scene` or `inspect` `result.revision`.
+    ///
+    /// Checked after this file is read and, for an edit, after its lock is
+    /// held, before any tool runs. Omit it to keep the lock and atomic save
+    /// without stale-view protection. Echo the token; do not invent one.
+    #[arg(long, value_name = "REV")]
+    pub expected_revision: Option<String>,
 }
 
 #[derive(Args)]
