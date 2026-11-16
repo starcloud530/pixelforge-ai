@@ -19,8 +19,10 @@
     --ink: #1c140c;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
+    overflow: hidden;
     background: var(--bg);
     color: var(--text);
     font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
@@ -57,31 +59,37 @@
     padding: 0.35rem 0.5rem;
   }
   .app {
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 100%;
     max-width: 920px;
+    height: 100vh;
+    min-width: 0;
     margin: 0 auto;
-    padding: 1.25rem 1rem 2rem;
+    overflow: hidden;
+    padding: 1.25rem 1rem 1rem;
   }
   .topbar {
     display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
     justify-content: space-between;
-    align-items: flex-end;
-    gap: 1rem;
-    margin-bottom: 1rem;
-  }
-  .eyebrow {
-    margin: 0;
-    color: var(--accent);
-    font-size: 0.78rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    align-items: flex-start;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.75rem;
   }
   h1 {
-    margin: 0.15rem 0 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
     font-size: 1.35rem;
     font-weight: 650;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .pill {
+    flex: 0 1 auto;
+    max-width: 100%;
     margin: 0;
     padding: 0.3rem 0.55rem;
     border: 1px solid var(--line);
@@ -89,20 +97,26 @@
     color: var(--muted);
     font-size: 0.82rem;
     font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
   }
   .error {
+    flex: 0 0 auto;
     margin: 0 0 0.8rem;
     padding: 0.65rem 0.8rem;
     border: 1px solid #8a4a3a;
     background: #2a1814;
     color: #ffd7cc;
     border-radius: 8px;
+    overflow-wrap: anywhere;
   }
   .stage {
+    flex: 1 1 auto;
     overflow: auto;
     display: grid;
-    place-items: center;
-    min-height: 280px;
+    justify-content: safe center;
+    align-content: safe center;
+    max-width: 100%;
+    min-height: 0;
     padding: 1.25rem;
     background: var(--stage);
     border: 1px solid var(--line);
@@ -114,8 +128,11 @@
   }
   .deck {
     display: flex;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: 0.75rem;
+    max-width: 100%;
+    min-width: 0;
     padding: 0.85rem;
     background: var(--panel);
     border: 1px solid var(--line);
@@ -127,9 +144,12 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 0.45rem;
+    max-width: 100%;
+    min-width: 0;
   }
   .transport { justify-content: space-between; }
-  label { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); }
+  label { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; min-width: 0; color: var(--muted); }
+  select { max-width: 100%; }
   .badge, .status, .hint {
     font-variant-numeric: tabular-nums;
   }
@@ -146,7 +166,7 @@
     color: var(--muted);
     font-size: 0.82rem;
   }
-  .steps { display: flex; gap: 4px; overflow-x: auto; }
+  .steps { display: flex; gap: 4px; max-width: 100%; overflow-x: auto; }
   .step {
     min-width: 1.8rem;
     padding: 0.2rem 0.35rem;
@@ -154,15 +174,18 @@
     font-size: 0.75rem;
   }
   .step.is-current { color: var(--accent); }
+  @media (max-width: 640px) {
+    .topbar { flex-direction: column; align-items: flex-start; }
+    h1 { flex: 0 0 auto; width: 100%; }
+    .status { margin-left: 0; }
+    .stage { padding: 0.75rem; }
+  }
 </style>
 </head>
 <body>
 <main class="app">
   <header class="topbar">
-    <div>
-      <p class="eyebrow">PixelForge</p>
-      <h1 id="title">动作预览</h1>
-    </div>
+    <h1 id="title">动作预览</h1>
     <p class="pill" id="meta">只读</p>
   </header>
   <p id="error" class="error" role="alert" hidden></p>
@@ -235,6 +258,7 @@
   let player = null;
   let etag = null;
   let holdingError = false;
+  let scaleLocked = false;
   let actionIds = "";
   let stepSignature = "";
   const images = new Map();
@@ -254,6 +278,7 @@
     button.dataset.scale = String(value);
     button.addEventListener("click", function () {
       if (!player) return;
+      scaleLocked = true;
       player.setScale(value);
       render();
     });
@@ -271,6 +296,26 @@
     });
     backgroundGroup.appendChild(button);
   });
+
+  function stageBudget() {
+    const stage = document.querySelector(".stage");
+    const styles = getComputedStyle(stage);
+    const padX = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+    const padY = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+    return {
+      width: Math.max(1, stage.clientWidth - padX),
+      height: Math.max(1, stage.clientHeight - padY),
+    };
+  }
+
+  function applyFit() {
+    if (!player || scaleLocked) return;
+    const budget = stageBudget();
+    if (budget.width < 16 || budget.height < 16) return;
+    const state = player.state();
+    const next = api.fitIntegerScale(state.width, state.height, budget.width, budget.height, api.SCALES);
+    if (next !== state.scale) player.setScale(next);
+  }
 
   function showError(message, held) {
     errorBox.hidden = false;
@@ -360,7 +405,7 @@
     });
     stepSignature = signature;
     const preview = Number.isInteger(state.previewMs) ? String(state.previewMs) : state.previewMs.toFixed(2);
-    clock.textContent = "工程帧时长 " + state.delayMs + " ms，预览时钟 " + preview + " ms（" + state.speed + "×）。调速不改工程。空格播放或暂停，左右方向键逐帧。";
+    clock.textContent = "工程帧时长 " + state.delayMs + " ms，预览时钟 " + preview + " ms（" + state.speed + "×）。调速不改工程。";
 
     if (!state.png) return;
     const image = spriteImage(state);
@@ -435,7 +480,12 @@
       etag = payload.revision;
       if (!player) player = api.createPlayback(payload);
       else player.applySnapshot(payload, performance.now());
+      applyFit();
       render();
+      requestAnimationFrame(function () {
+        applyFit();
+        if (player) render();
+      });
       return;
     }
     holdingError = true;
@@ -475,6 +525,10 @@
     requestAnimationFrame(loop);
   }
 
+  window.addEventListener("resize", function () {
+    applyFit();
+    if (player) render();
+  });
   poll();
   setInterval(poll, 400);
   requestAnimationFrame(loop);

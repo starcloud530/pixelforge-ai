@@ -23,6 +23,26 @@
     return { width: width * scale, height: height * scale };
   }
 
+  function fitIntegerScale(width, height, maxWidth, maxHeight, scales) {
+    const choices = (scales || SCALES).filter(function (scale) {
+      return Number.isInteger(scale) && scale >= 1;
+    });
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      return 1;
+    }
+    if (!Number.isFinite(maxWidth) || !Number.isFinite(maxHeight) || maxWidth <= 0 || maxHeight <= 0) {
+      return 1;
+    }
+    let best = 1;
+    for (let index = 0; index < choices.length; index += 1) {
+      const scale = choices[index];
+      if (width * scale <= maxWidth && height * scale <= maxHeight && scale > best) {
+        best = scale;
+      }
+    }
+    return best;
+  }
+
   function backgroundPaint(name) {
     return BACKGROUNDS[name] || BACKGROUNDS.checker;
   }
@@ -374,6 +394,7 @@
     createPlayback: createPlayback,
     paintFrame: paintFrame,
     pixelSize: pixelSize,
+    fitIntegerScale: fitIntegerScale,
     backgroundPaint: backgroundPaint,
     snapshotReady: snapshotReady,
   };

@@ -6,6 +6,7 @@ const {
   SCALES,
   SPEEDS,
   createPlayback,
+  fitIntegerScale,
   paintFrame,
   pixelSize,
   backgroundPaint,
@@ -362,6 +363,15 @@ test("an incomplete snapshot is refused and the previous picture stays", functio
   assert.equal(player.state().error, "快照不完整");
   assert.equal(player.state().png, "png-0");
   assert.equal(player.state().playing, false);
+});
+
+test("the opening scale is the largest integer that fits, otherwise 1", function () {
+  assert.equal(fitIntegerScale(128, 128, 316, 360, SCALES), 2);
+  assert.equal(fitIntegerScale(128, 128, 900, 620, SCALES), 4);
+  assert.equal(fitIntegerScale(128, 128, 2000, 2000, SCALES), 8);
+  assert.equal(fitIntegerScale(400, 400, 300, 300, SCALES), 1);
+  assert.equal(fitIntegerScale(10, 10, 25, 25, [1, 1.5, 2, 3]), 2);
+  assert.equal(fitIntegerScale(0, 128, 300, 300, SCALES), 1);
 });
 
 test("scale and background stay on the listed preview values", function () {
