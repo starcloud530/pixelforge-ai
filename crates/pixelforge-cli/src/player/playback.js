@@ -124,6 +124,7 @@
     let shownAt = 0;
     let scale = 4;
     let background = "checker";
+    let intoMs = 0;
 
     function action() {
       return view.actions[actionIndex];
@@ -138,10 +139,17 @@
       }
       if (action().plays === 1 && finished) {
         step = 0;
+        intoMs = 0;
         finished = false;
+        shownAt = now;
+        playing = true;
+        return;
       }
+      const delay = action().steps[step].delayMs;
+      const wait = delay / speed;
+      const fraction = delay > 0 ? intoMs / delay : 0;
+      shownAt = now - fraction * wait;
       playing = true;
-      shownAt = now;
     }
 
     function pause() {
@@ -206,6 +214,66 @@
       shownAt = now;
     }
 
+    function prefixMs(index) {
+      const steps = action().steps;
+      let sum = 0;
+      const end = Math.max(0, Math.min(index, steps.length));
+      for (let cursor = 0; cursor < end; cursor += 1) {
+        sum += steps[cursor].delayMs;
+      }
+      return sum;
+    }
+
+    function durationMs() {
+      return prefixMs(action().steps.length);
+    }
+
+    function sourceTimeMs(now) {
+      const steps = action().steps;
+      if (!steps.length) {
+        return 0;
+      }
+      if (finished) {
+        return durationMs();
+      }
+      const delay = steps[step].delayMs;
+      if (playing) {
+        const wait = delay / speed;
+        const spent = Math.min(Math.max(0, now - shownAt), wait);
+        const fraction = wait > 0 ? spent / wait : 0;
+        return prefixMs(step) + fraction * delay;
+      }
+      return prefixMs(step) + intoMs;
+    }
+
+    function seekSource(ms, now) {
+      const steps = action().steps;
+      if (!steps.length) {
+        return;
+      }
+      pause();
+      const total = durationMs();
+      const clamped = Math.max(0, Math.min(Number(ms) || 0, total));
+      let acc = 0;
+      let index = steps.length - 1;
+      let into = steps[index].delayMs;
+      for (let cursor = 0; cursor < steps.length; cursor += 1) {
+        const next = acc + steps[cursor].delayMs;
+        if (clamped < next || cursor === steps.length - 1) {
+          index = cursor;
+          into = Math.max(0, Math.min(steps[cursor].delayMs, clamped - acc));
+          break;
+        }
+        acc = next;
+      }
+      step = index;
+      intoMs = into;
+      finished = action().plays === 1 && total > 0 && clamped >= total;
+      const wait = steps[index].delayMs / speed;
+      const fraction = steps[index].delayMs > 0 ? into / steps[index].delayMs : 0;
+      shownAt = now - fraction * wait;
+    }
+
     function stepBy(delta, now) {
       const count = action().steps.length;
       if (!count) {
@@ -213,10 +281,8 @@
       }
       pause();
       finished = false;
-      step = (step + delta) % count;
-      if (step < 0) {
-        step += count;
-      }
+      step = Math.max(0, Math.min(count - 1, step + delta));
+      intoMs = 0;
       shownAt = now;
     }
 
@@ -228,6 +294,7 @@
       pause();
       finished = false;
       step = index;
+      intoMs = 0;
       shownAt = now;
     }
 
@@ -235,8 +302,16 @@
       jumpTo(0, now);
     }
 
+    function speedAllowed(next) {
+      if (!Number.isFinite(next) || next < 0.25 || next > 4) {
+        return false;
+      }
+      const snapped = Math.round(next * 4) / 4;
+      return Math.abs(snapped - next) < 1e-6;
+    }
+
     function setSpeed(next, now) {
-      if (SPEEDS.indexOf(next) < 0) {
+      if (!speedAllowed(next)) {
         return;
       }
       if (playing && !error) {
@@ -260,6 +335,7 @@
       }
       actionIndex = found;
       step = 0;
+      intoMs = 0;
       finished = false;
       shownAt = now;
     }
@@ -292,6 +368,7 @@
       const previous = { kind: action().kind, id: action().id };
       const keepStep = step;
       const wasPlaying = playing;
+      intoMs = 0;
       view = {
         ok: true,
         revision: next.revision,
@@ -378,6 +455,9 @@
       stepBy: stepBy,
       jumpTo: jumpTo,
       toStart: toStart,
+      duration: durationMs,
+      sourceTime: sourceTimeMs,
+      seekSource: seekSource,
       setSpeed: setSpeed,
       selectAction: selectAction,
       setScale: setScale,

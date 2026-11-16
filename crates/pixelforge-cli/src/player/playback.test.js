@@ -191,12 +191,69 @@ test("pause, step, and resume do not restart a once action", function () {
   player.stepBy(-1, 5000);
   assert.equal(player.state().frame, 0);
   player.stepBy(-1, 5000);
-  assert.equal(player.state().frame, 2);
-  player.play(5000);
-  player.tick(5079);
-  assert.equal(player.state().frame, 2);
-  player.tick(5080);
   assert.equal(player.state().frame, 0);
+  player.play(5000);
+  player.tick(5039);
+  assert.equal(player.state().frame, 0);
+  player.tick(5040);
+  assert.equal(player.state().frame, 1);
+});
+
+test("seek uses source delays in playback order and stays paused", function () {
+  const player = playerOf([action("go", "forward", 0, steps())]);
+  player.play(0);
+  player.seekSource(39, 10);
+  assert.equal(player.state().playing, false);
+  assert.equal(player.state().step, 0);
+  assert.equal(player.sourceTime(10), 39);
+  player.seekSource(40, 10);
+  assert.equal(player.state().step, 1);
+  assert.equal(player.state().frame, 1);
+  player.seekSource(240, 10);
+  assert.equal(player.state().step, 2);
+  player.seekSource(9999, 10);
+  assert.equal(player.state().step, 2);
+  assert.equal(player.sourceTime(10), 320);
+  assert.equal(player.duration(), 320);
+  player.setSpeed(4, 10);
+  assert.equal(player.duration(), 320);
+  assert.equal(player.state().delayMs, 80);
+});
+
+test("pingpong and reverse seeks follow steps, not source frame order", function () {
+  const player = playerOf([
+    action("back", "reverse", 0, [
+      { frame: 2, delayMs: 80 },
+      { frame: 1, delayMs: 200 },
+      { frame: 0, delayMs: 40 },
+    ]),
+    action("bounce", "pingpong", 0, [
+      { frame: 0, delayMs: 40 },
+      { frame: 1, delayMs: 200 },
+      { frame: 2, delayMs: 80 },
+      { frame: 1, delayMs: 200 },
+    ]),
+  ]);
+  player.selectAction("back", 0);
+  player.seekSource(0, 0);
+  assert.equal(player.state().frame, 2);
+  player.seekSource(80, 0);
+  assert.equal(player.state().frame, 1);
+  player.selectAction("bounce", 0);
+  player.seekSource(320, 0);
+  assert.equal(player.state().step, 3);
+  assert.equal(player.state().frame, 1);
+  player.seekSource(319, 0);
+  assert.equal(player.state().step, 2);
+  assert.equal(player.state().frame, 2);
+});
+
+test("a quarter-step speed is accepted and an out-of-range speed is not", function () {
+  const player = playerOf([action("go", "forward", 0, steps())]);
+  player.setSpeed(0.75, 0);
+  assert.equal(player.state().speed, 0.75);
+  player.setSpeed(4.25, 0);
+  assert.equal(player.state().speed, 0.75);
 });
 
 test("speed changes the preview clock and leaves frame delays alone", function () {
