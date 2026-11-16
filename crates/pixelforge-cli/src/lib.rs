@@ -9,6 +9,7 @@ mod asset_cmd;
 mod character_cmd;
 mod checkpoint;
 mod cli;
+mod direction_review_cmd;
 mod export_files;
 mod failure;
 mod manifest_cmd;
@@ -1932,6 +1933,7 @@ fn cmd_direction(command: DirectionCmd) -> i32 {
             };
             export_files::export_direction(&mut session, &facing, &output, scale)
         }
+        review @ DirectionCmd::Review { .. } => direction_review_cmd::run(review),
     }
 }
 

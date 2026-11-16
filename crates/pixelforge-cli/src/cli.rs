@@ -544,7 +544,9 @@ pub enum Command {
     /// `set` stores the grid. `apply` writes idle/walk tags. `validate` is a
     /// hard error when a facing or a key span is missing. `fill` copies or
     /// horizontally mirrors cardinal pixels into the other cardinal rows.
-    /// Naming tags does not paint a natural walk, and fill is not one either.
+    /// `review` is read-only: one action, one frame from each of eight
+    /// facings, and it does not judge the drawing. Naming tags does not paint
+    /// a natural walk, and fill is not one either.
     Direction {
         #[command(subcommand)]
         command: DirectionCmd,
@@ -1949,6 +1951,101 @@ pub enum DirectionCmd {
         #[arg(long, default_value_t = 1)]
         scale: u32,
     },
+    /// Read-only eight-direction contact sheet for one action.
+    ///
+    /// Writes a labeled 3×3 sheet in screen order, an aligned sheet when a
+    /// baseline was provided, adjacent overlays, and `review.json`. Does not
+    /// edit the project. An empty slot is not filled from another facing.
+    /// Exit 0: no structural or alignment finding (observations may remain).
+    /// Exit 1: a facing, frame, named anchor, or offset past `--tolerance` failed.
+    /// Exit 2: the project or the arguments could not be read. This does not
+    /// judge whether the drawing looks good. A narrower side view is an
+    /// observation. Parts without a curve or constraint are the rest pose,
+    /// not that frame's anchor. A missing baseline is reported as 未提供.
+    Review {
+        #[command(flatten)]
+        doc: ProjectArgs,
+        /// Action token, as in `{action}_{facing}`. For example `idle` or `attack`.
+        #[arg(long)]
+        action: String,
+        /// 0-based index inside each `{action}_{facing}` tag. Default 0.
+        ///
+        /// The same offset is used on every facing. It does not select another
+        /// action that happens to sit on that timeline index.
+        #[arg(long, conflicts_with = "column")]
+        at: Option<u32>,
+        /// Column inside the facing row. Requires `directionLayout`.
+        ///
+        /// The frame is used only when that column lies inside the action tag.
+        /// Column 0 of `walk` is a missing frame when idle occupies it.
+        #[arg(long, conflicts_with = "at")]
+        column: Option<u32>,
+        /// Directory for `positions.png`, overlays, and `review.json`.
+        #[arg(long)]
+        output: PathBuf,
+        /// Nearest-neighbor integer scale. Default 1.
+        #[arg(long, default_value_t = 1)]
+        scale: u32,
+        /// Alignment tolerance in source pixels. Default 0.
+        ///
+        /// Chebyshev distance of the chosen baseline from the reference facing
+        /// (`down` when that slot has the point). A user foot row compares y only.
+        #[arg(long, default_value_t = 0)]
+        tolerance: u32,
+        /// Origin column, with `--origin-y`. A user point, the same on every facing.
+        #[arg(
+            long,
+            requires = "origin_y",
+            allow_hyphen_values = true,
+            conflicts_with = "origin_part"
+        )]
+        origin_x: Option<i32>,
+        /// Origin row, with `--origin-x`.
+        #[arg(
+            long,
+            requires = "origin_x",
+            allow_hyphen_values = true,
+            conflicts_with = "origin_part"
+        )]
+        origin_y: Option<i32>,
+        /// Part whose origin is the registration point.
+        ///
+        /// Without a curve or a driving constraint this is the rest pose in
+        /// `parts`, not the anchor of each frame.
+        #[arg(long, conflicts_with_all = ["origin_x", "origin_y"])]
+        origin_part: Option<String>,
+        /// One foot row for every facing. Not a search for the lowest opaque pixel.
+        #[arg(long, allow_hyphen_values = true, conflicts_with = "foot_anchor")]
+        foot_y: Option<i32>,
+        /// Foot anchor as `part:name`.
+        #[arg(long, value_name = "PART:NAME", conflicts_with = "foot_y")]
+        foot_anchor: Option<String>,
+        /// Anchor to report, as `part:name`. Repeat for more than one.
+        ///
+        /// A name that is not on the part is a structural finding. The point
+        /// is 未提供. The bounding box is not used in its place.
+        #[arg(long = "anchor", value_name = "PART:NAME")]
+        anchor: Vec<String>,
+        /// Baseline used to shift the aligned sheet and the overlays.
+        ///
+        /// Default: foot if requested, otherwise origin, otherwise the first
+        /// `--anchor`. A missing higher-priority baseline does not fall through.
+        #[arg(long, value_enum)]
+        align: Option<DirectionAlignArg>,
+        /// `part:name` when `--align anchor`. Defaults to the first `--anchor`.
+        #[arg(long, value_name = "PART:NAME")]
+        align_anchor: Option<String>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum DirectionAlignArg {
+    /// The origin from `--origin-x/y` or `--origin-part`.
+    Origin,
+    /// The foot from `--foot-y` or `--foot-anchor`.
+    Foot,
+    /// An anchor from `--align-anchor` or the first `--anchor`.
+    Anchor,
 }
 
 #[derive(Subcommand)]

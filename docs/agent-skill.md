@@ -303,11 +303,16 @@ pixelforge direction list --project hero.json
 pixelforge direction fill --project hero.json --from left --mode mirror
 pixelforge direction fill --project hero.json --from down --mode copy
 pixelforge direction export --project hero.json --facing south --output south.png
+pixelforge direction review --project hero.json --action attack --at 0 --output review/ --scale 4 --anchor body:sole
 ```
 
 `direction set --count 4` 是 N/E/S/W，行序仍是 down、left、right、up（S、W、E、N）。`--count 8` 在这四行后面加 downleft、downright、upleft、upright，不挪前四行。`--apply` 按现有标签规则写 idle/walk，不画像素。`direction fill --mode mirror` 把 left 水平翻到 right，或反过来；`--mode copy` 把源朝向原样拷到其余基本朝向，用来占位，不是新的走路。已有墨水的目标帧默认跳过，`--overwrite` 才盖掉。八向的对角行不填。缺源朝向的 idle/walk 或其它 `{动作}_{朝向}` 帧段时整次不写。填充不写标签，也不修高光。`direction validate` 缺方向或缺关键帧段时退出码 1。通过不是自然步态，也不是审美通过，更不是 PixelLab 自动画四向。细节在 [pixelforge-sprite-4dir](../skills/pixelforge-sprite-4dir/SKILL.md)。小例子是 [pixelforge-demos](../pixelforge-demos/README.md)。
 
 *`direction set --count 4` is N/E/S/W in sheet order: down, left, right, up. `--count 8` appends the diagonals and does not move those rows. `--apply` writes idle/walk tags and does not paint. `direction fill --mode mirror` flips left into right, or right into left. `--mode copy` repeats one cardinal on the others as a placeholder, not a new walk. A target frame that already has ink is skipped unless `--overwrite` is set. Diagonal rows are not filled. A missing source idle/walk segment, or any other `{action}_{facing}` the layout already uses, writes nothing. Fill does not write tags and does not repair highlights. `direction validate` exits 1 when a facing or a key span is missing. A pass is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw. The worked commands are in [pixelforge-demos](../pixelforge-demos/README.md).*
+
+`direction review` 只读，不进 `pixelforge tools`。`--action` 加上 `--at`（该动作标签内的帧序号，默认 0）或 `--column`（朝向行的列，且必须落在这个动作里）。八个朝向各取一帧；缺的留空，不复制。`--anchor part:name`、`--foot-anchor`、`--foot-y`、`--origin-part`、`--origin-x/--origin-y` 是基准，缺了写「未提供」。`positions.png` 保留原位置，`aligned.png` 和 `overlay-*.png` 另写，JSON 记下每个方向的偏移。退出码 0 是没有结构问题、也没有超出 `--tolerance` 的对齐偏差。观察（侧面变窄、包围盒变化）不判错。退出码 1 是结构或对齐问题。退出码 2 是文件或参数没有跑起来。不判定画得好不好。
+
+*`direction review` is read-only and is not a `pixelforge tools` entry. `--action` with `--at` (index inside that action's tag, default 0) or `--column` (a layout column that must lie inside the action) picks one frame from each of eight facings. A gap stays empty and is not copied. Baselines are `--anchor part:name`, `--foot-anchor`, `--foot-y`, `--origin-part`, or `--origin-x`/`--origin-y`. A missing one is 未提供. `positions.png` keeps the original placement. `aligned.png` and `overlay-*.png` are separate, and the JSON records each offset. Exit 0 means no structural finding and no alignment offset past `--tolerance`. Observations, including a narrower side view, are not errors. Exit 1 is structural or alignment. Exit 2 means the file or the arguments did not run. It does not judge the drawing.*
 
 ### 部件与锚点 Parts and anchors
 

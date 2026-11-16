@@ -52,6 +52,7 @@ mod constraint;
 mod convert;
 mod curve;
 mod direction;
+mod direction_review;
 mod document;
 mod error;
 mod export;
@@ -93,6 +94,11 @@ pub use direction::{
     parse_direction_tag, parse_facing, DirectionAction, DirectionFacingView, DirectionFillFrame,
     DirectionFillReport, DirectionFillTarget, DirectionFinding, DirectionLayout, DirectionReport,
     DirectionSegmentView, DirectionSheet, Facing, FillMode, IdleWalkFault,
+};
+pub use direction_review::{
+    DirectionReview, DirectionReviewAlign, DirectionReviewAnchorName, DirectionReviewError,
+    DirectionReviewFoot, DirectionReviewOptions, DirectionReviewOrigin, DirectionReviewReport,
+    DIRECTION_REVIEW_FORMAT, DIRECTION_REVIEW_VERSION,
 };
 pub use document::{BakeFrame, BakeOptions, BakeReport, Document, QuarterTurn};
 pub use error::{KernelError, ProjectFileError};

@@ -442,6 +442,22 @@ pixelforge direction validate --project hero.json
 
 *`direction set` stores the facing rows. `direction apply` writes `{action}_{facing}` tags and does not paint. `direction fill` then copies that cardinal row's indices. `mirror` flips left into right, or right into left. `copy` repeats the source on the other three cardinals as a placeholder for north and south. A target frame that already has ink is skipped unless `--overwrite` is set. Diagonal rows are not filled. A missing source segment writes nothing. Indices move; colors, parts, and highlights do not. Repaint highlights after a mirror. A copy is not a new walk. `direction validate` only checks that the spans are present. It is not a natural gait, not an aesthetic pass, and not a PixelLab four-direction draw. The sheet layout is `pixelforge-sprite-4dir`. The 8×4 example is the direction-fill sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published).*
 
+### 八向检查 Direction review
+
+`direction review` 只读。它不改工程、像素、标签、锚点或 history。按一个动作，从八个朝向各取同一相对位置的一帧，写成带方向标注的九宫格。缺方向或缺帧留空槽，不从别的方向复制。
+
+```bash
+pixelforge direction review --project hero.json --action attack --at 0 --output review/ --scale 4 --anchor body:sole
+```
+
+`--at N` 是每个 `{动作}_{朝向}` 标签内部的第 N 帧（从 0 起）。`--column N` 是朝向行里的列，而且这一列必须落在该动作标签里；walk 的第 0 列若是 idle，就是缺帧，不会拿待机去比攻击。`--foot-anchor part:name`、`--origin-part` 或 `--origin-x/--origin-y` 给出基准。没有就写「未提供」。不用包围盒中心当原点，不用最低不透明像素当脚底。没有曲线或约束可求值时，`parts` 是静止姿势，不是该帧的实际锚点。
+
+`positions.png` 是原始位置。给了基准才写 `aligned.png`，并在 JSON 里记下每个方向的偏移。相邻方向的叠图是 `overlay-*.png`。`review.json` 的 `format` 是 `pixelforge-direction-review`，`version` 是 1。
+
+退出码：`0` 没有结构问题、也没有超出 `--tolerance` 的对齐偏差（观察可以有）。`1` 有结构问题（缺方向、缺帧、指定锚点或部件缺失、求值失败）或对齐偏差。`2` 工程打不开或参数不成立。侧面变窄、包围盒变大是 `observation`，不把退出码变成 1。这条命令不判定画得好不好。
+
+*`direction review` is read-only. It does not change the project, pixels, tags, anchors, or history. It takes one relative frame of one action from each of the eight facings and writes a labeled 3×3 sheet. A missing facing or frame stays an empty slot and is not copied from another facing. `--at N` is the Nth frame inside each `{action}_{facing}` tag. `--column N` is a layout column, and only when that column lies inside the action tag. A missing baseline is `未提供`. The bounding-box center is not an origin, and the lowest opaque pixel is not a foot. Without a curve or a driving constraint, `parts` is the rest pose, not that frame's anchor. `positions.png` keeps the original placement. `aligned.png` is written when a baseline was provided, and the JSON records each offset. Overlays are `overlay-*.png`. Exit 0 means no structural finding and no alignment offset past `--tolerance`. Observations, including a narrower side view, do not fail. Exit 1 is a structural or alignment finding. Exit 2 means the project or the arguments could not be read. The command does not judge the drawing.*
+
 ### 士兵的枪和握持点 Gun and grip
 
 部件不是层。枪的像素画在 `gear` 上，部件记下原点和锚点。肩和肘可以不挂层，只是身体上的点。本地 `(0, 0)` 是 `part add` 的 `x,y`。握持点 `(2, 2)` 的画布格是 `(26, 14)`。抬枪用 `part rotate`，不要再把每一格 `fillRect` 一遍。

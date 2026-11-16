@@ -889,7 +889,27 @@ CLI：`pixelforge direction fill --from left --mode mirror`。占位用 `pixelfo
 
 *CLI: `pixelforge direction fill --from left --mode mirror`. A placeholder for the other cardinals is `pixelforge direction fill --from down --mode copy`. `--overwrite` replaces ink. Set the tags first with `direction set --apply`, or name the source `{action}_{facing}` segments yourself. Fill does not write tags.*
 
-### 部件与锚点 Parts and anchors
+### 八向检查 `direction review`
+
+这不是 `call` 工具，不在 `tools` 列表里。CLI 只读打开工程，调用 `Document::review_directions`，把 PNG 和 `review.json` 写到 `--output`。不改工程、像素、标签、锚点或 history。
+
+选帧：`--action` 是 `{action}_{facing}` 里的动作。`--at N`（默认 0）是该标签内部从 `from` 起的第 N 帧。`--column N` 用 `directionLayout` 的行首加列号，而且这一帧必须落在该动作标签里，否则这个方向是缺帧。不会拿另一个动作或另一个方向的帧来补。
+
+九宫格按画面方向排：上排 upleft、up、upright，中排 left、说明、right，下排 downleft、down、downright。每格同一画布，再按 `--scale` 做整数倍最近邻。`positions.png` 不移位。给了基准才写 `aligned.png`。八张相邻叠图是 `overlay-<a>-<b>.png`。参考朝向优先 `down`。偏移是参考点减去该方向的点，使基准重合。`--foot-y` 只比 y。
+
+基准来源写成 `user`（用户参数）、`restPose`（工程字段 `parts`，静止姿势）、`curve`、`constraint` 或 `curveAndConstraint`（该帧 `solve_constraints`，`apply` 为 false）。没有可求值数据时不把静止姿势说成该帧锚点。缺失的 `text` 是「未提供」。主体包围盒是合成索引里非 0 格的外接矩形，不是原点，也不是脚底。
+
+`review.json` 的 `format` 是 `pixelforge-direction-review`，`version` 是 1。`findings[].severity` 是 `structural`、`alignment` 或 `observation`。结构问题是缺方向、缺帧、重复标签、缺部件、缺锚点、求值失败。对齐问题是相对参考朝向的切比雪夫距离大于 `--tolerance`（默认 0）。观察包括侧面变窄和包围盒变化，不增加 `errorCount`。stdout 在检查跑完时 `ok` 为 true。退出码 0 是 `errorCount` 为 0，1 是 `errorCount` 大于 0，2 是没跑起来。`judgesArt` 恒为 false。
+
+*This is not a `call` tool and it is not in the `tools` list. The CLI opens the project read-only, calls `Document::review_directions`, and writes the PNGs and `review.json` to `--output`. It does not change the project, pixels, tags, anchors, or history.*
+
+*`--action` is the action in `{action}_{facing}`. `--at N` (default 0) is the Nth frame inside that tag. `--column N` is the layout row start plus the column, and the frame counts only when it lies inside the action tag. Another action or facing is not copied in.*
+
+*The sheet is screen order: upleft, up, upright / left, a note, right / downleft, down, downright. Every cell is the same canvas, then `--scale` nearest-neighbor. `positions.png` is unshifted. `aligned.png` is written only when a baseline was provided. Eight neighbor overlays are `overlay-<a>-<b>.png`. The reference facing is `down` when that slot has the point. An offset is the reference point minus this facing's point. `--foot-y` compares y only.*
+
+*Sources are `user`, `restPose` (the `parts` field, not a per-frame anchor), `curve`, `constraint`, or `curveAndConstraint` (`solve_constraints` at that frame with `apply` false). A missing point has `text` 未提供. Subject bounds are the non-zero cells of the index composite. They are not an origin and not a foot.*
+
+*`review.json` uses `format` `pixelforge-direction-review` and `version` 1. `findings[].severity` is `structural`, `alignment`, or `observation`. Structural findings are a missing facing, a missing frame, a duplicate tag, a missing part, a missing anchor, or a failed solve. Alignment is the Chebyshev distance from the reference facing past `--tolerance` (default 0). Observations, including a narrower side view and a changed bounding box, do not increase `errorCount`. A finished check has `ok: true` on stdout. Exit 0 means `errorCount` is 0, exit 1 means it is not, and exit 2 means the command did not run. `judgesArt` is always false.*
 
 部件是名字、画布上的静止原点，可选的层下标，和一组命名锚点。它写在工程文件的 `parts` 里；没有部件时省略这个字段。旧文件没有该字段时按空列表读入。撤销栈仍然不进文件。
 

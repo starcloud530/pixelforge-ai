@@ -142,6 +142,14 @@ pixelforge direction fill --project hero.json --from left --mode copy
 
 `direction export --facing` 接受 `S`、`south`、`down`，八向布局再接受对角。导出的是这一行的一张表，不是另一份 atlas。整张表仍用 `export sheet --cols`，再 `validate-atlas`。
 
+八向摆在一起看，用只读的 `direction review`。它按一个动作和 `--at`（标签内的第几帧）或 `--column`（必须落在该动作里）从八个朝向取帧。缺的格子留空，不拿别的方向补。`--anchor part:name` 或 `--foot-anchor` 才是基准；没有就写「未提供」，不会用包围盒或最低不透明像素猜脚。侧面变窄只是观察。退出码 0 不是「画得好」。
+
+```bash
+pixelforge direction review --project hero.json --action walk --at 0 --output review/ --scale 4 --anchor body:sole
+```
+
+*To lay the eight facings out, `direction review` is read-only. `--at` or `--column` picks one frame of one action on every facing. An empty slot is not filled from another facing. A named anchor is the baseline; otherwise the report says 未提供. It does not guess a foot from the bounding box or the lowest opaque pixel. A narrower side view is an observation. Exit 0 does not mean the drawing looks good.*
+
 丧尸包 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (demo-zombie / packs when published) 的工程带 `directionLayout` `{count: 4, columns: 4}`。`validate.py` 会跑 `direction validate`。道具没有方向布局。已提交的右朝向是 left 镜像之后又把高光画回去的，不要对那份工程 `direction fill --overwrite`。
 
 自动命名、`direction fill` 和 `direction validate` 通过，只说明帧段齐了、像素按规则搬过。脚滑、高光、动作僵不僵，仍要自己看 `diff` 和 `preview`。这不是自然步态，也不是审美通过，也不是 PixelLab 自动画四向。

@@ -41,6 +41,10 @@ pixelforge diff --project hero.json --frame A --with B --scale 4
 
 打不开彩色 PNG 时，色阶那一条写「未核」，不要写成通过。
 
+八向同一动作要对照时，可以跑 `pixelforge direction review --project hero.json --action attack --at 0 --output review/ --scale 4`。它只读。结构问题（缺方向、缺帧、指定锚点缺失）和对齐偏差写在 `review.json` 里，并标明方向。侧面变窄、包围盒变大是观察，不是美术错误。退出码 0 只说明没有这些结构问题或超容差的偏移，不说明画得好。脚底没有 `--foot-anchor`、`--foot-y` 或可求值的曲线/约束时，报告写「未提供」，不要把包围盒底边当成脚。
+
+*For one action across eight facings, `direction review` is read-only. Structural gaps and alignment offsets are findings. A narrower side view and a larger bounding box are observations, not art errors. Exit 0 does not mean the picture looks good. Without a named foot or an evaluable curve or constraint, the baseline is 未提供. Do not treat the bottom of the bounding box as the foot.*
+
 ## 如何读状态
 
 先 `pixelforge scene --project hero.json`。它不改文件。用 `result.width` / `height`、`activeFrame`、`activeLayer`、`layers`、`paletteHash`、`frameCount`、`frames[].delayMs` 确认你在看哪一帧、哪一层、哪套颜色。`visible` 是布尔，`opacity` 是 `0..=255`。隐藏层和 opacity 0 不在合成里。半透明的 ASCII 仍是盖住的索引，颜色以彩色 PNG 为准。层 `opacity` 在 1 到 254 时再跑 `preview --compare --scale 4`：左是未量化 RGBA，右是压平会写下的索引色，工程文件不动。不要用 ASCII 判断光束或叠色。`scene` 不带像素；格子在 `preview` 和 `diff` 里。
