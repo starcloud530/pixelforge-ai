@@ -36,8 +36,23 @@
     line-height: 18px;
   }
   button, select, input { font: inherit; color: inherit; }
-  button { cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    background-image: none;
+    box-shadow: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  button::-moz-focus-inner { border: 0; padding: 0; }
+  button:focus:not(:focus-visible) { outline: none; }
+  :focus-visible,
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .sr {
     position: absolute;
     width: 1px;
@@ -148,18 +163,37 @@
     border-radius: 8px;
     background: transparent;
     color: var(--text);
+    transition: background-color 120ms ease-out;
   }
-  .icon-btn svg, .zoom svg { width: 20px; height: 20px; display: block; }
+  .icon-btn svg, .zoom svg, #play svg { width: 20px; height: 20px; display: block; }
   .icon-btn:hover, .zoom button:hover, #speed-readout:hover, #speed-open:hover, #bg-open:hover, #more:hover { background: var(--hover); }
+  .icon-btn:active, .zoom button:active, #speed-readout:active, #speed-open:active, #bg-open:active, #more:active { background: #32363e; }
   .icon-btn:disabled, .zoom button:disabled { opacity: 0.35; cursor: default; background: transparent; }
   #play {
+    display: grid;
+    place-items: center;
     width: 48px;
     height: 48px;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
     background: var(--accent);
+    background-image: none;
+    box-shadow: none;
     color: var(--on-accent);
+    transition: background-color 120ms ease-out;
   }
-  #play:hover { background: var(--accent); filter: brightness(1.05); }
-  #count { color: var(--secondary); font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+  #play:hover { background: #b7dcff; }
+  #play:active { background: #6eb4f0; }
+  .count {
+    flex: 0 0 auto;
+    color: var(--secondary);
+    font-size: 12px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .count-scrub { display: none; }
   .spacer { flex: 1 1 auto; }
   .speed-desktop { display: flex; align-items: center; gap: 8px; color: var(--secondary); }
   .speed-desktop input[type="range"] { width: 128px; accent-color: var(--accent); }
@@ -225,12 +259,20 @@
   @media (max-width: 719px) {
     .app { padding: 12px; }
     .docbar { height: 40px; }
-    .icon-btn, .zoom button, #speed-open, #bg-open, #play { width: 44px; height: 44px; }
-    #speed-open { display: grid; }
+    .icon-btn, .zoom button, #speed-open, #bg-open, #play {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+    }
+    #speed-open { display: grid; width: auto; min-width: 44px; flex-basis: auto; }
     .speed-desktop { display: none; }
     .transport { flex-basis: auto; height: auto; }
-    .trow { min-height: 60px; }
-    #count { margin-left: auto; }
+    .trow { min-height: 60px; gap: 4px; padding: 0 8px; }
+    #count { display: none; }
+    .count-scrub { display: block; margin-left: 8px; }
+  }
+  @media (max-width: 360px) {
+    .scrub, .trow { gap: 2px; padding-left: 0; padding-right: 0; }
   }
   @media (max-height: 520px) {
     body { overflow-y: auto; }
@@ -287,6 +329,7 @@
         <input id="scrub" type="range" min="0" max="1" step="1" value="0" aria-label="播放位置">
       </div>
       <span class="time end" id="time-total">00.000</span>
+      <span id="count-scrub" class="count count-scrub" title="播放步骤">1 / 1</span>
     </div>
     <div class="trow">
       <button type="button" class="icon-btn" id="to-start" aria-label="回到播放起点" title="回到播放起点">
@@ -296,12 +339,12 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h2.2v14H6z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M17 7 11 12l6 5"/></svg>
       </button>
       <button type="button" id="play" aria-label="播放" title="播放（空格）">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5z"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" transform="translate(1 0)" d="M8 5.5v13l11-6.5z"/></svg>
       </button>
       <button type="button" class="icon-btn" id="step-fwd" aria-label="下一帧" title="下一帧（右方向键）">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M7 7l6 5-6 5"/><path fill="currentColor" d="M15.8 5H18v14h-2.2z"/></svg>
       </button>
-      <span id="count" title="播放步骤">1 / 1</span>
+      <span id="count" class="count" title="播放步骤">1 / 1</span>
       <span class="spacer"></span>
       <div class="speed-desktop">
         <span id="speed-label">速度</span>
@@ -356,6 +399,7 @@
   const timeNow = document.querySelector("#time-now");
   const timeTotal = document.querySelector("#time-total");
   const count = document.querySelector("#count");
+  const countScrub = document.querySelector("#count-scrub");
   const playButton = document.querySelector("#play");
   const speed = document.querySelector("#speed");
   const speedNarrow = document.querySelector("#speed-narrow");
@@ -366,7 +410,7 @@
   const bgPanel = document.querySelector("#bg-panel");
   const loopLabel = { forward: "正向循环", reverse: "反向循环", pingpong: "往返", once: "播放一次" };
   const icons = {
-    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5z"/></svg>',
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" transform="translate(1 0)" d="M8 5.5v13l11-6.5z"/></svg>',
     pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4.2v14H6zM13.8 5H18v14h-4.2z"/></svg>',
     replay: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path fill="currentColor" d="M16 3v6h6z"/></svg>'
   };
@@ -535,8 +579,12 @@
       scrubTip.textContent = (state.step + 1) + " / " + state.stepCount + " · " + formatSource(time);
     }
     scrub.setAttribute("aria-valuetext", formatSource(time) + "，播放步骤 " + (state.step + 1) + " / " + state.stepCount + "，源帧 " + state.frame);
-    count.textContent = (state.step + 1) + " / " + state.stepCount;
-    count.title = "播放步骤 " + count.textContent + "，源帧 " + state.frame;
+    const countText = (state.step + 1) + " / " + state.stepCount;
+    const countTitle = "播放步骤 " + countText + "，源帧 " + state.frame;
+    count.textContent = countText;
+    count.title = countTitle;
+    countScrub.textContent = countText;
+    countScrub.title = countTitle;
     const single = state.stepCount < 2;
     document.querySelector("#step-back").disabled = single || (state.step === 0 && player.sourceTime(now) <= 0);
     document.querySelector("#step-fwd").disabled = single || state.step >= state.stepCount - 1;
@@ -555,6 +603,25 @@
       mark.classList.toggle("is-current", index === state.step);
     });
     if (forceCanvas) render(state);
+  }
+  let playMode = "";
+  function syncPlayButton(state) {
+    const mode = state.finished ? "replay" : state.playing ? "pause" : "play";
+    if (mode === playMode) return;
+    playMode = mode;
+    if (mode === "replay") {
+      playButton.innerHTML = icons.replay;
+      playButton.setAttribute("aria-label", "重播动作");
+      playButton.title = "重播动作（空格）";
+    } else if (mode === "pause") {
+      playButton.innerHTML = icons.pause;
+      playButton.setAttribute("aria-label", "暂停");
+      playButton.title = "暂停（空格）";
+    } else {
+      playButton.innerHTML = icons.play;
+      playButton.setAttribute("aria-label", "播放");
+      playButton.title = "播放（空格）";
+    }
   }
   function render(state) {
     state = state || player.state();
@@ -589,19 +656,7 @@
     }
     document.querySelector("#zoom-out").disabled = state.scale <= api.SCALES[0];
     document.querySelector("#zoom-in").disabled = state.scale >= api.SCALES[api.SCALES.length - 1];
-    if (state.finished) {
-      playButton.innerHTML = icons.replay;
-      playButton.setAttribute("aria-label", "重播动作");
-      playButton.title = "重播动作（空格）";
-    } else if (state.playing) {
-      playButton.innerHTML = icons.pause;
-      playButton.setAttribute("aria-label", "暂停");
-      playButton.title = "暂停（空格）";
-    } else {
-      playButton.innerHTML = icons.play;
-      playButton.setAttribute("aria-label", "播放");
-      playButton.title = "播放（空格）";
-    }
+    syncPlayButton(state);
     document.querySelectorAll(".swatch").forEach(function (button) {
       const on = button.dataset.background === state.background;
       button.classList.toggle("is-selected", on);
@@ -694,20 +749,34 @@
     render();
   });
   scrub.addEventListener("input", function () {
-    if (!player || !dragging) return;
+    if (!player || scrub.disabled) return;
+    if (!dragging && document.activeElement !== scrub) return;
     player.seekSource(Number(scrub.value), performance.now());
     syncTransport(performance.now(), true);
   });
-  function endScrub(cancel) {
-    if (!dragging) return;
-    dragging = false;
-    scrubTip.hidden = true;
-    if (cancel && player) player.seekSource(dragOrigin, performance.now());
-    render();
+  let dragCancel = false;
+  let dragSettle = false;
+  function endScrub() {
+    if (!dragging && !dragCancel) return;
+    if (dragSettle) return;
+    dragSettle = true;
+    queueMicrotask(function () {
+      dragSettle = false;
+      if (!dragging && !dragCancel) return;
+      const cancel = dragCancel;
+      dragging = false;
+      dragCancel = false;
+      scrubTip.hidden = true;
+      if (cancel && player) player.seekSource(dragOrigin, performance.now());
+      if (player) render();
+    });
   }
-  scrub.addEventListener("pointerup", function () { endScrub(false); });
-  scrub.addEventListener("pointercancel", function () { endScrub(true); });
-  scrub.addEventListener("lostpointercapture", function () { endScrub(false); });
+  scrub.addEventListener("pointerup", endScrub);
+  scrub.addEventListener("pointercancel", function () {
+    dragCancel = true;
+    endScrub();
+  });
+  scrub.addEventListener("lostpointercapture", endScrub);
   errorToggle.addEventListener("click", function () {
     const open = errorDetail.hidden;
     errorDetail.hidden = !open;
@@ -817,9 +886,10 @@
   function frame(now) {
     if (player && !player.state().error) player.tick(now);
     if (player) {
-      const step = player.state().step;
-      syncTransport(now, step !== lastStep);
-      lastStep = step;
+      const state = player.state();
+      syncPlayButton(state);
+      syncTransport(now, state.step !== lastStep);
+      lastStep = state.step;
     }
     requestAnimationFrame(frame);
   }
