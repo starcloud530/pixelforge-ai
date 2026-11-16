@@ -273,8 +273,7 @@
     #count { display: none; }
     .count-scrub { display: block; margin-left: 8px; }
   }
-  @media (max-width: 360px) {
-    .scrub, .trow { gap: 2px; padding-left: 0; padding-right: 0; }
+  @media (max-width: 480px) {
     .toolbar {
       height: auto;
       flex-wrap: wrap;
@@ -288,6 +287,9 @@
       justify-content: flex-end;
       margin-left: 0;
     }
+  }
+  @media (max-width: 360px) {
+    .scrub, .trow { gap: 2px; padding-left: 0; padding-right: 0; }
   }
   @media (max-height: 520px) {
     body { overflow-y: auto; }
