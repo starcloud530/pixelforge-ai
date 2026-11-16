@@ -12,7 +12,7 @@ validate-atlas. Export does not write that pivot; the rules files do.
 
 Usage:
     cargo build -p pixelforge-cli
-    python3 examples/game-pack-zombie/build.py
+    python3 crates/pixelforge-kernel/tests/fixtures/game-pack-zombie/build.py
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-REPO = ROOT.parents[1]
+REPO = ROOT.parents[4]
 WIDTH = 64
 HEIGHT = 64
 SOLE = 56

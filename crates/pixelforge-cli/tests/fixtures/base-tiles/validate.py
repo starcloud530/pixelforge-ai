@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-REPO = ROOT.parents[1]
+REPO = ROOT.parents[4]
 
 # North 1, east 2, south 4, west 8. Wall tile id is mask + 1.
 # The room interior is empty, so a top-edge cell does not see a south neighbor.

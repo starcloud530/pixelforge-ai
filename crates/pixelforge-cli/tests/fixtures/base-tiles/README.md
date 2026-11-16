@@ -22,10 +22,10 @@
 
 ```bash
 cargo build -p pixelforge-cli
-python3 examples/base-tiles/build.py
-python3 examples/base-tiles/validate.py
+python3 crates/pixelforge-cli/tests/fixtures/base-tiles/build.py
+python3 crates/pixelforge-cli/tests/fixtures/base-tiles/validate.py
 ```
 
 `validate.py` 会拒绝缺了 mask 9 的规则，退出码 1，`error.code` 是 `AutotileRule`。
 
-把这里的 `base.tmj` 和 `tiles.png` 放进一个可跑的页面，见 [examples/lighthouse-outpost](../lighthouse-outpost/README.md)。
+把这里的 `base.tmj` 和 `tiles.png` 放进一个可跑的页面，见 [归档灯塔示例](https://github.com/starcloud530/pixelforge-ai/tree/8fe8c02/examples/lighthouse-outpost)。

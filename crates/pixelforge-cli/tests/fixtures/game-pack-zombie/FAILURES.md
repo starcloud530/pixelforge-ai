@@ -2,7 +2,7 @@
 
 这套包用当前 CLI 画完，并且 `validate-atlas --strict` 退出码是 0。下面是做的时候实际碰到的拒绝，以及退出码已经是 0、Godot / Unity 仍会做错的事。
 
-没有单独的游戏仓库，也没有在这个仓库里打开 Godot 或 Unity。消费侧就是这份清单，加上 [docs/export.md](../../docs/export.md) 的 Godot 4 / Unity 两节。`validate-atlas` 不自动修图。
+没有单独的游戏仓库，也没有在这个仓库里打开 Godot 或 Unity。消费侧就是这份清单，加上 [docs/export.md](../../../../../docs/export.md) 的 Godot 4 / Unity 两节。`validate-atlas` 不自动修图。
 
 探针都在临时目录里跑，没有改已提交的表。丧尸表不带规则时 `checks.pivot` 是 `skipped`；带 `zombie-rules.json` 时是 `checked`，`fourDirection` 为 true。道具规则把 `fourDirection` 关掉，`emptyTags` 为 `off`。
 
@@ -83,7 +83,7 @@ RotateSquare: 90 and 270 degree rotation needs a square rectangle, got 16x3
 
 ## 退出码 0 之后，Godot / Unity 仍会错
 
-引擎不读 `pixelforge-atlas`，也不读 `pixelforge-atlas-rules`。过滤、mipmap、轴心、动画名都要手接。[docs/export.md](../../docs/export.md) 的 Godot 4 和 Unity 是这三步的后两步。
+引擎不读 `pixelforge-atlas`，也不读 `pixelforge-atlas-rules`。过滤、mipmap、轴心、动画名都要手接。[docs/export.md](../../../../../docs/export.md) 的 Godot 4 和 Unity 是这三步的后两步。
 
 | 游戏里会错的地方 | 表上有什么 | 引擎要做什么 |
 | --- | --- | --- |

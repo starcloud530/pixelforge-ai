@@ -4,7 +4,7 @@
 
 通过只说明四向 idle/walk 帧段还在，而且像素按规则搬过。镜像不修高光。`copy` 不是新的正面或背面，也不是自然步态。这不是 PixelLab 自动画四向。八向的对角行这一版不填。
 
-丧尸包里已经交出去的右朝向是镜像之后又修过高光的。不要对 `examples/game-pack-zombie/zombie/zombie.json` 执行 `direction fill --overwrite`。
+丧尸包里已经交出去的右朝向是镜像之后又修过高光的。不要对 `crates/pixelforge-cli/tests/fixtures/game-pack-zombie/zombie/zombie.json` 执行 `direction fill --overwrite`。
 
 ## 命令
 

@@ -160,7 +160,7 @@ fn ellipse_zingl(x0: i32, y0: i32, x1: i32, y1: i32, fill: bool) -> Vec<(i32, i3
     let mut err = dx + dy + b1 * a * a;
     y0 += i32::try_from((b + 1) / 2).unwrap_or(i32::MAX);
     y1 = y0 - i32::try_from(b1).unwrap_or(0);
-    a *= 8 * a;
+    a = 8 * a * a;
     b1 = 8 * b * b;
 
     let mut cells = Vec::new();

@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{json, Value};
 
@@ -33,8 +34,10 @@ struct Scratch {
 
 impl Scratch {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "pixelforge-assets-{}-{}",
+            "pixelforge-assets-{}-{}-{unique}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

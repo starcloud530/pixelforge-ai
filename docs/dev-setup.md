@@ -33,10 +33,10 @@
 ```text
 Cargo.toml                 Cargo workspace（version 与发布标签对齐）
 dist-workspace.toml        预编译 CLI 的 cargo-dist 配置（生成 release.yml）
-mkdocs.yml                 GitHub Pages 文档站（MkDocs Material，部署在 /docs/）
+mkdocs.yml                 GitHub Pages 文档站（MkDocs Material，部署在本站根路径）
 requirements-docs.txt      文档站 Python 依赖
 .github/workflows/ci.yml   PR 与 main 上的测试和导出门禁（不部署）
-.github/workflows/pages.yml main 上构建营销落地页 + 文档站并部署到 GitHub Pages
+.github/workflows/pages.yml main 上构建文档站并部署到 GitHub Pages
 .github/workflows/release.yml
                            版本标签上的多平台 pixelforge 包（不部署服务）
 crates/pixelforge-kernel   索引像素、调色板、帧、画笔/橡皮、撤销栈、工程文件
@@ -46,7 +46,7 @@ crates/pixelforge-cli      本地 pixelforge 命令：打开工程，调用 Tool
 package.json               pnpm 脚本，含 build:wasm / build:landing
 pnpm-workspace.yaml
 apps/web                   Vite + React 外壳（工作室 GUI）
-apps/landing               Vite + React 营销落地页（Pages 根路径）
+apps/landing               Vite + React 营销页源码（宣传站发布由 pixelforge-demos 负责）
 skills/            外部 Agent 技能：pixelforge、pixelforge-draw、
                            pixelforge-sprite-4dir、pixelforge-layers、pixelforge-critique、
                            pixel-art-craft
@@ -113,26 +113,31 @@ cargo install --path crates/pixelforge-cli
 
 [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在每个 pull request 上跑，也在推送到 `main` 时跑。作业在 `ubuntu-latest` 上安装 Rust stable（缓存 Cargo），并保证有 `python3`。跑的是仓库根目录的同一套门禁，没有部署。多平台预编译不在这条工作流里，见下一节。
 
-本地按这个顺序复现。任一条退出码不是 0，CI 就失败：
+本地复现当前 CI：任一条退出码不是 0，CI 就失败。
 
 ```bash
 cargo test -p pixelforge-kernel
 cargo test -p pixelforge-cli
-cargo build -p pixelforge-cli
-python3 the pack validate script in pixelforge-demos (when published)
-python3 the tiles validate script in pixelforge-demos (when published)
-python3 the lighthouse validate script in pixelforge-demos (when published)
 ```
 
-前两条是内核和 CLI 测试。`cargo build -p pixelforge-cli` 把调试版 `pixelforge` 放到 `target/debug/`（上一条 `cargo test` 已经编过时，这一步几乎是空的）。`the pack validate script in pixelforge-demos (when published)` 对已提交的丧尸表和道具表执行 `validate-atlas --strict`，并跑 `project validate`、`asset validate` 和 `character check zombie` 核对 `pixelforge.manifest.json`。`the tiles validate script in pixelforge-demos (when published)` 核对图块和 `.tmj`。`the lighthouse validate script in pixelforge-demos (when published)` 重跑灯塔脚本并核对小场景引用的导出文件。这些脚本只依赖 Python 标准库。
+这两条包含内核和 CLI 的集成测试，包括转换、调色板策略、跨进程并发、revision 和技能打包。`crates/*/tests/fixtures/` 是测试夹具，不是对外演示。演示、导出验收和灯塔场景已迁往 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)，当前 CI 不运行该仓库的脚本。
 
-新功能要先收进上面 CI 会执行的测试或门槛脚本，再合进来。只在本地跑、工作流里没有的检查不算收录。
+本地额外检查（当前 CI 未自动执行）：
 
-*[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and on pushes to `main`. The job uses `ubuntu-latest`, Rust stable with a Cargo cache, and `python3`. It runs the sequence above from the repository root. A non-zero exit fails CI. There is no deploy step. Multi-platform prebuilt packages are the next section, not this workflow.*
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace
+pnpm install --frozen-lockfile
+pnpm build
+pnpm test
+pnpm build:landing
+mkdocs build --strict
+```
 
-*The first two commands test the kernel and the CLI. `cargo build -p pixelforge-cli` places the debug `pixelforge` binary in `target/debug/` (it is nearly free after the CLI tests). `the pack validate script in pixelforge-demos (when published)` runs `validate-atlas --strict` on the committed zombie and prop sheets, plus `project validate`, `asset validate`, and `character check zombie` on `pixelforge.manifest.json`. `the tiles validate script in pixelforge-demos (when published)` checks the tileset and `.tmj`. `the lighthouse validate script in pixelforge-demos (when published)` rebuilds the lighthouse and checks that the mini-game points at the exported files. Those scripts use only the Python standard library.*
+先按上文安装 Python 文档依赖。`pnpm build` 和 `pnpm test` 分别生成浏览器与 Node.js 的 wasm 包。仓库未定义名为 `lint`、`quick` 或 `smoke` 的脚本；报告检查结果时请写明实际运行的命令。
 
-*A new feature needs a test or gate script that this workflow already runs before it is merged. A check that exists only on a laptop does not count.*
+*The CI workflow runs the two crate test commands above on pull requests and pushes to `main`. Tests include conversion, palette strategies, concurrency, revisions, and bundled skills. Fixtures under `crates/*/tests/fixtures/` support tests; demos and their validation scripts live in pixelforge-demos and are not run by this CI. The additional local checks are not CI gates. Install the documented Python dependencies before building docs. The repository does not define scripts named `lint`, `quick`, or `smoke`; report the actual commands used.*
 
 ## 预编译与发版 Prebuilt releases
 

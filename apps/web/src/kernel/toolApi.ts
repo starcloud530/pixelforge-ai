@@ -95,6 +95,7 @@ export const TOOL_NAMES = [
   "deleteLayer",
   "renameLayer",
   "setLayerRole",
+  "setLayerBind",
   "setLayerVisible",
   "setLayerOpacity",
   "setActiveLayer",
