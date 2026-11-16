@@ -29,6 +29,7 @@ use crate::failure::CliFailure;
 use crate::store;
 
 const HEADER_LIMIT: usize = 8192;
+const HEADER_TIMEOUT: Duration = Duration::from_secs(2);
 const POLL_EVERY: Duration = Duration::from_millis(200);
 
 struct Stop {
@@ -547,7 +548,7 @@ fn handle_client(
     shared: &Mutex<Shared>,
 ) {
     let _ = stream.set_nonblocking(false);
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    let started = std::time::Instant::now();
     let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
     let mut buf = [0u8; HEADER_LIMIT];
     let mut filled = 0usize;
@@ -561,6 +562,12 @@ fn handle_client(
                 b"headers too large\n",
                 "",
             );
+            return;
+        }
+        // A per-read timeout alone lets a client retain this only handler by
+        // sending one byte before each timeout. Bound the entire header read.
+        let remaining = HEADER_TIMEOUT.saturating_sub(started.elapsed());
+        if remaining.is_zero() || stream.set_read_timeout(Some(remaining)).is_err() {
             return;
         }
         match stream.read(&mut buf[filled..]) {
@@ -1292,6 +1299,52 @@ mod tests {
             "",
         );
         assert_eq!(response.status, 200);
+    }
+
+    #[test]
+    fn slowly_dripped_headers_do_not_hold_the_only_request_handler() {
+        let scratch = Scratch::new();
+        let path = scratch.child("hero.json");
+        write_project(&path, &Document::new(2, 2).unwrap());
+        let running = Running::start(Launch {
+            project: path,
+            port: None,
+        })
+        .unwrap();
+        let mut slow = TcpStream::connect((Ipv4Addr::LOCALHOST, running.port())).unwrap();
+        slow.write_all(b"G").unwrap();
+        // Let the single accept loop enter this first request.
+        thread::sleep(Duration::from_millis(100));
+        let sending = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let keep_sending = std::sync::Arc::clone(&sending);
+        let drip = thread::spawn(move || {
+            while keep_sending.load(AtomicOrdering::Relaxed) {
+                if slow.write_all(b"x").is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
+        let mut healthy = TcpStream::connect((Ipv4Addr::LOCALHOST, running.port())).unwrap();
+        healthy
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        let token = token_of(running.url());
+        write!(
+            healthy,
+            "GET /{token}/snapshot HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n\r\n",
+            running.port()
+        )
+        .unwrap();
+        let mut body = String::new();
+        let result = healthy.read_to_string(&mut body);
+        sending.store(false, AtomicOrdering::Relaxed);
+        drip.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "a drip-fed request blocked the next client: {result:?}"
+        );
+        assert!(body.starts_with("HTTP/1.1 200 OK"), "{body}");
     }
 
     #[test]

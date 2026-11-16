@@ -111,7 +111,7 @@ cargo install --path crates/pixelforge-cli
 
 ## CI
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在每个 pull request 上跑，也在推送到 `main` 时跑。作业在 `ubuntu-latest` 上安装 Rust stable（缓存 Cargo），并保证有 `python3`。跑的是仓库根目录的同一套门禁，没有部署。多平台预编译不在这条工作流里，见下一节。
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) 在每个 pull request 上跑，也在推送到 `main` 时跑。作业在 `ubuntu-latest` 上安装 Rust stable（缓存 Cargo），并保证有 `python3` 和 Node.js 22（CLI 测试会运行播放器的 JavaScript 测试）。跑的是仓库根目录的同一套门禁，没有部署。多平台预编译不在这条工作流里，见下一节。
 
 本地复现当前 CI：任一条退出码不是 0，CI 就失败。
 
@@ -120,7 +120,7 @@ cargo test -p pixelforge-kernel
 cargo test -p pixelforge-cli
 ```
 
-这两条包含内核和 CLI 的集成测试，包括转换、调色板策略、跨进程并发、revision 和技能打包。`crates/*/tests/fixtures/` 是测试夹具，不是对外演示。演示、导出验收和灯塔场景已迁往 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)，当前 CI 不运行该仓库的脚本。
+这两条包含内核和 CLI 的集成测试，包括转换、调色板策略、跨进程并发、revision、技能打包和只读播放器（含 Node.js 脚本测试）。`crates/*/tests/fixtures/` 是测试夹具，不是对外演示。演示、导出验收和灯塔场景已迁往 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)，当前 CI 不运行该仓库的脚本。
 
 本地额外检查（当前 CI 未自动执行）：
 

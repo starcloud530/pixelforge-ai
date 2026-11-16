@@ -445,3 +445,30 @@ test("scale and background stay on the listed preview values", function () {
   assert.equal(player.state().background, "white");
   assert.deepEqual(SCALES, [1, 2, 3, 4, 6, 8]);
 });
+
+test("pause preserves time inside a frame and resume consumes only the remainder", function () {
+  const player = playerOf([action("go", "forward", 0, steps())]);
+  player.play(0);
+  player.tick(25);
+  player.pause(25);
+  assert.equal(player.sourceTime(25), 25);
+  player.play(1000);
+  player.tick(1014);
+  assert.equal(player.state().frame, 0);
+  player.tick(1015);
+  assert.equal(player.state().frame, 1);
+});
+
+test("pausing between animation ticks accounts for crossed frames at non-unit speed", function () {
+  const player = playerOf([action("go", "forward", 0, steps())]);
+  player.setSpeed(2, 0);
+  player.play(0);
+  player.pause(35);
+  assert.equal(player.state().frame, 1);
+  assert.equal(player.sourceTime(35), 70);
+  player.play(1000);
+  player.tick(1084);
+  assert.equal(player.state().frame, 1);
+  player.tick(1085);
+  assert.equal(player.state().frame, 2);
+});

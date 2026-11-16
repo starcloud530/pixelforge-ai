@@ -693,7 +693,7 @@
   function toggle() {
     if (!player || player.state().error) return;
     const now = performance.now();
-    if (player.state().playing) player.pause();
+    if (player.state().playing) player.pause(now);
     else player.play(now);
     render();
   }

@@ -125,12 +125,14 @@
     let scale = 4;
     let background = "checker";
     let intoMs = 0;
+    let lastNow = 0;
 
     function action() {
       return view.actions[actionIndex];
     }
 
     function play(now) {
+      lastNow = now;
       if (error) {
         return;
       }
@@ -152,11 +154,18 @@
       playing = true;
     }
 
-    function pause() {
+    function pause(now) {
+      if (playing && !error) {
+        const at = Number.isFinite(now) ? now : lastNow;
+        tick(at);
+        const delay = action().steps[step].delayMs;
+        intoMs = finished ? delay : Math.min(delay, Math.max(0, (at - shownAt) * speed));
+      }
       playing = false;
     }
 
     function tick(now) {
+      lastNow = now;
       if (!playing || error) {
         return;
       }
@@ -251,7 +260,7 @@
       if (!steps.length) {
         return;
       }
-      pause();
+      pause(now);
       const total = durationMs();
       const clamped = Math.max(0, Math.min(Number(ms) || 0, total));
       let acc = 0;
@@ -279,7 +288,7 @@
       if (!count) {
         return;
       }
-      pause();
+      pause(now);
       finished = false;
       step = Math.max(0, Math.min(count - 1, step + delta));
       intoMs = 0;
@@ -291,7 +300,7 @@
       if (index < 0 || index >= count) {
         return;
       }
-      pause();
+      pause(now);
       finished = false;
       step = index;
       intoMs = 0;
@@ -356,12 +365,12 @@
 
     function applySnapshot(next, now) {
       if (!next || next.ok !== true) {
-        pause();
+        pause(now);
         error = (next && next.error) || "无法读取工程";
         return { swapped: false, error: error };
       }
       if (!snapshotReady(next)) {
-        pause();
+        pause(now);
         error = "快照不完整";
         return { swapped: false, error: error };
       }
