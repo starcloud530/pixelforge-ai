@@ -66,10 +66,13 @@ pub enum ApngSource {
 /// Document frames in playback order.
 ///
 /// `from` and `to` are inclusive and `from <= to`. `once` uses the forward
-/// order; the play count is chosen separately. Ping-pong walks back toward
-/// `from` without holding either end for an extra frame, so two frames stay
-/// two frames and one frame stays one.
-pub(crate) fn playback_order(from: usize, to: usize, mode: LoopMode) -> Vec<usize> {
+/// order; the play count is chosen separately by [`plays_for`]. Ping-pong
+/// walks back toward `from` without holding either end for an extra frame, so
+/// two frames stay two frames and one frame stays one.
+///
+/// APNG export and the read-only `pixelforge play` preview both walk this
+/// list. A viewer must not invent a second order.
+pub fn playback_order(from: usize, to: usize, mode: LoopMode) -> Vec<usize> {
     debug_assert!(from <= to);
     let mut order: Vec<usize> = (from..=to).collect();
     match mode {
@@ -90,7 +93,10 @@ pub(crate) fn playback_order(from: usize, to: usize, mode: LoopMode) -> Vec<usiz
 }
 
 /// `0` loops. `once` plays a single time and then rests on the last frame.
-pub(crate) fn plays_for(mode: LoopMode) -> u32 {
+///
+/// The live preview uses this same count: `once` holds the last frame, and a
+/// replay starts again at the first entry of [`playback_order`].
+pub fn plays_for(mode: LoopMode) -> u32 {
     match mode {
         LoopMode::Once => 1,
         LoopMode::Forward | LoopMode::Reverse | LoopMode::PingPong => 0,

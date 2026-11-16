@@ -52,6 +52,7 @@ powershell -ExecutionPolicy Bypass -c \
 pixelforge --version
 pixelforge new --width 16 --height 16 --output hero.json
 pixelforge preview --project hero.json --scale 4
+pixelforge play --project hero.json
 ```
 
 Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)

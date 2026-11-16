@@ -13,6 +13,7 @@ mod export_files;
 mod failure;
 mod manifest_cmd;
 mod output;
+mod player;
 mod preview;
 mod requests;
 mod session;
@@ -134,6 +135,14 @@ fn execute(cli: Cli) -> i32 {
             compare,
             &scope,
         ),
+        Command::Play {
+            project,
+            port,
+            no_open,
+        } => match player::serve_cli(&project, port, !no_open) {
+            Ok(()) => 0,
+            Err(failure) => emit(failure),
+        },
         Command::Diff {
             doc,
             frame,

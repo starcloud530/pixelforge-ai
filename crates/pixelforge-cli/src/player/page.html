@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="google" content="notranslate">
+<title>预览</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --page: #101114;
+    --panel: #1a1c20;
+    --stage: #15171a;
+    --hover: #272a30;
+    --border: #343840;
+    --text: #f1f3f5;
+    --secondary: #afb5be;
+    --muted: #7e8792;
+    --accent: #8dc8ff;
+    --on-accent: #111820;
+    --error: #ffb4ab;
+    --error-bg: #352323;
+    --focus: #8dc8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: var(--page);
+    color: var(--text);
+    font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  button, select, input { font: inherit; color: inherit; }
+  button {
+    appearance: none;
+    -webkit-appearance: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    background-image: none;
+    box-shadow: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  button::-moz-focus-inner { border: 0; padding: 0; }
+  button:focus:not(:focus-visible) { outline: none; }
+  :focus-visible,
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .app {
+    display: flex;
+    flex-direction: column;
+    width: min(1120px, 100%);
+    height: 100dvh;
+    min-width: 0;
+    margin: 0 auto;
+    padding: 24px;
+    overflow: hidden;
+  }
+  .docbar, .toolbar { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; min-width: 0; }
+  .docbar { height: 44px; }
+  .toolbar { height: 44px; }
+  h1 {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: 14px;
+    line-height: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .doc-actions { display: flex; gap: 4px; flex: 0 0 auto; }
+  .stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: grid;
+    justify-content: safe center;
+    align-content: safe center;
+    background: var(--stage);
+    border: 1px solid var(--border);
+    border-bottom: 0;
+    border-radius: 12px 12px 0 0;
+    touch-action: pan-x pan-y;
+  }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
+  .transport {
+    flex: 0 0 104px;
+    height: 104px;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0 0 12px 12px;
+  }
+  .scrub, .trow { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 12px; }
+  .scrub { height: 44px; }
+  .trow { height: 60px; }
+  .time { width: 52px; color: var(--secondary); font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; }
+  .time.end { text-align: right; }
+  .track { position: relative; flex: 1 1 auto; min-width: 0; height: 28px; }
+  .segments { position: absolute; left: 0; right: 0; top: 12px; height: 4px; display: flex; border-radius: 999px; overflow: hidden; background: var(--border); pointer-events: none; }
+  .segments i { display: block; height: 100%; box-shadow: inset -1px 0 #101114; }
+  .segments i.is-current { background: #3d4c5c; }
+  .track input[type="range"] {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 28px;
+    margin: 0;
+    appearance: none;
+    background: transparent;
+  }
+  .track input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: transparent; }
+  .track input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .track input[type="range"]:hover::-webkit-slider-thumb,
+  .track input[type="range"]:focus-visible::-webkit-slider-thumb { transform: scale(1.15); }
+  .scrub-tip {
+    position: absolute;
+    top: -18px;
+    transform: translateX(-50%);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .icon-btn, .zoom button, #speed-readout, #speed-open {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    transition: background-color 120ms ease-out;
+  }
+  .icon-btn svg, .zoom svg, #play svg { width: 20px; height: 20px; display: block; }
+  .icon-btn:hover, .zoom button:hover, #speed-readout:hover, #speed-open:hover, #bg-open:hover, #more:hover { background: var(--hover); }
+  .icon-btn:active, .zoom button:active, #speed-readout:active, #speed-open:active, #bg-open:active, #more:active { background: #32363e; }
+  .icon-btn:disabled, .zoom button:disabled { opacity: 0.35; cursor: default; background: transparent; }
+  #play {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    background: var(--accent);
+    background-image: none;
+    box-shadow: none;
+    color: var(--on-accent);
+    transition: background-color 120ms ease-out;
+  }
+  #play:hover { background: #b7dcff; }
+  #play:active { background: #6eb4f0; }
+  .count {
+    flex: 0 0 auto;
+    color: var(--secondary);
+    font-size: 12px;
+    line-height: 18px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .count-scrub { display: none; }
+  .spacer { flex: 1 1 auto; }
+  .speed-desktop { display: flex; align-items: center; gap: 8px; color: var(--secondary); }
+  .speed-desktop input[type="range"] { width: 128px; accent-color: var(--accent); }
+  #speed-readout { width: auto; min-width: 44px; padding: 0 8px; color: var(--text); font-variant-numeric: tabular-nums; }
+  #speed-open { display: none; width: auto; min-width: 44px; padding: 0 8px; font-variant-numeric: tabular-nums; }
+  .zoom { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+  .zoom select, #action {
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    padding: 0 8px;
+  }
+  #action { flex: 1 1 auto; min-width: 0; max-width: 42vw; }
+  .zoom select { width: auto; max-width: none; flex: 0 0 auto; field-sizing: content; }
+  .zoom button { flex: 0 0 auto; }
+  #loop { color: var(--secondary); font-size: 12px; line-height: 18px; white-space: nowrap; }
+  .error {
+    flex: 0 0 auto;
+    margin: 0 0 8px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--error-bg);
+    color: var(--error);
+    font-size: 13px;
+    line-height: 20px;
+  }
+  .error button { margin-top: 4px; border: 0; background: transparent; color: var(--error); text-decoration: underline; padding: 0; }
+  .error pre { margin: 4px 0 0; white-space: pre-wrap; font: inherit; }
+  .popover {
+    position: fixed;
+    z-index: 4;
+    width: min(280px, calc(100vw - 16px));
+    max-height: min(320px, calc(100dvh - 16px));
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    color: var(--text);
+  }
+  .popover h2 { margin: 0 0 8px; font-size: 13px; line-height: 18px; font-weight: 600; }
+  .popover p, .popover li { margin: 0 0 8px; color: var(--secondary); font-size: 12px; line-height: 18px; }
+  .popover ul { margin: 0; padding-left: 18px; }
+  .swatches { display: flex; gap: 8px; }
+  .swatch {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0;
+    background:
+      linear-gradient(45deg, #9a958b 25%, transparent 25%),
+      linear-gradient(-45deg, #9a958b 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #9a958b 75%),
+      linear-gradient(-45deg, transparent 75%, #9a958b 75%);
+    background-size: 12px 12px;
+    background-color: #d5d0c6;
+  }
+  .swatch.dark { background: #111111; }
+  .swatch.light { background: #f4f1de; }
+  .swatch.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .swatch svg { width: 16px; height: 16px; margin: auto; }
+  .speed-panel input[type="range"] { width: 100%; accent-color: var(--accent); }
+  @media (max-width: 719px) {
+    .app { padding: 12px; }
+    .docbar { height: 40px; }
+    .icon-btn, .zoom button, #speed-open, #bg-open, #play {
+      width: 44px;
+      height: 44px;
+      flex: 0 0 44px;
+    }
+    #speed-open { display: grid; width: auto; min-width: 44px; flex-basis: auto; }
+    .speed-desktop { display: none; }
+    .transport { flex-basis: auto; height: auto; }
+    .trow { min-height: 60px; gap: 4px; padding: 0 8px; }
+    #count { display: none; }
+    .count-scrub { display: block; margin-left: 8px; }
+  }
+  @media (max-width: 480px) {
+    .toolbar {
+      height: auto;
+      flex-wrap: wrap;
+      align-content: center;
+      row-gap: 4px;
+    }
+    #action { flex: 1 1 0; width: 0; min-width: 0; max-width: none; }
+    #loop { flex: 0 0 auto; }
+    .zoom {
+      flex: 1 0 100%;
+      justify-content: flex-end;
+      margin-left: 0;
+    }
+  }
+  @media (max-width: 360px) {
+    .scrub, .trow { gap: 2px; padding-left: 0; padding-right: 0; }
+  }
+  @media (max-height: 520px) {
+    body { overflow-y: auto; }
+    .app { height: auto; min-height: 100dvh; overflow: visible; }
+    .stage { min-height: 160px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="docbar">
+    <h1 id="title" title="预览">预览</h1>
+    <div class="doc-actions">
+      <button type="button" class="icon-btn" id="lock" aria-label="只读预览" title="只读预览">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7 10V8a5 5 0 0 1 10 0v2h1v10H6V10h1zm2 0h6V8a3 3 0 0 0-6 0v2z"/></svg>
+      </button>
+      <button type="button" class="icon-btn" id="more" aria-label="工程信息" title="工程信息" aria-expanded="false" aria-controls="more-panel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 10.5h2.2v3H6zM10.9 10.5h2.2v3h-2.2zM15.8 10.5H18v3h-2.2z"/></svg>
+      </button>
+    </div>
+  </header>
+  <p id="error" class="error" hidden>
+    <span id="error-summary">无法读取工程，已暂停并保留上次画面。文件恢复后会自动重载。</span>
+    <button type="button" id="error-toggle" aria-expanded="false" aria-controls="error-detail">技术原因</button>
+    <pre id="error-detail" hidden></pre>
+  </p>
+  <div id="live" class="sr" aria-live="polite"></div>
+  <div class="toolbar">
+    <label class="sr" for="action">动作</label>
+    <select id="action"></select>
+    <span id="loop"></span>
+    <div class="zoom">
+      <button type="button" id="zoom-out" aria-label="缩小">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 11h14v2H5z"/></svg>
+      </button>
+      <select id="zoom" aria-label="缩放"></select>
+      <button type="button" id="zoom-in" aria-label="放大">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 5h2v14h-2zM5 11h14v2H5z"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="stage" id="stage">
+    <canvas id="view" width="16" height="16"></canvas>
+  </div>
+  <section class="transport" aria-label="播放控制">
+    <div class="scrub">
+      <span class="time" id="time-now">00.000</span>
+      <div class="track">
+        <div class="segments" id="segments"></div>
+        <output class="scrub-tip" id="scrub-tip" hidden></output>
+        <input id="scrub" type="range" min="0" max="1" step="1" value="0" aria-label="播放位置">
+      </div>
+      <span class="time end" id="time-total">00.000</span>
+      <span id="count-scrub" class="count count-scrub" title="播放步骤">1 / 1</span>
+    </div>
+    <div class="trow">
+      <button type="button" class="icon-btn" id="to-start" aria-label="回到播放起点" title="回到播放起点">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h2.2v14H6zM18 6.2 9.2 12 18 17.8z"/></svg>
+      </button>
+      <button type="button" class="icon-btn" id="step-back" aria-label="上一帧" title="上一帧（左方向键）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h2.2v14H6z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M17 7 11 12l6 5"/></svg>
+      </button>
+      <button type="button" id="play" aria-label="播放" title="播放（空格）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" transform="translate(1 0)" d="M8 5.5v13l11-6.5z"/></svg>
+      </button>
+      <button type="button" class="icon-btn" id="step-fwd" aria-label="下一帧" title="下一帧（右方向键）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" d="M7 7l6 5-6 5"/><path fill="currentColor" d="M15.8 5H18v14h-2.2z"/></svg>
+      </button>
+      <span id="count" class="count" title="播放步骤">1 / 1</span>
+      <span class="spacer"></span>
+      <div class="speed-desktop">
+        <span id="speed-label">速度</span>
+        <input id="speed" type="range" min="0.25" max="4" step="0.25" value="1" aria-labelledby="speed-label" aria-describedby="speed-note">
+        <button type="button" id="speed-readout" aria-label="恢复 1 倍速度" title="恢复 1 倍速度">1×</button>
+      </div>
+      <button type="button" id="speed-open" aria-label="播放速度" title="播放速度" aria-expanded="false" aria-controls="speed-panel">1×</button>
+      <button type="button" class="icon-btn" id="bg-open" aria-label="背景" title="背景" aria-expanded="false" aria-controls="bg-panel">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" opacity=".9"/><path fill="currentColor" d="M4 4h7v7H4zM13 13h7v7h-7z"/></svg>
+      </button>
+    </div>
+  </section>
+</div>
+<p id="speed-note" class="sr">调速不改工程。</p>
+<div id="more-panel" class="popover" hidden role="dialog" aria-label="工程信息"></div>
+<div id="speed-panel" class="popover speed-panel" hidden role="dialog" aria-label="播放速度">
+  <h2>播放速度</h2>
+  <p>调速不改工程。</p>
+  <input id="speed-narrow" type="range" min="0.25" max="4" step="0.25" value="1" aria-label="播放速度">
+  <button type="button" id="speed-reset-narrow" aria-label="恢复 1 倍速度">恢复 1×</button>
+</div>
+<div id="bg-panel" class="popover" hidden role="dialog" aria-label="背景">
+  <h2>背景</h2>
+  <div class="swatches">
+    <button type="button" class="swatch" data-background="checker" aria-label="棋盘格"></button>
+    <button type="button" class="swatch dark" data-background="black" aria-label="深色"></button>
+    <button type="button" class="swatch light" data-background="white" aria-label="浅色"></button>
+  </div>
+</div>
+<script>
+/*__PLAYBACK_JS__*/
+</script>
+<script>
+(function () {
+  const api = globalThis.PixelforgePlayback;
+  const base = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
+  const snapshotUrl = new URL("snapshot", location.origin + base).href;
+  const title = document.querySelector("#title");
+  const actionSelect = document.querySelector("#action");
+  const loopText = document.querySelector("#loop");
+  const zoom = document.querySelector("#zoom");
+  const canvas = document.querySelector("#view");
+  const ctx = canvas.getContext("2d");
+  const errorBox = document.querySelector("#error");
+  const errorSummary = document.querySelector("#error-summary");
+  const errorDetail = document.querySelector("#error-detail");
+  const errorToggle = document.querySelector("#error-toggle");
+  const live = document.querySelector("#live");
+  const scrub = document.querySelector("#scrub");
+  const segments = document.querySelector("#segments");
+  const scrubTip = document.querySelector("#scrub-tip");
+  const timeNow = document.querySelector("#time-now");
+  const timeTotal = document.querySelector("#time-total");
+  const count = document.querySelector("#count");
+  const countScrub = document.querySelector("#count-scrub");
+  const playButton = document.querySelector("#play");
+  const speed = document.querySelector("#speed");
+  const speedNarrow = document.querySelector("#speed-narrow");
+  const speedReadout = document.querySelector("#speed-readout");
+  const speedOpen = document.querySelector("#speed-open");
+  const morePanel = document.querySelector("#more-panel");
+  const speedPanel = document.querySelector("#speed-panel");
+  const bgPanel = document.querySelector("#bg-panel");
+  const loopLabel = { forward: "正向循环", reverse: "反向循环", pingpong: "往返", once: "播放一次" };
+  const icons = {
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" transform="translate(1 0)" d="M8 5.5v13l11-6.5z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6 5h4.2v14H6zM13.8 5H18v14h-4.2z"/></svg>',
+    replay: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path fill="currentColor" d="M16 3v6h6z"/></svg>'
+  };
+  const check = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#f1f3f5" stroke="#111820" stroke-width="1" d="M5 12.5 9.2 17 19 7.2l-1.4-1.4L9.2 14.2 6.4 11z"/></svg>';
+  let player = null;
+  let etag = null;
+  let holdingError = false;
+  let scaleLocked = false;
+  let announced = "";
+  let segmentKey = "";
+  let actionKey = "";
+  let dragging = false;
+  let dragOrigin = 0;
+  let openPanel = null;
+  let openTrigger = null;
+  const images = new Map();
+  let imageRevision = null;
+
+  const autoOption = document.createElement("option");
+  autoOption.value = "auto";
+  autoOption.textContent = "自动适配";
+  zoom.appendChild(autoOption);
+  api.SCALES.forEach(function (value) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = value + "×";
+    zoom.appendChild(option);
+  });
+
+  function formatSource(ms) {
+    const safe = Math.max(0, Math.round(ms));
+    const seconds = Math.floor(safe / 1000);
+    const milli = safe % 1000;
+    return String(seconds).padStart(2, "0") + "." + String(milli).padStart(3, "0");
+  }
+  function formatSpeed(value) {
+    return String(Math.round(value * 4) / 4) + "×";
+  }
+  function stageBudget() {
+    const stage = document.querySelector(".stage");
+    const styles = getComputedStyle(stage);
+    const padX = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+    const padY = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+    return {
+      width: Math.max(1, stage.clientWidth - padX),
+      height: Math.max(1, stage.clientHeight - padY)
+    };
+  }
+  function applyFit() {
+    if (!player || scaleLocked) return;
+    const budget = stageBudget();
+    if (budget.width < 16 || budget.height < 16) return;
+    const state = player.state();
+    const next = api.fitIntegerScale(state.width, state.height, budget.width, budget.height, api.SCALES);
+    if (next !== state.scale) player.setScale(next);
+  }
+  function closePanel(restore) {
+    if (!openPanel) return;
+    openPanel.hidden = true;
+    if (openTrigger) openTrigger.setAttribute("aria-expanded", "false");
+    const trigger = openTrigger;
+    openPanel = null;
+    openTrigger = null;
+    if (restore && trigger) trigger.focus();
+  }
+  function placePanel(panel, trigger) {
+    panel.hidden = false;
+    const rect = trigger.getBoundingClientRect();
+    const width = panel.offsetWidth;
+    const height = panel.offsetHeight;
+    let left = Math.min(rect.right - width, window.innerWidth - width - 8);
+    left = Math.max(8, left);
+    let top = rect.bottom + 8;
+    if (top + height > window.innerHeight - 8) top = Math.max(8, rect.top - height - 8);
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+  }
+  function openPopover(panel, trigger) {
+    if (openPanel === panel) {
+      closePanel(true);
+      return;
+    }
+    closePanel(false);
+    openPanel = panel;
+    openTrigger = trigger;
+    trigger.setAttribute("aria-expanded", "true");
+    placePanel(panel, trigger);
+    const focusable = panel.querySelector("button, input, select");
+    if (focusable) focusable.focus();
+  }
+  function fillMore() {
+    const state = player.state();
+    const now = performance.now();
+    morePanel.replaceChildren();
+    const head = document.createElement("h2");
+    head.textContent = "工程信息";
+    morePanel.appendChild(head);
+    const lines = [
+      state.fileName || "预览",
+      "修订 " + (state.revision || ""),
+      "画布 " + state.width + " × " + state.height,
+      "源帧 " + state.frame + "，工程帧时长 " + state.delayMs + " ms",
+      "预览时钟 " + (Number.isInteger(state.previewMs) ? state.previewMs : state.previewMs.toFixed(2)) + " ms（" + formatSpeed(state.speed) + "）",
+      "只读。调速不改工程。",
+      "播放位置 " + formatSource(player.sourceTime(now)) + " / " + formatSource(player.duration())
+    ];
+    lines.forEach(function (text) {
+      const p = document.createElement("p");
+      p.textContent = text;
+      morePanel.appendChild(p);
+    });
+    const keys = document.createElement("h2");
+    keys.textContent = "键盘";
+    morePanel.appendChild(keys);
+    const list = document.createElement("ul");
+    ["空格：播放或暂停", "左方向键：上一帧", "右方向键：下一帧", "Home：回到播放起点"].forEach(function (text) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      list.appendChild(item);
+    });
+    morePanel.appendChild(list);
+  }
+  function showError(message) {
+    errorBox.hidden = false;
+    errorSummary.textContent = "无法读取工程，已暂停并保留上次画面。文件恢复后会自动重载。";
+    errorDetail.textContent = message || "";
+    if (announced !== message) {
+      announced = message;
+      live.textContent = errorSummary.textContent;
+    }
+  }
+  function clearError() {
+    errorBox.hidden = true;
+    if (announced) {
+      announced = "";
+      live.textContent = "";
+    }
+  }
+  function spriteImage(state) {
+    if (imageRevision !== state.revision) {
+      images.clear();
+      imageRevision = state.revision;
+    }
+    const key = String(state.frame);
+    let image = images.get(key);
+    if (!image) {
+      image = new Image();
+      image.src = "data:image/png;base64," + state.png;
+      images.set(key, image);
+    }
+    return image;
+  }
+  function syncTransport(now, forceCanvas) {
+    if (!player) return;
+    const state = player.state();
+    const total = player.duration();
+    const time = dragging ? Number(scrub.value) : player.sourceTime(now);
+    timeNow.textContent = formatSource(time);
+    timeTotal.textContent = formatSource(total);
+    scrub.max = String(Math.max(1, Math.round(total)));
+    scrub.disabled = state.stepCount < 2;
+    if (!dragging) scrub.value = String(Math.max(0, Math.min(Math.round(total), Math.round(time))));
+    const pct = total > 0 ? (Number(scrub.value) / total) * 100 : 0;
+    if (!scrubTip.hidden) {
+      scrubTip.style.left = pct + "%";
+      scrubTip.textContent = (state.step + 1) + " / " + state.stepCount + " · " + formatSource(time);
+    }
+    scrub.setAttribute("aria-valuetext", formatSource(time) + "，播放步骤 " + (state.step + 1) + " / " + state.stepCount + "，源帧 " + state.frame);
+    const countText = (state.step + 1) + " / " + state.stepCount;
+    const countTitle = "播放步骤 " + countText + "，源帧 " + state.frame;
+    count.textContent = countText;
+    count.title = countTitle;
+    countScrub.textContent = countText;
+    countScrub.title = countTitle;
+    const single = state.stepCount < 2;
+    document.querySelector("#step-back").disabled = single || (state.step === 0 && player.sourceTime(now) <= 0);
+    document.querySelector("#step-fwd").disabled = single || state.step >= state.stepCount - 1;
+    document.querySelector("#to-start").disabled = single || (state.step === 0 && player.sourceTime(now) <= 0);
+    const key = state.actionId + ":" + state.steps.map(function (item) { return item.delayMs; }).join(",");
+    if (key !== segmentKey) {
+      segmentKey = key;
+      segments.replaceChildren();
+      state.steps.forEach(function (item) {
+        const mark = document.createElement("i");
+        mark.style.width = (total > 0 ? (item.delayMs / total) * 100 : 100) + "%";
+        segments.appendChild(mark);
+      });
+    }
+    Array.from(segments.children).forEach(function (mark, index) {
+      mark.classList.toggle("is-current", index === state.step);
+    });
+    if (forceCanvas) render(state);
+  }
+  let playMode = "";
+  function syncPlayButton(state) {
+    const mode = state.finished ? "replay" : state.playing ? "pause" : "play";
+    if (mode === playMode) return;
+    playMode = mode;
+    if (mode === "replay") {
+      playButton.innerHTML = icons.replay;
+      playButton.setAttribute("aria-label", "重播动作");
+      playButton.title = "重播动作（空格）";
+    } else if (mode === "pause") {
+      playButton.innerHTML = icons.pause;
+      playButton.setAttribute("aria-label", "暂停");
+      playButton.title = "暂停（空格）";
+    } else {
+      playButton.innerHTML = icons.play;
+      playButton.setAttribute("aria-label", "播放");
+      playButton.title = "播放（空格）";
+    }
+  }
+  function render(state) {
+    state = state || player.state();
+    const name = state.fileName || "预览";
+    title.textContent = name;
+    title.title = name;
+    document.title = name;
+    if (state.error) showError(state.error);
+    else clearError();
+    const ids = state.actions.map(function (item) { return item.id; }).join("\n");
+    if (actionKey !== ids) {
+      actionKey = ids;
+      actionSelect.replaceChildren();
+      state.actions.forEach(function (item) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.name;
+        actionSelect.appendChild(option);
+      });
+    }
+    if (actionSelect.value !== state.actionId) actionSelect.value = state.actionId;
+    actionSelect.title = state.actionName;
+    loopText.textContent = loopLabel[state.loop] || state.loop;
+    const readout = formatSpeed(state.speed);
+    speed.value = String(state.speed);
+    speedNarrow.value = String(state.speed);
+    speedReadout.textContent = readout;
+    speedOpen.textContent = readout;
+    autoOption.textContent = "自动适配 · " + state.scale + "×";
+    if (document.activeElement !== zoom) {
+      zoom.value = scaleLocked ? String(state.scale) : "auto";
+    }
+    document.querySelector("#zoom-out").disabled = state.scale <= api.SCALES[0];
+    document.querySelector("#zoom-in").disabled = state.scale >= api.SCALES[api.SCALES.length - 1];
+    syncPlayButton(state);
+    document.querySelectorAll(".swatch").forEach(function (button) {
+      const on = button.dataset.background === state.background;
+      button.classList.toggle("is-selected", on);
+      button.innerHTML = on ? check : "";
+    });
+    syncTransport(performance.now(), false);
+    if (!state.png) return;
+    const image = spriteImage(state);
+    const draw = function () {
+      const live = player.state();
+      if (live.revision !== state.revision || live.frame !== state.frame || live.scale !== state.scale || live.background !== state.background) return;
+      api.paintFrame(ctx, image, live.width, live.height, live.scale, api.backgroundPaint(live.background));
+    };
+    if (image.complete && image.naturalWidth) draw();
+    else image.addEventListener("load", draw, { once: true });
+  }
+  function toggle() {
+    if (!player || player.state().error) return;
+    const now = performance.now();
+    if (player.state().playing) player.pause();
+    else player.play(now);
+    render();
+  }
+  function lockScale(value) {
+    scaleLocked = true;
+    player.setScale(value);
+    render();
+  }
+  document.querySelector("#zoom-out").addEventListener("click", function () {
+    if (!player) return;
+    const list = api.SCALES;
+    const index = Math.max(0, list.indexOf(player.state().scale) - 1);
+    lockScale(list[index]);
+  });
+  document.querySelector("#zoom-in").addEventListener("click", function () {
+    if (!player) return;
+    const list = api.SCALES;
+    const index = Math.min(list.length - 1, Math.max(0, list.indexOf(player.state().scale)) + 1);
+    lockScale(list[index]);
+  });
+  zoom.addEventListener("change", function () {
+    if (!player) return;
+    if (zoom.value === "auto") {
+      scaleLocked = false;
+      applyFit();
+    } else {
+      scaleLocked = true;
+      player.setScale(Number(zoom.value));
+    }
+    render();
+  });
+  playButton.addEventListener("click", toggle);
+  document.querySelector("#step-back").addEventListener("click", function () {
+    if (!player) return;
+    player.stepBy(-1, performance.now());
+    render();
+  });
+  document.querySelector("#step-fwd").addEventListener("click", function () {
+    if (!player) return;
+    player.stepBy(1, performance.now());
+    render();
+  });
+  document.querySelector("#to-start").addEventListener("click", function () {
+    if (!player) return;
+    player.toStart(performance.now());
+    render();
+  });
+  actionSelect.addEventListener("change", function () {
+    if (!player) return;
+    dragging = false;
+    scrubTip.hidden = true;
+    player.selectAction(actionSelect.value, performance.now());
+    render();
+  });
+  function changeSpeed(value) {
+    if (!player) return;
+    player.setSpeed(Number(value), performance.now());
+    render();
+  }
+  speed.addEventListener("input", function () { changeSpeed(speed.value); });
+  speedNarrow.addEventListener("input", function () { changeSpeed(speedNarrow.value); });
+  speedReadout.addEventListener("click", function () { changeSpeed(1); });
+  document.querySelector("#speed-reset-narrow").addEventListener("click", function () { changeSpeed(1); });
+  scrub.addEventListener("pointerdown", function () {
+    if (!player || scrub.disabled) return;
+    dragging = true;
+    dragOrigin = player.sourceTime(performance.now());
+    scrubTip.hidden = false;
+    player.seekSource(Number(scrub.value), performance.now());
+    render();
+  });
+  scrub.addEventListener("input", function () {
+    if (!player || scrub.disabled) return;
+    if (!dragging && document.activeElement !== scrub) return;
+    player.seekSource(Number(scrub.value), performance.now());
+    syncTransport(performance.now(), true);
+  });
+  let dragCancel = false;
+  let dragSettle = false;
+  function endScrub() {
+    if (!dragging && !dragCancel) return;
+    if (dragSettle) return;
+    dragSettle = true;
+    queueMicrotask(function () {
+      dragSettle = false;
+      if (!dragging && !dragCancel) return;
+      const cancel = dragCancel;
+      dragging = false;
+      dragCancel = false;
+      scrubTip.hidden = true;
+      if (cancel && player) player.seekSource(dragOrigin, performance.now());
+      if (player) render();
+    });
+  }
+  scrub.addEventListener("pointerup", endScrub);
+  scrub.addEventListener("pointercancel", function () {
+    dragCancel = true;
+    endScrub();
+  });
+  scrub.addEventListener("lostpointercapture", endScrub);
+  errorToggle.addEventListener("click", function () {
+    const open = errorDetail.hidden;
+    errorDetail.hidden = !open;
+    errorToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.querySelector("#more").addEventListener("click", function () {
+    if (!player) return;
+    fillMore();
+    openPopover(morePanel, document.querySelector("#more"));
+  });
+  speedOpen.addEventListener("click", function () {
+    openPopover(speedPanel, speedOpen);
+  });
+  document.querySelector("#bg-open").addEventListener("click", function () {
+    openPopover(bgPanel, document.querySelector("#bg-open"));
+  });
+  document.querySelectorAll(".swatch").forEach(function (button) {
+    button.addEventListener("click", function () {
+      if (!player) return;
+      player.setBackground(button.dataset.background);
+      render();
+    });
+  });
+  document.addEventListener("pointerdown", function (event) {
+    if (!openPanel) return;
+    if (openPanel.contains(event.target) || (openTrigger && openTrigger.contains(event.target))) return;
+    closePanel(false);
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && openPanel) {
+      event.preventDefault();
+      closePanel(true);
+      return;
+    }
+    if (!player) return;
+    const tag = event.target && event.target.tagName;
+    if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (event.key === " ") {
+      if (tag === "BUTTON" && event.target !== document.body) return;
+      event.preventDefault();
+      toggle();
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      player.stepBy(-1, performance.now());
+      render();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      player.stepBy(1, performance.now());
+      render();
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      player.toStart(performance.now());
+      render();
+    }
+  });
+  window.addEventListener("resize", function () {
+    applyFit();
+    if (openPanel && openTrigger) placePanel(openPanel, openTrigger);
+    if (player) render();
+  });
+  function accept(payload) {
+    dragging = false;
+    scrubTip.hidden = true;
+    if (payload && payload.ok === true) {
+      holdingError = false;
+      etag = payload.revision;
+      if (!player) player = api.createPlayback(payload);
+      else player.applySnapshot(payload, performance.now());
+      applyFit();
+      render();
+      requestAnimationFrame(function () {
+        applyFit();
+        if (player) render();
+      });
+      return;
+    }
+    holdingError = true;
+    etag = null;
+    const message = (payload && payload.error) || "无法读取工程";
+    if (player) {
+      player.applySnapshot({ ok: false, error: message }, performance.now());
+      render();
+    } else {
+      showError(message);
+    }
+  }
+  async function poll() {
+    try {
+      const headers = { Accept: "application/json" };
+      if (etag && !holdingError) headers["If-None-Match"] = '"' + etag + '"';
+      const response = await fetch(snapshotUrl, { headers: headers, cache: "no-store" });
+      if (response.status === 304) return;
+      accept(await response.json());
+    } catch (err) {
+      holdingError = true;
+      etag = null;
+      const message = "预览服务没有响应";
+      if (player) {
+        player.applySnapshot({ ok: false, error: message }, performance.now());
+        render();
+      } else {
+        showError(message);
+      }
+    }
+  }
+  let lastStep = -1;
+  function frame(now) {
+    if (player && !player.state().error) player.tick(now);
+    if (player) {
+      const state = player.state();
+      syncPlayButton(state);
+      syncTransport(now, state.step !== lastStep);
+      lastStep = state.step;
+    }
+    requestAnimationFrame(frame);
+  }
+  poll();
+  setInterval(poll, 400);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
