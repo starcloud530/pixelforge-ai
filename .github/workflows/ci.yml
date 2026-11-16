@@ -39,6 +39,12 @@ jobs:
         with:
           python-version: "3.x"
 
+      # Node runs the bundled player script tests. The preview server itself does not.
+      - name: Set up Node for player script tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Core tests (pixelforge-kernel)
         run: cargo test -p pixelforge-kernel
 

@@ -172,6 +172,9 @@ writes pixelforge-atlas JSON (frame rects, delayMs, columns, tags) and adds
 `atlas` to the result. Omit it and the result stays the PNG fields.
 `export apng --tag NAME` writes one looping APNG of that tag, using each
 frame's delay and the tag's loop. It is a preview, not the sprite sheet.
+`play` serves that same composite and playback order on 127.0.0.1 and opens
+the system browser. It does not write the project or take the edit lock.
+Omit `--port` to use a free port. `--no-open` skips the browser. Ctrl+C stops it.
 `tag add`
 stores a name, an inclusive frame range, and a loop (`forward`, `reverse`,
 `pingpong`, or `once`). Tags are not linked cels. `resize`
@@ -379,6 +382,24 @@ pub enum Command {
         compare: bool,
         #[command(flatten)]
         scope: ScopeArgs,
+    },
+    /// Serve a read-only animation player and open it in the system browser.
+    ///
+    /// Binds 127.0.0.1 only. Pictures are the export composite. Playback order
+    /// matches `export apng`. Speed changes the preview clock and does not
+    /// write frame delays. Does not write the project, a checkpoint, or a lock
+    /// file. Prints one JSON line when listening, then runs until Ctrl+C.
+    /// An occupied `--port` is an error and does not fall back to another port.
+    Play {
+        /// pixelforge-project file. Read only.
+        #[arg(short, long, value_name = "FILE")]
+        project: PathBuf,
+        /// TCP port on 127.0.0.1. Omit to let the OS choose a free port.
+        #[arg(long)]
+        port: Option<u16>,
+        /// Do not launch a browser. The URL is still printed.
+        #[arg(long)]
+        no_open: bool,
     },
     /// Read-only index diff and onion PNG of two frames.
     ///

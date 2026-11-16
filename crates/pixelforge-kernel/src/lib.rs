@@ -72,7 +72,7 @@ mod tag;
 mod tiles;
 mod tool_api;
 
-pub use apng::{ApngExport, ApngFrame, ApngSource};
+pub use apng::{playback_order, plays_for, ApngExport, ApngFrame, ApngSource};
 pub use aseprite::AsepriteReport;
 pub use atlas::{
     decode_sheet_png, validate_atlas, AtlasChecks, AtlasFinding, AtlasInputError, AtlasMode,
