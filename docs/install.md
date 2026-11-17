@@ -16,8 +16,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
 ```
 
 The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when possible). Archives are also on the [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6) page if you prefer a manual unpack.

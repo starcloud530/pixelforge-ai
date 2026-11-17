@@ -43,8 +43,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
 ```
 
 ```bash
@@ -104,7 +103,7 @@ mkdocs serve
 
 CDN（大媒体不要提交进 git）：
 
-- [四向行走 GIF](https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif)
+- [四向行走 GIF](https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif)
 - [Hero 前后对比](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/hero-before-after.png)
 - [七阶段时间线](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
 - [Sheet 组装短片](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)

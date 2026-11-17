@@ -43,8 +43,7 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
 ```
 
 ```bash
@@ -105,7 +104,7 @@ Product skills live in `skills/<name>/SKILL.md`. Creative skills follow the `pix
 
 CDN (do not commit large media into git):
 
-- [Four-direction walk GIF](https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif)
+- [Four-direction walk GIF](https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif)
 - [Hero before/after](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/hero-before-after.png)
 - [Seven-stage timeline](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
 - [Sheet assembly video](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
