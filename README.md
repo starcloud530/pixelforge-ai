@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img alt="Nezha spear attack animation" src="https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif" width="420" />
+  <img alt="Port Keeper four-direction walk animation" src="https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif" width="840" />
 </p>
 
 ## Why PixelForge
@@ -31,7 +31,7 @@
 - **Agent-first** — external agents (Cursor, Codex, Claude Code, …) call local `pixelforge`
 - **Engine-ready export** — PNG sequences, sprite sheets, atlas JSON, validation gates
 
-Explore the [Nezha attack animation](https://starcloud530.github.io/pixelforge-ai/showcase/): 12 editable frames, independent layers, and sprite-sheet export.
+Explore the [Port Keeper workflow](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/demo-zombie): four-direction walks, editable outfit layers, and game sprite-sheet export.
 
 ## Quick start
 
@@ -100,14 +100,12 @@ Product skills live in `skills/<name>/SKILL.md`. Creative skills follow the `pix
 
 ## Showcase media
 
-- [Nezha attack: editable project and walkthrough](https://starcloud530.github.io/pixelforge-ai/showcase/)
+Follow the Port Keeper creation workflow:
 
-CDN (do not commit large media into git):
-
-- [Four-direction walk GIF](https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif)
-- [Hero before/after](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/hero-before-after.png)
-- [Seven-stage timeline](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
-- [Sheet assembly video](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
+- [Four-direction walk GIF](https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif)
+- [Hero before/after](https://resources.pixelforge.torzsi.com/port-keeper/v2/storyboard/hero-before-after.png)
+- [Seven-stage timeline](https://resources.pixelforge.torzsi.com/port-keeper/v2/storyboard/timeline.png)
+- [Sheet assembly video](https://resources.pixelforge.torzsi.com/port-keeper/v2/videos/01-sheet-assembly.mp4)
 
 Marketing site: [pixelforge-demos Pages](https://starcloud530.github.io/pixelforge-demos/). Replayable demos / curated runs: [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). Do **not** add an `examples/` tree to this repository.
 
