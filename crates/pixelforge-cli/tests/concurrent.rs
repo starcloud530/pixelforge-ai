@@ -160,7 +160,13 @@ fn assert_lock_timeout(output: &Output) {
     let lines = json_lines(output);
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert_eq!(lines[0]["ok"], false);
-    assert_eq!(lines[0]["error"]["code"], "LockTimeout");
+    assert_eq!(
+        lines[0]["error"]["code"],
+        "LockTimeout",
+        "unexpected refusal: {}; stderr: {}",
+        output_text(output),
+        stderr(output)
+    );
     assert!(lines[0]["error"]["hint"].is_string());
     assert!(
         !output_text(output).contains("\"ok\":true"),
