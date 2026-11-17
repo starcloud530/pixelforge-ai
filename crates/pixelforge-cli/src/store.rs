@@ -617,6 +617,11 @@ mod tests {
         let held = ProjectLock::acquire_for(&path, Duration::ZERO).unwrap();
         let via_link = ProjectLock::acquire_for(&link, Duration::ZERO).unwrap_err();
         assert_eq!(via_link.code(), "LockTimeout");
+        let chain = dir.join("chain.json");
+        std::os::unix::fs::symlink("alias.json", &chain).unwrap();
+        let via_chain = ProjectLock::acquire_for(&chain, Duration::ZERO).unwrap_err();
+        assert_eq!(via_chain.code(), "LockTimeout");
+        assert_eq!(canonical_target(&chain).unwrap(), held.target());
         drop(held);
 
         let hard = dir.join("hard.json");
