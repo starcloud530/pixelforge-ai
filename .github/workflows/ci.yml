@@ -40,6 +40,14 @@ jobs:
           cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Full Rust tests
         run: cargo test --workspace --locked --no-fail-fast
+      - name: Repeat Windows concurrent writers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          for ($trial = 0; $trial -lt 20; $trial++) {
+            cargo test -p pixelforge-cli --locked --test concurrent simultaneous_distinct_pixels_are_all_kept_across_repeated_trials -- --exact
+            if ($LASTEXITCODE -ne 0) { throw "Concurrent writer trial $trial failed" }
+          }
       - name: Build the workspace
         run: cargo build --workspace --locked
       - name: CLI quick check
