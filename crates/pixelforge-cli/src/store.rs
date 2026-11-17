@@ -225,42 +225,55 @@ fn wait_exclusive(file: &File, timeout: Duration, user: &Path) -> Result<(), Cli
 }
 
 fn canonical_target(user: &Path) -> Result<PathBuf, CliFailure> {
+    canonical_target_at(user, 40)
+}
+
+fn canonical_target_at(user: &Path, links_left: u8) -> Result<PathBuf, CliFailure> {
     if user.as_os_str().is_empty() {
         return Err(CliFailure::new("Cli", "project path is empty"));
     }
     match fs::symlink_metadata(user) {
         Ok(meta) if meta.file_type().is_symlink() => {
-            if !user.exists() {
+            if links_left == 0 || !user.exists() {
                 return Err(unsupported(format!(
-                    "project path {} is a symbolic link with no target; pass the path to create",
+                    "project path {} is a symbolic link with no reachable target; pass the path to create",
                     user.display()
                 )));
             }
-            fs::canonicalize(user).map_err(|err| CliFailure::io(user, err))
-        }
-        Ok(_) => fs::canonicalize(user).map_err(|err| CliFailure::io(user, err)),
-        Err(err) if err.kind() == ErrorKind::NotFound => {
-            let name = user.file_name().ok_or_else(|| {
-                CliFailure::new("Cli", format!("path has no file name: {}", user.display()))
-            })?;
-            let parent = match user.parent() {
-                Some(parent) if !parent.as_os_str().is_empty() => parent.to_path_buf(),
-                _ => PathBuf::from("."),
+            let link = fs::read_link(user).map_err(|err| CliFailure::io(user, err))?;
+            let target = if link.is_absolute() {
+                link
+            } else {
+                parent_dir(user).join(link)
             };
-            if !parent.exists() {
-                fs::create_dir_all(&parent).map_err(|err| CliFailure::io(&parent, err))?;
-            }
-            let parent = fs::canonicalize(&parent).map_err(|err| CliFailure::io(&parent, err))?;
-            if !parent.is_dir() {
-                return Err(CliFailure::new(
-                    "Cli",
-                    format!("parent is not a directory: {}", parent.display()),
-                ));
-            }
-            Ok(parent.join(name))
+            canonical_target_at(&target, links_left - 1)
         }
+        Ok(_) => canonical_parent_target(user),
+        Err(err) if err.kind() == ErrorKind::NotFound => canonical_parent_target(user),
         Err(err) => Err(CliFailure::io(user, err)),
     }
+}
+
+fn canonical_parent_target(user: &Path) -> Result<PathBuf, CliFailure> {
+    let name = user.file_name().ok_or_else(|| {
+        CliFailure::new("Cli", format!("path has no file name: {}", user.display()))
+    })?;
+    let parent = parent_dir(user);
+    if !parent.exists() {
+        fs::create_dir_all(&parent).map_err(|err| CliFailure::io(&parent, err))?;
+    }
+    // Canonicalize the stable directory, never the replaceable data inode.
+    // On Windows GetFinalPathNameByHandle can otherwise observe an old inode
+    // under NTFS $Extend/$Deleted while another writer atomically replaces it.
+    // That would select a different sidecar before taking the project lock.
+    let parent = fs::canonicalize(&parent).map_err(|err| CliFailure::io(&parent, err))?;
+    if !parent.is_dir() {
+        return Err(CliFailure::new(
+            "Cli",
+            format!("parent is not a directory: {}", user.display()),
+        ));
+    }
+    Ok(parent.join(name))
 }
 
 fn lock_sidecar(target: &Path) -> Result<PathBuf, CliFailure> {
