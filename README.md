@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.6-blue" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-ai/install/"><img alt="Download PixelForge" src="https://img.shields.io/badge/download-PixelForge-blue" /></a>
   <a href="https://starcloud530.github.io/pixelforge-demos/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
