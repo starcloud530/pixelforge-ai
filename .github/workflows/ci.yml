@@ -20,8 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Match the supported Apple Silicon release runner instead of a moving image.
-        os: [ubuntu-latest, macos-15, windows-latest]
+        # Match the supported Intel release runner instead of a moving image.
+        os: [ubuntu-latest, macos-15-intel, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
