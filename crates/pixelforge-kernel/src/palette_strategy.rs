@@ -258,7 +258,7 @@ pub(crate) fn finish_report(
     let mut max_distance = 0u32;
     let mut total_distance = 0u64;
     let samples = sampled_rgba.len() / 4;
-    for cell in 0..samples.min(indices.len()) {
+    for (cell, &into_index) in indices.iter().enumerate().take(samples) {
         let offset = cell * 4;
         let pixel = &sampled_rgba[offset..offset + 4];
         if pixel[3] < INDEX_ALPHA_CUTOFF {
@@ -266,7 +266,6 @@ pub(crate) fn finish_report(
             continue;
         }
         opaque_pixels = opaque_pixels.saturating_add(1);
-        let into_index = indices[cell];
         let into = prepared
             .colors
             .get(usize::from(into_index))

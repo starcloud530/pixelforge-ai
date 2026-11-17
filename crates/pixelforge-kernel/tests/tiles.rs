@@ -51,7 +51,7 @@ fn occupy(mask: u8) -> TileMap {
 
 #[test]
 fn sixteen_masks_are_deterministic_and_carry_flips() {
-    let rules = rules(|mask| u32::from(mask));
+    let rules = rules(u32::from);
     for mask in 0..16u8 {
         let mut map = occupy(mask);
         let before = map.save();
@@ -211,7 +211,7 @@ fn flips_move_pixels_and_tileset_export_matches_the_sheet() {
     assert_eq!(export.tmj["tilesets"][0]["tilecount"], 2);
 
     let loaded = TileMap::load(&map.save()).unwrap();
-    assert_eq!(loaded.get(0, 0, 0).unwrap().unwrap().flip_h, true);
+    assert!(loaded.get(0, 0, 0).unwrap().unwrap().flip_h);
 
     doc.resize_canvas(32, 32, 0, 0).unwrap();
     assert_eq!(doc.validate_tileset().unwrap_err().code(), "TileAlign");
@@ -256,7 +256,7 @@ fn tilemap_tool_rejects_an_unknown_field_and_undoes() {
     assert_eq!(response["ok"], true);
     assert!(map.get(0, 1, 1).unwrap().is_none());
     let response = call(&mut map, json!({"tool": "redo"}));
-    assert_eq!(map.get(0, 0, 0).unwrap().unwrap().flip_v, true);
+    assert!(map.get(0, 0, 0).unwrap().unwrap().flip_v);
     assert_eq!(response["result"]["canUndo"], true);
 }
 

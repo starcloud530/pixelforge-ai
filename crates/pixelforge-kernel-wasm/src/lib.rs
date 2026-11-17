@@ -544,7 +544,7 @@ mod tests {
         assert_eq!(loaded.height(), 16);
         assert_eq!(loaded.frame_count(), 2);
         assert_eq!(loaded.active_frame(), 1);
-        assert_eq!(loaded.pixels()[0 + 16], 5);
+        assert_eq!(loaded.pixels()[16], 5);
         assert_eq!(loaded.palette_rgba(), document.palette_rgba());
         assert!(!loaded.can_undo());
         assert!(!loaded.can_redo());

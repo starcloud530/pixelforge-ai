@@ -13,3 +13,9 @@ crates/pixelforge-kernel-wasm/pkg-node
 *.log
 .pnpm-debug.log*
 .vite
+
+.repo-bootstrap-backup/
+
+__pycache__/
+*.py[cod]
+/artifacts/

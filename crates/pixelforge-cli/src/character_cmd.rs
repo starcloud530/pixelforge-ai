@@ -82,7 +82,10 @@ fn matrix_or_check(manifest_path: &Path, id: &str, check: bool) -> i32 {
     let result = &value["result"];
     let error_count = result["errorCount"].as_u64().unwrap_or(0);
     let warning_count = result["warningCount"].as_u64().unwrap_or(0);
-    let gaps = result["gaps"].as_array().map(|list| list.len()).unwrap_or(0);
+    let gaps = result["gaps"]
+        .as_array()
+        .map(|list| list.len())
+        .unwrap_or(0);
     print_human_summary(result, check);
     if !check {
         eprintln!(

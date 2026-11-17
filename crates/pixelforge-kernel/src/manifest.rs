@@ -1597,8 +1597,9 @@ fn parse_character_project(value: Option<&Value>) -> Result<CharacterProjectProb
     let direction_layout = match map.get("directionLayout") {
         None | Some(Value::Null) => None,
         Some(Value::Object(layout)) => {
-            reject_params(layout, &["count", "columns"])
-                .map_err(|failure| prefix_params("characterMatrix.project.directionLayout", failure))?;
+            reject_params(layout, &["count", "columns"]).map_err(|failure| {
+                prefix_params("characterMatrix.project.directionLayout", failure)
+            })?;
             let count = required_u32(layout, "count", "characterMatrix.project.directionLayout")?;
             let columns =
                 required_u32(layout, "columns", "characterMatrix.project.directionLayout")?;
@@ -1631,11 +1632,12 @@ fn parse_character_project(value: Option<&Value>) -> Result<CharacterProjectProb
 
 fn required_u32(map: &Map<String, Value>, key: &str, what: &str) -> Result<u32, ToolFail> {
     match map.get(key) {
-        Some(Value::Number(number)) => number.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(
-            || ToolFail::InvalidParams {
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or_else(|| ToolFail::InvalidParams {
                 message: format!("{what}.{key} must be a non-negative integer"),
-            },
-        ),
+            }),
         Some(_) => Err(ToolFail::InvalidParams {
             message: format!("{what}.{key} must be a number"),
         }),
@@ -1658,10 +1660,19 @@ fn parse_character_tags(value: Option<&Value>) -> Result<Vec<CharacterTagProbe>,
                 message: format!("characterMatrix: project.tags[{index}] must be an object"),
             });
         };
-        reject_params(map, &["name", "from", "to", "loop"])
-            .map_err(|failure| prefix_params(&format!("characterMatrix.project.tags[{index}]"), failure))?;
-        let name = required_param_string(map, "name", &format!("characterMatrix.project.tags[{index}]"))?;
-        let from = required_u32(map, "from", &format!("characterMatrix.project.tags[{index}]"))?;
+        reject_params(map, &["name", "from", "to", "loop"]).map_err(|failure| {
+            prefix_params(&format!("characterMatrix.project.tags[{index}]"), failure)
+        })?;
+        let name = required_param_string(
+            map,
+            "name",
+            &format!("characterMatrix.project.tags[{index}]"),
+        )?;
+        let from = required_u32(
+            map,
+            "from",
+            &format!("characterMatrix.project.tags[{index}]"),
+        )?;
         let to = required_u32(map, "to", &format!("characterMatrix.project.tags[{index}]"))?;
         let loop_mode = match map.get("loop") {
             None => LoopMode::Forward,
@@ -1710,10 +1721,9 @@ fn parse_character_frames(
                 message: format!("characterMatrix: project.frames[{index}] must be an object"),
             });
         };
-        reject_params(map, &["hasContent", "hash", "hashHflip"])
-            .map_err(|failure| {
-                prefix_params(&format!("characterMatrix.project.frames[{index}]"), failure)
-            })?;
+        reject_params(map, &["hasContent", "hash", "hashHflip"]).map_err(|failure| {
+            prefix_params(&format!("characterMatrix.project.frames[{index}]"), failure)
+        })?;
         let has_content = match map.get("hasContent") {
             Some(Value::Bool(value)) => *value,
             Some(_) => {
@@ -1731,9 +1741,16 @@ fn parse_character_frames(
                 })
             }
         };
-        let hash = required_u64(map, "hash", &format!("characterMatrix.project.frames[{index}]"))?;
-        let hash_hflip =
-            required_u64(map, "hashHflip", &format!("characterMatrix.project.frames[{index}]"))?;
+        let hash = required_u64(
+            map,
+            "hash",
+            &format!("characterMatrix.project.frames[{index}]"),
+        )?;
+        let hash_hflip = required_u64(
+            map,
+            "hashHflip",
+            &format!("characterMatrix.project.frames[{index}]"),
+        )?;
         frames.push(CharacterFrameProbe {
             has_content,
             hash,

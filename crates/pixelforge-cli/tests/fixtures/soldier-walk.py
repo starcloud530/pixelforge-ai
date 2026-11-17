@@ -9,7 +9,7 @@ pixel frames. A planted span keeps the sole cell. A later span is an explicit
 step. A target the chain cannot reach is `IkUnreachable` and writes nothing.
 
 Usage:
-    PIXELFORGE=/path/to/pixelforge python3 examples/soldier-walk.py soldier.json
+    PIXELFORGE=/path/to/pixelforge python3 crates/pixelforge-cli/tests/fixtures/soldier-walk.py soldier.json
 """
 
 import json

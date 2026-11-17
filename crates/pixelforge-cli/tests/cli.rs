@@ -1422,7 +1422,7 @@ fn preview_png_diff_flip_resize_and_sheet_columns() {
     let doc = load(&project);
     assert_eq!((doc.width(), doc.height()), (6, 4));
     assert_eq!(doc.get(3, 1).unwrap(), 3);
-    assert_eq!(doc.frame_pixels(1).unwrap()[1 * 6 + 2], 3);
+    assert_eq!(doc.frame_pixels(1).unwrap()[6 + 2], 3);
 
     let undone = pixelforge(&arg(&[
         "call",
@@ -2328,7 +2328,7 @@ fn selection_limits_a_helmet_recolor_to_the_gear_layer() {
     assert_eq!(doc.layer_pixels(0, 0).unwrap()[2 * 8 + 1], 3);
     assert_eq!(doc.layer_pixels(0, 1).unwrap()[0], 0);
     assert_eq!(doc.layer_pixels(0, 1).unwrap()[2], 6);
-    assert_eq!(doc.layer_pixels(0, 1).unwrap()[1 * 8 + 2], 6);
+    assert_eq!(doc.layer_pixels(0, 1).unwrap()[8 + 2], 6);
     assert_eq!(doc.layer_pixels(0, 1).unwrap()[8], 0);
     assert_eq!(doc.active_layer(), 1);
     assert_eq!(

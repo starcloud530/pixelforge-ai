@@ -22,7 +22,7 @@ export interface ChatTool {
 }
 
 interface SchemaProperty {
-  type: "integer" | "number" | "boolean" | "string" | "array";
+  type: "integer" | "number" | "boolean" | "string" | "array" | readonly ["string", "null"];
   description: string;
   minimum?: number;
   maximum?: number;
@@ -929,7 +929,7 @@ const BY_NAME = {
   ),
   addLayer: tool(
     "addLayer",
-    "Insert a transparent layer above the active one on every frame and select it. Omit name for the next free Layer N. role polish is an overlay bake never writes. Omit role for default. One undo step.",
+    "Insert a transparent layer above the active one on every frame and select it. Omit name for the next free Layer N. role polish is an overlay; bake preserves it unless it is bound to a posed part. Omit role for default. One undo step.",
     {
       name: { type: "string", description: "Layer name, 1 to 64 characters. Omit for Layer N." },
       role: {
@@ -941,7 +941,7 @@ const BY_NAME = {
   ),
   setLayerRole: tool(
     "setLayerRole",
-    "Set whether bake may rebuild this layer. polish is an overlay bake never writes. default is an ordinary layer. Pixels stay. The same role is not recorded. Omit index for the active layer.",
+    "Set whether bake may rebuild this layer. polish is an overlay; bake preserves it unless it is bound to a posed part. default is an ordinary layer. Pixels stay. The same role is not recorded. Omit index for the active layer.",
     {
       index: int("Layer index, 0-based. Omit for the active layer.", 0, 4294967295),
       role: {
@@ -951,6 +951,16 @@ const BY_NAME = {
       },
     },
     ["role"],
+  ),
+  setLayerBind: tool(
+    "setLayerBind",
+    "Bind a polish overlay to a named part so its corrections follow that part during transforms and bake. Pixels stay. Pass part null to unbind; omit anchor or pass null in that case. The same binding is not recorded. Omit index for the active layer.",
+    {
+      index: int("Layer index, 0-based. Must be a polish layer. Omit for the active layer.", 0, 4294967295),
+      part: { type: ["string", "null"], description: "Existing part name, or null to unbind." },
+      anchor: { type: ["string", "null"], description: "Existing anchor on that part. Omit or pass null for the part origin." },
+    },
+    ["part"],
   ),
   setLayerVisible: tool(
     "setLayerVisible",

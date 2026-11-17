@@ -455,7 +455,7 @@ fn two_editors_with_one_token_do_not_both_write() {
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    let mut other = command(
+    let other = command(
         &[
             "paint",
             "--project",

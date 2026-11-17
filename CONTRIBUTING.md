@@ -13,8 +13,11 @@
 1. 从最新 `main` 开分支。
 2. 保持改动聚焦；大功能先 issue 对齐范围。
 3. 本地跑通：
-   - `cargo test -p pixelforge-kernel`
-   - `cargo test -p pixelforge-cli`
+   - `pnpm install --frozen-lockfile`
+   - `pnpm lint`
+   - `cargo test --workspace --locked --no-fail-fast`
+   - `pnpm quick` / `pnpm smoke`
+   - Web/WASM、浏览器与文档检查见 [quality.md](docs/quality.md)。
 4. 打开 PR，填模板；关联 issue。
 5. CI workflow **CI** / job **test and export gate** 必须绿。
 

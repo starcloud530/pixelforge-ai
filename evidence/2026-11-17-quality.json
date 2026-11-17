@@ -1,0 +1,510 @@
+{
+  "date": "2026-11-17",
+  "timezone": "Asia/Shanghai",
+  "startedOn": "2026-11-16",
+  "baseline": "5ae4685719fd9d977614feefd142e58f2e75368c",
+  "trackingIssue": "https://github.com/starcloud530/pixelforge-ai/issues/163",
+  "status": "local checks passed; remote matrix is recorded by the PR checks",
+  "environment": {
+    "system": "Darwin arm64",
+    "rust": [
+      "1.100.0",
+      "1.83.0"
+    ],
+    "node": [
+      "26.13.0",
+      "20 series"
+    ],
+    "pnpm": "10.34.9",
+    "python": "3.9.6",
+    "browser": "Chrome 157.0.8103.51"
+  },
+  "results": [
+    {
+      "name": "frozen-install",
+      "exit": 0,
+      "logSHA256": "9b48fe1ba5b5b7c48f6cf3dc32b78545aef7e524f578ebd604d9dd7894761fb7"
+    },
+    {
+      "name": "lint",
+      "exit": 0,
+      "logSHA256": "23024e60e7c0d20563f35f3d1831d8a4e27508302fc902f7c785242c7b3942c0"
+    },
+    {
+      "name": "test-rust",
+      "exit": 0,
+      "logSHA256": "59d98fea252dc64c7c8bbc2dc7cc0ed768f21ad6ed4065e5d0921c8959fcb496"
+    },
+    {
+      "name": "test-rust183",
+      "exit": 0,
+      "logSHA256": "331dc77a0303fbc40a42a4045c01c4eb4ecac57ad78061b3b48fe6c44fde177b"
+    },
+    {
+      "name": "build-rust",
+      "exit": 0,
+      "logSHA256": "8c233a54790c4800d3dd585436af679aa838da259bfdb129412e2d51cdb75cdc"
+    },
+    {
+      "name": "quick",
+      "exit": 0,
+      "logSHA256": "e5cfa866e3f1ef356fbac4457974c749b90aaecfb17575ff2cfcba19835db965"
+    },
+    {
+      "name": "smoke",
+      "exit": 0,
+      "logSHA256": "7b032d264546f6cfb0626e3551f06ee7bc2a68e9b58ca193ef3e458683ddca59"
+    },
+    {
+      "name": "build-web",
+      "exit": 0,
+      "logSHA256": "bdab4ef4db6f1d160e4cdb13bdc0bb26394669f80191b29f28ba2392c79c2533"
+    },
+    {
+      "name": "build-landing",
+      "exit": 0,
+      "logSHA256": "a8e0d859f33e0915dd80eb13a4cde64558e79bc90e11ca7dab98d4a7d1068afc"
+    },
+    {
+      "name": "test-web",
+      "exit": 0,
+      "logSHA256": "b7a974d2fba70a2456c26a790a32e75e479a30dc09df1d069e4c3c65aa4fae62"
+    },
+    {
+      "name": "test-node20",
+      "exit": 0,
+      "logSHA256": "5c7e5b04d5ec8e44e0253c21f7c03c50ccce442e1946e341b2f6eefb35278a96"
+    },
+    {
+      "name": "browser",
+      "exit": 0,
+      "logSHA256": "3d237de3a67fb7bd2556c571f24bdb4be329aed319fb5324525f8066f57e5232"
+    },
+    {
+      "name": "docs",
+      "exit": 0,
+      "logSHA256": "658b4dba58e5b1d50c7e7c120d8eb4561310d6ddde678c4793ad00c745ce6c4b"
+    },
+    {
+      "name": "actionlint",
+      "exit": 0,
+      "logSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "diff",
+      "exit": 0,
+      "logSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "counts": {
+    "rustStable": 442,
+    "rust183": 442,
+    "frontend": 13,
+    "frontendNode20": 13,
+    "playerJavaScript": 17,
+    "quickCliInvocations": 8,
+    "smokeCliInvocations": 25,
+    "markdownFiles": 38,
+    "documentTools": 94
+  },
+  "clippyCompatibilityExpectations": {
+    "count": 10,
+    "reason": "Preserve existing public Rust source API; each function has a scoped expect with reason; no global lint suppression",
+    "documentMethods": [
+      "line_on",
+      "ellipse_on",
+      "copy_rect_from",
+      "copy_rect_from_on",
+      "move_rect_from",
+      "move_rect_from_on",
+      "rotate_on",
+      "add_constraint",
+      "add_constraint_full"
+    ],
+    "other": [
+      "Mask::try_from_rects retains Err(())"
+    ]
+  },
+  "pairedReleasePerformance": {
+    "baselineCommit": "4106e22",
+    "repeats": 5,
+    "warmups": 1,
+    "inputSHA256": "b79c2ef79772a5c1afe3622213b852c01312e3f2306c77a1ab89300fa7b17e3f",
+    "cases": [
+      {
+        "name": "scene",
+        "medianMs": {
+          "before": 124.605,
+          "after": 81.543
+        },
+        "peakRssBytes": {
+          "before": 189415424,
+          "after": 120012800
+        },
+        "speedup": 1.5280894742651117,
+        "sameOutputSHA256": "e5308413e94b8875e9d596ac26e2e6c80fc265a3ea7e93eb83c94826675a2c98"
+      },
+      {
+        "name": "preview",
+        "medianMs": {
+          "before": 90.48,
+          "after": 77.839
+        },
+        "peakRssBytes": {
+          "before": 167116800,
+          "after": 120815616
+        },
+        "speedup": 1.1623993113991702,
+        "sameOutputSHA256": "1de90ea7a87aa5519d8ef66a24b205a9272688b6680d9faf583098c90d36eb23"
+      },
+      {
+        "name": "sheet",
+        "medianMs": {
+          "before": 131.611,
+          "after": 78.545
+        },
+        "peakRssBytes": {
+          "before": 212058112,
+          "after": 128532480
+        },
+        "speedup": 1.675612706092049,
+        "sameOutputSHA256": "f785ca150b3b67a9e54fea6ee732de0c4bc7ecb10325610da93e74694cd149e1"
+      },
+      {
+        "name": "apng",
+        "medianMs": {
+          "before": 131.459,
+          "after": 80.615
+        },
+        "peakRssBytes": {
+          "before": 191283200,
+          "after": 121798656
+        },
+        "speedup": 1.6307014823544006,
+        "sameOutputSHA256": "eb075d9c9c320f70460cd336bfe0306b0cd1941e67482cb714d0b08024cdb850"
+      },
+      {
+        "name": "kmeans-k16",
+        "medianMs": {
+          "before": 167.196,
+          "after": 163.063
+        },
+        "peakRssBytes": {
+          "before": 39780352,
+          "after": 40239104
+        },
+        "speedup": 1.0253460319017804,
+        "sameOutputSHA256": "761984d77ba754a59136ec2c3321a9b931624bba903cc5de1a955de2710787f4"
+      },
+      {
+        "name": "kmeans-k64",
+        "medianMs": {
+          "before": 322.772,
+          "after": 231.821
+        },
+        "peakRssBytes": {
+          "before": 40271872,
+          "after": 40730624
+        },
+        "speedup": 1.392332877521881,
+        "sameOutputSHA256": "f75739196e59722be64d4b982dd31eec20c560d36eeec186e205ee3524a43331"
+      }
+    ]
+  },
+  "performance1254": {
+    "input": {
+      "name": "generated-original.png",
+      "bytes": 1832653,
+      "sha256": "b79c2ef79772a5c1afe3622213b852c01312e3f2306c77a1ab89300fa7b17e3f"
+    },
+    "player": {
+      "startupMs": 28.885,
+      "name": "player-edit-to-snapshot",
+      "samples": [
+        {
+          "ms": 216.876,
+          "peakRssBytes": null
+        },
+        {
+          "ms": 222.374,
+          "peakRssBytes": null
+        },
+        {
+          "ms": 215.611,
+          "peakRssBytes": null
+        }
+      ],
+      "medianMs": 216.876,
+      "p95Ms": 222.374,
+      "peakRssBytes": null
+    },
+    "cases": [
+      {
+        "name": "scene-32x32-8frames",
+        "medianMs": 3.207,
+        "p95Ms": 3.425,
+        "peakRssBytes": 6406144,
+        "projectBytes": 91535
+      },
+      {
+        "name": "preview-32x32-8frames",
+        "medianMs": 10.638,
+        "p95Ms": 10.785,
+        "peakRssBytes": 6864896,
+        "projectBytes": 91535
+      },
+      {
+        "name": "sheet-32x32-8frames",
+        "medianMs": 10.781,
+        "p95Ms": 10.797,
+        "peakRssBytes": 6586368,
+        "projectBytes": 91535
+      },
+      {
+        "name": "apng-32x32-8frames",
+        "medianMs": 10.837,
+        "p95Ms": 11.736,
+        "peakRssBytes": 6799360,
+        "projectBytes": 91535
+      },
+      {
+        "name": "scene-64x64-16frames",
+        "medianMs": 5.911,
+        "p95Ms": 6.063,
+        "peakRssBytes": 9879552,
+        "projectBytes": 722800
+      },
+      {
+        "name": "preview-64x64-16frames",
+        "medianMs": 12.843,
+        "p95Ms": 13.621,
+        "peakRssBytes": 9846784,
+        "projectBytes": 722800
+      },
+      {
+        "name": "sheet-64x64-16frames",
+        "medianMs": 12.735,
+        "p95Ms": 12.85,
+        "peakRssBytes": 9912320,
+        "projectBytes": 722800
+      },
+      {
+        "name": "apng-64x64-16frames",
+        "medianMs": 13.76,
+        "p95Ms": 13.797,
+        "peakRssBytes": 10272768,
+        "projectBytes": 722800
+      },
+      {
+        "name": "scene-256x256-32frames",
+        "medianMs": 80.767,
+        "p95Ms": 81.47,
+        "peakRssBytes": 120012800,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "preview-256x256-32frames",
+        "medianMs": 77.27,
+        "p95Ms": 77.927,
+        "peakRssBytes": 120815616,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "sheet-256x256-32frames",
+        "medianMs": 77.623,
+        "p95Ms": 78.721,
+        "peakRssBytes": 128499712,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "apng-256x256-32frames",
+        "medianMs": 78.381,
+        "p95Ms": 79.647,
+        "peakRssBytes": 121847808,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "convert-center-sample-to64x64",
+        "medianMs": 37.789,
+        "p95Ms": 38.109,
+        "peakRssBytes": 44859392
+      },
+      {
+        "name": "convert-dominant-to64x64",
+        "medianMs": 76.779,
+        "p95Ms": 77.483,
+        "peakRssBytes": 42532864
+      },
+      {
+        "name": "convert-kmeans-to64x64",
+        "medianMs": 162.451,
+        "p95Ms": 163.187,
+        "peakRssBytes": 40255488
+      },
+      {
+        "name": "convert-contrast-outline-to64x64",
+        "medianMs": 110.826,
+        "p95Ms": 112.952,
+        "peakRssBytes": 60325888
+      },
+      {
+        "name": "convert-grid-snap-to64x64",
+        "medianMs": 80.125,
+        "p95Ms": 80.213,
+        "peakRssBytes": 41451520
+      }
+    ]
+  },
+  "performance4096": {
+    "input": {
+      "name": "pixelforge-000.png",
+      "bytes": 698197,
+      "sha256": "f7ac68afeb7f3c2ec75d32a3783cf2a5785c1d8b5caefaefa8a1ed552d01b4fa"
+    },
+    "player": {
+      "startupMs": 30.415,
+      "name": "player-edit-to-snapshot",
+      "samples": [
+        {
+          "ms": 217.781,
+          "peakRssBytes": null
+        },
+        {
+          "ms": 209.89,
+          "peakRssBytes": null
+        },
+        {
+          "ms": 208.898,
+          "peakRssBytes": null
+        }
+      ],
+      "medianMs": 209.89,
+      "p95Ms": 217.781,
+      "peakRssBytes": null
+    },
+    "cases": [
+      {
+        "name": "scene-32x32-8frames",
+        "medianMs": 3.153,
+        "p95Ms": 3.229,
+        "peakRssBytes": 6389760,
+        "projectBytes": 91535
+      },
+      {
+        "name": "preview-32x32-8frames",
+        "medianMs": 9.753,
+        "p95Ms": 9.837,
+        "peakRssBytes": 6914048,
+        "projectBytes": 91535
+      },
+      {
+        "name": "sheet-32x32-8frames",
+        "medianMs": 10.738,
+        "p95Ms": 10.878,
+        "peakRssBytes": 6602752,
+        "projectBytes": 91535
+      },
+      {
+        "name": "apng-32x32-8frames",
+        "medianMs": 10.765,
+        "p95Ms": 11.693,
+        "peakRssBytes": 6832128,
+        "projectBytes": 91535
+      },
+      {
+        "name": "scene-64x64-16frames",
+        "medianMs": 6.059,
+        "p95Ms": 6.082,
+        "peakRssBytes": 9306112,
+        "projectBytes": 722800
+      },
+      {
+        "name": "preview-64x64-16frames",
+        "medianMs": 13.78,
+        "p95Ms": 13.811,
+        "peakRssBytes": 10387456,
+        "projectBytes": 722800
+      },
+      {
+        "name": "sheet-64x64-16frames",
+        "medianMs": 13.731,
+        "p95Ms": 13.787,
+        "peakRssBytes": 10010624,
+        "projectBytes": 722800
+      },
+      {
+        "name": "apng-64x64-16frames",
+        "medianMs": 12.773,
+        "p95Ms": 12.824,
+        "peakRssBytes": 10371072,
+        "projectBytes": 722800
+      },
+      {
+        "name": "scene-256x256-32frames",
+        "medianMs": 81.201,
+        "p95Ms": 81.779,
+        "peakRssBytes": 120012800,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "preview-256x256-32frames",
+        "medianMs": 78.492,
+        "p95Ms": 79.392,
+        "peakRssBytes": 120799232,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "sheet-256x256-32frames",
+        "medianMs": 78.242,
+        "p95Ms": 78.993,
+        "peakRssBytes": 128516096,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "apng-256x256-32frames",
+        "medianMs": 78.38,
+        "p95Ms": 80.618,
+        "peakRssBytes": 121765888,
+        "projectBytes": 23071538
+      },
+      {
+        "name": "convert-center-sample-to64x64",
+        "medianMs": 29.531,
+        "p95Ms": 29.863,
+        "peakRssBytes": 82706432
+      },
+      {
+        "name": "convert-dominant-to64x64",
+        "medianMs": 65.238,
+        "p95Ms": 65.416,
+        "peakRssBytes": 82788352
+      },
+      {
+        "name": "convert-kmeans-to64x64",
+        "medianMs": 264.712,
+        "p95Ms": 268.613,
+        "peakRssBytes": 80461824
+      },
+      {
+        "name": "convert-contrast-outline-to64x64",
+        "medianMs": 692.261,
+        "p95Ms": 704.832,
+        "peakRssBytes": 250658816
+      },
+      {
+        "name": "convert-grid-snap-to64x64",
+        "medianMs": 99.138,
+        "p95Ms": 99.364,
+        "peakRssBytes": 82853888
+      }
+    ]
+  },
+  "limits": [
+    "Local performance samples are not cross-machine SLAs or art-quality scores",
+    "No Firefox/Safari or exhaustive high-entropy 4096x4096 input coverage",
+    "Per-file atomic outputs are not a transaction across PNG/atlas or project/checkpoint",
+    "Output preflight does not guarantee safety against non-cooperating directory replacement",
+    "Minimum Node validation uses the current Node 20 patch, not every historical patch",
+    "Secret scan was the repo-bootstrap basic fallback, not gitleaks; dependency-update automation was outside this change"
+  ]
+}

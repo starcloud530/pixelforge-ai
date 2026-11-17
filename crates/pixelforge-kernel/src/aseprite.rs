@@ -27,6 +27,24 @@ use crate::DEFAULT_LAYER_NAME;
 use crate::MAX_CANVAS_EDGE;
 use crate::MAX_LAYER_NAME_CHARS;
 
+/// Named inputs for `blit`; keep related values explicit at call sites.
+struct BlitArgs<'a> {
+    buffer: &'a mut [u8],
+    canvas_w: u16,
+    canvas_h: u16,
+    cel_x: i16,
+    cel_y: i16,
+    cel_w: u16,
+    cel_h: u16,
+    pixels: &'a [u8],
+    transparent: u8,
+    palette_len: usize,
+    clipped: &'a mut u32,
+}
+
+// Named parser/loader results keep the internal data contract readable.
+type MapLayersResult = Result<(Vec<String>, Vec<Option<usize>>, AsepriteReport), KernelError>;
+
 /// Widest indexed cel this importer will inflate, on either edge.
 const MAX_CEL_EDGE: u16 = MAX_CANVAS_EDGE;
 
@@ -493,13 +511,13 @@ fn parse_new_palette(
     } else {
         resize_palette(palette, size);
     }
-    for index in first..=last {
+    for color in palette.iter_mut().take(last + 1).skip(first) {
         let flags = cursor.u16()?;
         let red = cursor.u8()?;
         let green = cursor.u8()?;
         let blue = cursor.u8()?;
         let alpha = cursor.u8()?;
-        palette[index] = Rgba::new(red, green, blue, alpha);
+        *color = Rgba::new(red, green, blue, alpha);
         if flags & 1 != 0 {
             let _name = cursor.string()?;
         }
@@ -629,19 +647,19 @@ fn assemble(mut parsed: Parsed) -> Result<(Document, AsepriteReport), KernelErro
                     resolve_link(&parsed.frames, usize::from(*frame), cel.layer, 0)?
                 }
             };
-            blit(
-                &mut buffers[mapped],
-                parsed.width,
-                parsed.height,
-                cel.x,
-                cel.y,
-                width,
-                height,
-                &pixels,
+            blit(crate::aseprite::BlitArgs {
+                buffer: &mut buffers[mapped],
+                canvas_w: parsed.width,
+                canvas_h: parsed.height,
+                cel_x: cel.x,
+                cel_y: cel.y,
+                cel_w: width,
+                cel_h: height,
+                pixels: &pixels,
                 transparent,
                 palette_len,
-                &mut report.clipped_cells,
-            )?;
+                clipped: &mut report.clipped_cells,
+            })?;
         }
         let (delay, defaulted) =
             frame_delay(parsed.frames[frame_index].duration, parsed.header_speed);
@@ -655,36 +673,34 @@ fn assemble(mut parsed: Parsed) -> Result<(Document, AsepriteReport), KernelErro
     report.transparent_swapped = swapped;
     report.ignored = parsed.ignored.into_iter().collect();
 
-    let document = Document::from_stored(
-        parsed.width,
-        parsed.height,
+    let document = Document::from_stored(crate::document::FromStoredArgs {
+        width: parsed.width,
+        height: parsed.height,
         palette,
-        false,
-        IndexPolicy::Reject,
+        palette_locked: false,
+        index_policy: IndexPolicy::Reject,
         frames,
-        0,
-        names.clone(),
-        vec![LayerRole::Default; names.len()],
-        vec![true; names.len()],
-        vec![255; names.len()],
-        vec![None; names.len()],
-        0,
-        None,
-        Vec::new(),
-        None,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        None,
-        None,
-        None,
-    );
+        active: 0,
+        layer_names: names.clone(),
+        layer_roles: vec![LayerRole::Default; names.len()],
+        layer_visible: vec![true; names.len()],
+        layer_opacity: vec![255; names.len()],
+        layer_binds: vec![None; names.len()],
+        active_layer: 0,
+        selection: None,
+        tags: Vec::new(),
+        direction_layout: None,
+        parts: Vec::new(),
+        curves: Vec::new(),
+        constraints: Vec::new(),
+        tileset: None,
+        engine: None,
+        transform: None,
+    });
     Ok((document, report))
 }
 
-fn map_layers(
-    parsed: &Parsed,
-) -> Result<(Vec<String>, Vec<Option<usize>>, AsepriteReport), KernelError> {
+fn map_layers(parsed: &Parsed) -> MapLayersResult {
     let mut report = empty_report(parsed.transparent_index);
     if parsed.layers.is_empty() {
         for frame in &parsed.frames {
@@ -806,19 +822,20 @@ fn resolve_link(
     }
 }
 
-fn blit(
-    buffer: &mut [u8],
-    canvas_w: u16,
-    canvas_h: u16,
-    cel_x: i16,
-    cel_y: i16,
-    cel_w: u16,
-    cel_h: u16,
-    pixels: &[u8],
-    transparent: u8,
-    palette_len: usize,
-    clipped: &mut u32,
-) -> Result<(), KernelError> {
+fn blit(args: BlitArgs<'_>) -> Result<(), KernelError> {
+    let BlitArgs {
+        buffer,
+        canvas_w,
+        canvas_h,
+        cel_x,
+        cel_y,
+        cel_w,
+        cel_h,
+        pixels,
+        transparent,
+        palette_len,
+        clipped,
+    } = args;
     let stride = usize::from(canvas_w);
     for y in 0..cel_h {
         for x in 0..cel_w {

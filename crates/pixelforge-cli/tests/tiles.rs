@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
@@ -30,8 +31,10 @@ struct Scratch {
 
 impl Scratch {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "pixelforge-tiles-{}-{}",
+            "pixelforge-tiles-{}-{}-{unique}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -56,8 +59,8 @@ impl Drop for Scratch {
 fn rules_text(bad_tile: Option<u32>) -> String {
     let mut rules = Vec::new();
     for mask in 0..16 {
-        let tile = if bad_tile.is_some() && mask == 0 {
-            bad_tile.unwrap()
+        let tile = if mask == 0 {
+            bad_tile.unwrap_or(mask)
         } else {
             mask
         };

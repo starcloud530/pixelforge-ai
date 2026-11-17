@@ -602,6 +602,8 @@ CLI：`pixelforge engine set <id> --project hero.json`。
 
 ### `convertPng`
 
+`palette.mode = source` 遇到超过 255 个采样色时，先保留使用最多的 255 色（同频取较小 RGB，存活项保持原顺序），再压到 `maxColors`；不把任意采样色序号当成 8 位工程索引。
+
 把一张任意尺寸的 PNG 收成一帧索引色。上层只认这一份参数。换引擎不改这些字段。
 
 `params`：

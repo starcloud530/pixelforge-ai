@@ -268,6 +268,9 @@ pub fn export_tileset(
     cols: Option<u32>,
     image: Option<String>,
 ) -> i32 {
+    if let Err(failure) = crate::output_paths::check(&[project], &[output, meta]) {
+        return emit(failure);
+    }
     let text = match fs::read_to_string(project) {
         Ok(text) => text,
         Err(err) => return emit(CliFailure::io(project, err)),
@@ -287,14 +290,14 @@ pub fn export_tileset(
         Ok(export) => export,
         Err(error) => return kernel_line(error),
     };
-    if let Err(err) = fs::write(output, &export.png) {
-        return emit(CliFailure::io(output, err));
+    if let Err(err) = crate::store::write_atomic(output, &export.png) {
+        return emit(err);
     }
     eprintln!("pixelforge: wrote {}", output.display());
     let mut meta_text = serde_json::to_string_pretty(&export.meta).expect("tileset meta is JSON");
     meta_text.push('\n');
-    if let Err(err) = fs::write(meta, meta_text) {
-        return emit(CliFailure::io(meta, err));
+    if let Err(err) = crate::store::write_atomic(meta, meta_text.as_bytes()) {
+        return emit(err);
     }
     eprintln!("pixelforge: wrote {}", meta.display());
     print_ok(json!({
@@ -322,6 +325,9 @@ pub fn export_tilemap(
     cols: Option<u32>,
     image: Option<String>,
 ) -> i32 {
+    if let Err(failure) = crate::output_paths::check(&[map_path, tileset], &[output, tmj]) {
+        return emit(failure);
+    }
     let map_text = match fs::read_to_string(map_path) {
         Ok(text) => text,
         Err(err) => return emit(CliFailure::io(map_path, err)),
@@ -364,14 +370,14 @@ pub fn export_tilemap(
             ))
         }
     };
-    if let Err(err) = fs::write(output, &png) {
-        return emit(CliFailure::io(output, err));
+    if let Err(err) = crate::store::write_atomic(output, &png) {
+        return emit(err);
     }
     eprintln!("pixelforge: wrote {}", output.display());
     let mut tmj_text = serde_json::to_string_pretty(&value["result"]["tmj"]).expect("tmj is JSON");
     tmj_text.push('\n');
-    if let Err(err) = fs::write(tmj, tmj_text) {
-        return emit(CliFailure::io(tmj, err));
+    if let Err(err) = crate::store::write_atomic(tmj, tmj_text.as_bytes()) {
+        return emit(err);
     }
     eprintln!("pixelforge: wrote {}", tmj.display());
     print_ok(json!({

@@ -1,53 +1,138 @@
-# PR gate for the Rust workspace. No deploy and no CD.
-# Prebuilt CLI packages are .github/workflows/release.yml (version tags only).
-# Do not add that matrix or a service deploy to this workflow.
-
+# PR gates only. Version-tag releases and Pages deployment have separate workflows.
 name: CI
-
 on:
   pull_request:
   push:
-    branches:
-      - main
-
+    branches: [main]
 permissions:
   contents: read
-
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
 env:
   CARGO_TERM_COLOR: always
-
+  PYTHONUTF8: "1"
 jobs:
-  gate:
-    name: test and export gate
-    runs-on: ubuntu-latest
+  rust:
+    name: Rust (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.x"
-
-      # Node runs the bundled player script tests. The preview server itself does not.
-      - name: Set up Node for player script tests
-        uses: actions/setup-node@v4
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: Core tests (pixelforge-kernel)
-        run: cargo test -p pixelforge-kernel
-
-      - name: Core tests (pixelforge-cli)
-        run: cargo test -p pixelforge-cli
-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Format and strict Rust lint
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Full Rust tests
+        run: cargo test --workspace --locked --no-fail-fast
+      - name: Build the workspace
+        run: cargo build --workspace --locked
+      - name: CLI quick check
+        run: python scripts/checks.py quick --no-build
+      - name: CLI smoke and fixture gates
+        run: python scripts/checks.py smoke --no-build
+  compatibility:
+    name: Rust 1.83 and Node 20 compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.83.0"
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Full tests on the Rust minimum
+        run: cargo test --workspace --locked --no-fail-fast
+  web:
+    name: Web and WASM (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Build web, WASM and landing (includes TypeScript checks)
+        run: |
+          pnpm build
+          pnpm build:landing
+      - name: Frontend and real Node WASM tests
+        run: pnpm test
+      - name: Install test browser
+        if: matrix.node == 22
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Browser usability and read-only regression
+        if: matrix.node == 22
+        env:
+          PIXELFORGE_TEST_ARTIFACTS: artifacts/browser
+        run: |
+          cargo build -p pixelforge-cli --locked
+          pnpm test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure() && matrix.node == 22
+        with:
+          name: browser-failure
+          path: artifacts/browser
+          if-no-files-found: ignore
+  docs:
+    name: Documentation consistency and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-docs.txt
+      - run: python scripts/check_docs.py
+      - run: mkdocs build --strict
+  gate:
+    # Keep the protected branch's required check name stable. No failed or
+    # cancelled prerequisite may be hidden by the aggregate job being skipped.
+    name: test and export gate
+    needs: [rust, compatibility, web, docs]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every check
+        env:
+          CHECKS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PY'
+          import json, os
+          results = json.loads(os.environ['CHECKS'])
+          failed = {name: check['result'] for name, check in results.items() if check['result'] != 'success'}
+          if failed:
+              raise SystemExit(f'Checks did not all pass: {failed}')
+          print('All Rust, compatibility, frontend, browser, and documentation checks passed')
+          PY

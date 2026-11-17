@@ -17,8 +17,10 @@ Closes #
 
 本地/CI 对齐 `.github/workflows/ci.yml`（job：`test and export gate`）：
 
-- [ ] `cargo test -p pixelforge-kernel`
-- [ ] `cargo test -p pixelforge-cli`
+- [ ] `pnpm lint`
+- [ ] `cargo test --workspace --locked --no-fail-fast`
+- [ ] `pnpm quick` / `pnpm smoke`
+- [ ] Web/WASM、浏览器和文档检查通过（见 `docs/quality.md`）
 
 ## 破坏性变更
 

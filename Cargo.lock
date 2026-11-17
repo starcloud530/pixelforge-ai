@@ -270,6 +270,7 @@ dependencies = [
  "fs4",
  "libc",
  "pixelforge-kernel",
+ "serde",
  "serde_json",
  "windows-sys 0.61.2",
 ]

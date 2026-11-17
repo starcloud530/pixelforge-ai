@@ -1,5 +1,5 @@
-# Docs site (MkDocs Material → GitHub Pages under /docs/).
-# Marketing landing is apps/landing; Pages workflow assembles both.
+# Docs site (MkDocs Material → GitHub Pages at the site root).
+# Marketing is published separately by pixelforge-demos.
 # Install: pip install -r requirements-docs.txt
 # Serve:   mkdocs serve
 # Build:   mkdocs build --strict

@@ -185,7 +185,13 @@ pub fn character_matrix(
     let layout = project.direction_layout;
     let actions = expected_actions(manifest, &owner, &tags, layout.is_some());
     let directions: Vec<&'static str> = layout
-        .map(|layout| layout.facings().iter().map(|facing| facing.screen).collect())
+        .map(|layout| {
+            layout
+                .facings()
+                .iter()
+                .map(|facing| facing.screen)
+                .collect()
+        })
         .unwrap_or_default();
 
     let mut cells = Vec::new();
@@ -268,9 +274,7 @@ pub fn character_matrix(
         for action in &actions {
             errors.push(CharacterFinding {
                 code: "layout",
-                message: format!(
-                    "action `{action}` is expected, but direction layout is not set"
-                ),
+                message: format!("action `{action}` is expected, but direction layout is not set"),
                 action: Some(action.clone()),
                 facing: None,
             });
@@ -349,12 +353,12 @@ fn expected_actions(
 ) -> Vec<String> {
     let mut actions = BTreeSet::new();
     for asset in manifest.assets() {
-        if asset.id == owner_id || asset.owner.as_deref() == Some(owner_id) {
-            if asset.kind == "clip" || asset.id == owner_id {
-                for tag in &asset.tags {
-                    if let Some((action, _)) = parse_direction_tag(tag) {
-                        actions.insert(action.as_str().to_string());
-                    }
+        if (asset.id == owner_id || asset.owner.as_deref() == Some(owner_id))
+            && (asset.kind == "clip" || asset.id == owner_id)
+        {
+            for tag in &asset.tags {
+                if let Some((action, _)) = parse_direction_tag(tag) {
+                    actions.insert(action.as_str().to_string());
                 }
             }
         }
@@ -426,7 +430,12 @@ fn classify_cell(
     let to = tag.to as usize;
     let span_ok = from <= to && to < project.frame_count;
     let has_ink = span_ok
-        && (from..=to).any(|frame| project.frames.get(frame).is_some_and(|probe| probe.has_content));
+        && (from..=to).any(|frame| {
+            project
+                .frames
+                .get(frame)
+                .is_some_and(|probe| probe.has_content)
+        });
     if !has_ink {
         return CharacterMatrixCell {
             action: action.to_string(),
@@ -528,19 +537,14 @@ fn placeholder_match(
     None
 }
 
-fn direction_already_reports(
-    direction: &DirectionReport,
-    action: &str,
-    facing: &str,
-) -> bool {
+fn direction_already_reports(direction: &DirectionReport, action: &str, facing: &str) -> bool {
     direction.errors.iter().any(|finding| {
         finding.facing == Some(facing)
             && (finding.action.as_deref() == Some(action)
                 || (matches!(action, "idle" | "walk")
                     && finding.action.is_none()
                     && finding.code == "missingDirection")
-                || (matches!(action, "idle" | "walk")
-                    && finding.action.as_deref() == Some(action)))
+                || (matches!(action, "idle" | "walk") && finding.action.as_deref() == Some(action)))
     })
 }
 
@@ -705,7 +709,10 @@ mod tests {
         )
         .unwrap();
         assert!(report.actions.iter().any(|a| a == "attack"));
-        assert!(report.gaps.iter().any(|g| g.action == "attack" && g.status == "missing"));
+        assert!(report
+            .gaps
+            .iter()
+            .any(|g| g.action == "attack" && g.status == "missing"));
         assert!(report.error_count > 0);
     }
 
@@ -727,7 +734,7 @@ mod tests {
         frames[1] = ink(12);
         frames[2] = ink(11); // copy of down idle
         frames[3] = ink(12); // copy of down walk
-        // right idle/walk tags point at empty frames 4-5
+                             // right idle/walk tags point at empty frames 4-5
         let tags = vec![
             ("idle_down", 0, 0),
             ("walk_down", 1, 1),
@@ -766,7 +773,10 @@ mod tests {
         assert_eq!(left_walk.status, "placeholder");
         assert_eq!(left_walk.match_mode, Some("copy"));
         assert!(report.warnings.iter().any(|w| w.code == "placeholder"));
-        assert!(report.gaps.iter().any(|g| g.facing == "right" && g.status == "empty"));
+        assert!(report
+            .gaps
+            .iter()
+            .any(|g| g.facing == "right" && g.status == "empty"));
         assert!(report.errors.iter().any(|e| e.code == "empty"));
     }
 }

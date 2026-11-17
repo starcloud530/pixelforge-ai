@@ -14,7 +14,7 @@ tag those frames. One bake is one undo step inside the process that runs it.
 The project file does not store that stack.
 
 Usage:
-    PIXELFORGE=/path/to/pixelforge python3 examples/soldier-raise-gun.py soldier.json
+    PIXELFORGE=/path/to/pixelforge python3 crates/pixelforge-cli/tests/fixtures/soldier-raise-gun.py soldier.json
 """
 
 import json

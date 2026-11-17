@@ -70,7 +70,7 @@ fn load_rules(args: &ValidateAtlasArgs) -> Result<AtlasRules, CliFailure> {
     if args.any_size {
         rules.sizes.clear();
     } else if !args.size.is_empty() {
-        if args.size.iter().any(|edge| *edge == 0) {
+        if args.size.contains(&0) {
             return Err(CliFailure::new("AtlasRules", "size must be at least 1"));
         }
         rules.sizes = args.size.clone();

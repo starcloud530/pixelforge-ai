@@ -1,10 +1,10 @@
 # 111 试用：灯塔和据点小场景
 
-2026-10-30。用仓库里已经合入的 CLI 做一次真实资产，不新加接口，也不在这次修卡点。灯塔脚本在 `pixelforge-demos/build.py`。小场景是 `play.html`，读的是 the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published) 里已经导出的 `base.tmj` 和 `tiles.png`。半透明压平按 [#112](https://github.com/starcloud530/pixelforge-ai/pull/112) 的规则测量（它关掉了 [#110](https://github.com/starcloud530/pixelforge-ai/issues/110)）。这不是 [#96](https://github.com/starcloud530/pixelforge-ai/issues/96) 的演示美术。
+2026-10-30。用仓库里已经合入的 CLI 做一次真实资产，不新加接口，也不在这次修卡点。灯塔脚本在 [归档的 build.py](https://github.com/starcloud530/pixelforge-ai/blob/8fe8c02/examples/lighthouse-outpost/build.py)。小场景是 `play.html`，读的是 the base-tiles sample in [https://github.com/starcloud530/pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (when published) 里已经导出的 `base.tmj` 和 `tiles.png`。半透明压平按 [#112](https://github.com/starcloud530/pixelforge-ai/pull/112) 的规则测量（它关掉了 [#110](https://github.com/starcloud530/pixelforge-ai/issues/110)）。这不是 [#96](https://github.com/starcloud530/pixelforge-ai/issues/96) 的演示美术。
 
-![压平后，游戏默认用的这一张](../../pixelforge-demos/lighthouse.preview.png)
+![压平后，游戏默认用的这一张](https://raw.githubusercontent.com/starcloud530/pixelforge-ai/8fe8c02/examples/lighthouse-outpost/lighthouse.preview.png)
 
-![压平前，光束在空地上仍半透明](../../pixelforge-demos/lighthouse-before.preview.png)
+![压平前，光束在空地上仍半透明](https://raw.githubusercontent.com/starcloud530/pixelforge-ai/8fe8c02/examples/lighthouse-outpost/lighthouse-before.preview.png)
 
 ## 灯塔
 
@@ -58,7 +58,7 @@
 ## 卡点（这次不修）
 
 - 没有 8 邻接，也没有 47 块 blob。矩形房间只用四邻接 16 掩码。
-- 没有地图 GUI。改房间要重跑 CLI 或 `pixelforge-demos/build.py` 再导出。
+- 没有地图 GUI。改房间要重跑 CLI 或 [归档的 build.py](https://github.com/starcloud530/pixelforge-ai/blob/8fe8c02/examples/lighthouse-outpost/build.py) 再导出。
 - `.tmj` 没有对象层。灯塔坐标写在 `play.js` 里。
 - 导出没有对角翻转。加载器认 `0x20000000`，但只实现水平、垂直翻转。
 - `base.tmj` 的围墙是封闭的一圈，没有门。看守出不去。这是导出内容，不是加载器坏了。

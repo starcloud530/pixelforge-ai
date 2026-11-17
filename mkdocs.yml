@@ -95,6 +95,7 @@ nav:
   - Known limits: known-limits.md
   - AI driver (web demo): ai-driver.md
   - Dev setup: dev-setup.md
+  - Checks & performance: quality.md
   - Licensing: licensing.md
   - Vision: vision.md
   - Trials:

@@ -132,6 +132,10 @@ impl Mask {
     /// Unions `rects` into one canonical mask.
     ///
     /// A zero width or height is an error. Overlaps and shared edges merge.
+    #[expect(
+        clippy::result_unit_err,
+        reason = "Compatibility API: callers match Err(()); file and Tool API boundaries translate this into typed diagnostic errors"
+    )]
     pub fn try_from_rects(rects: impl IntoIterator<Item = Selection>) -> Result<Self, ()> {
         let mut mask = Self { rects: Vec::new() };
         for rect in rects {

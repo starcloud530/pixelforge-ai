@@ -3,6 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{json, Value};
 
@@ -33,8 +34,10 @@ struct Scratch {
 
 impl Scratch {
     fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let unique = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "pixelforge-manifest-{}-{}",
+            "pixelforge-manifest-{}-{}-{unique}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -384,7 +387,11 @@ fn game_pack_zombie_character_matrix_passes_and_a_missing_tag_fails_check() {
     let copy_zombie = scratch.child("zombie");
     fs::create_dir_all(&copy_zombie).unwrap();
     fs::copy(&manifest, &copy_manifest).unwrap();
-    fs::copy(root.join("zombie/zombie.json"), copy_zombie.join("zombie.json")).unwrap();
+    fs::copy(
+        root.join("zombie/zombie.json"),
+        copy_zombie.join("zombie.json"),
+    )
+    .unwrap();
     // Rewrite assetRoot-relative paths stay the same under scratch.
     let text = fs::read_to_string(copy_zombie.join("zombie.json")).unwrap();
     let mut project: Value = serde_json::from_str(&text).unwrap();

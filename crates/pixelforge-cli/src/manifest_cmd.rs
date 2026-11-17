@@ -12,12 +12,26 @@ use pixelforge_kernel::{
     ArtManifest, CanvasTier, LayoutRule, ManifestDraft, ManifestProbe, ProbeKind, MANIFEST_FORMAT,
     PROJECT_FORMAT, TILEMAP_FORMAT, TOOL_API_VERSION,
 };
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::cli::{PerspectiveArg, ProjectCmd};
 use crate::failure::CliFailure;
 use crate::output::{annotate_revision, emit, print_line, tool_refusal};
 use crate::store::{self, ProjectLock};
+
+/// Named inputs for `init`; keep related values explicit at call sites.
+struct InitArgs<'a> {
+    name: &'a str,
+    note: &'a str,
+    perspective: PerspectiveArg,
+    asset_root: &'a str,
+    palette: &'a str,
+    palette_ref: Option<&'a str>,
+    canvas: &'a [String],
+    layout: &'a [String],
+    output: &'a Path,
+}
 
 /// Which sidecar `pixelforge call --project` should dispatch.
 pub enum Sidecar {
@@ -26,13 +40,20 @@ pub enum Sidecar {
     Other,
 }
 
+#[derive(Deserialize)]
+struct FormatProbe {
+    format: Option<String>,
+}
+
 pub fn peek_sidecar(path: &Path) -> Result<Sidecar, CliFailure> {
     let text = fs::read_to_string(path).map_err(|err| CliFailure::io(path, err))?;
-    let value: Value = match serde_json::from_str(&text) {
-        Ok(value) => value,
+    // Dispatch only needs the format. A Value tree here duplicated every
+    // pixel of a large project before the real document loader read it again.
+    let header: FormatProbe = match serde_json::from_str(&text) {
+        Ok(header) => header,
         Err(_) => return Ok(Sidecar::Other),
     };
-    match value.get("format").and_then(Value::as_str) {
+    match header.format.as_deref() {
         Some(MANIFEST_FORMAT) => Ok(Sidecar::Manifest),
         Some(TILEMAP_FORMAT) => Ok(Sidecar::Tilemap),
         _ => Ok(Sidecar::Other),
@@ -51,17 +72,17 @@ pub fn run(command: ProjectCmd) -> i32 {
             canvas,
             layout,
             output,
-        } => init(
-            &name,
-            &note,
+        } => init(crate::manifest_cmd::InitArgs {
+            name: &name,
+            note: &note,
             perspective,
-            &asset_root,
-            &palette,
-            palette_ref.as_deref(),
-            &canvas,
-            &layout,
-            &output,
-        ),
+            asset_root: &asset_root,
+            palette: &palette,
+            palette_ref: palette_ref.as_deref(),
+            canvas: &canvas,
+            layout: &layout,
+            output: &output,
+        }),
         ProjectCmd::Show { manifest } => show(&manifest),
         ProjectCmd::Validate { manifest } => validate(&manifest),
     }
@@ -142,17 +163,18 @@ fn edit_manifest(
     status
 }
 
-fn init(
-    name: &str,
-    note: &str,
-    perspective: PerspectiveArg,
-    asset_root: &str,
-    palette: &str,
-    palette_ref: Option<&str>,
-    canvas: &[String],
-    layout: &[String],
-    output: &Path,
-) -> i32 {
+fn init(args: InitArgs<'_>) -> i32 {
+    let InitArgs {
+        name,
+        note,
+        perspective,
+        asset_root,
+        palette,
+        palette_ref,
+        canvas,
+        layout,
+        output,
+    } = args;
     if output.exists() {
         return emit(CliFailure::new(
             "Cli",

@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -151,6 +152,14 @@ function requestJson(seen: readonly SeenRequest[]): {
 }
 
 test("catalog lists every kernel tool once, in catalog order", () => {
+  const source = readFileSync(
+    new URL("../../../../crates/pixelforge-kernel/src/tool_api.rs", import.meta.url),
+    "utf8",
+  );
+  const rustCatalog = source.match(/pub const TOOL_NAMES: &\[&str\] = &\[([\s\S]*?)\];/);
+  assert.ok(rustCatalog, "Rust tool registry must be present");
+  const kernelNames = [...rustCatalog[1].matchAll(/"([A-Za-z]+)"/g)].map((match) => match[1]);
+  assert.deepEqual([...TOOL_NAMES], kernelNames);
   assert.deepEqual(
     TOOL_CATALOG.map((entry) => entry.function.name),
     [...TOOL_NAMES],
@@ -165,6 +174,32 @@ test("catalog lists every kernel tool once, in catalog order", () => {
   assert.deepEqual(paint.function.parameters.required, ["x", "y", "colorIndex"]);
   assert.match(AGENT_SYSTEM_PROMPT, /Tool API/);
   assert.match(AGENT_SYSTEM_PROMPT, /Do not invent a pixel buffer/);
+});
+
+test("a model can bind and unbind a polish layer through the catalog", async () => {
+  const schema = TOOL_CATALOG.find((entry) => entry.function.name === "setLayerBind");
+  assert.ok(schema);
+  assert.deepEqual(schema.function.parameters.properties.part.type, ["string", "null"]);
+  assert.deepEqual(schema.function.parameters.required, ["part"]);
+  const { doc, kernel } = openDocument();
+  try {
+    const { model } = mockProvider(completionBody([
+      { id: "part", name: "addPart", arguments: { name: "hand", x: 1, y: 1 } },
+      { id: "polish", name: "addLayer", arguments: { name: "fix", role: "polish" } },
+      { id: "bind", name: "setLayerBind", arguments: { part: "hand" } },
+      { id: "unbind", name: "setLayerBind", arguments: { part: null } },
+    ]));
+    const turn = await runAgentTurn({ prompt: "Bind the overlay, then unbind it", kernel, model, modelName: "test-model" });
+    assert.equal(turn.status, "completed");
+    const bindings = turn.steps.filter((step) => step.tool === "setLayerBind");
+    assert.equal(bindings.length, 2);
+    assert.equal(bindings[0].response?.ok, true);
+    assert.equal(bindings[1].response?.ok, true);
+    assert.equal(bindings[0].response?.result?.part, "hand");
+    assert.equal(bindings[1].response?.result?.part, null);
+  } finally {
+    doc.free();
+  }
 });
 
 test("endpoint config prefers PIXELFORGE_* and never invents a key", () => {

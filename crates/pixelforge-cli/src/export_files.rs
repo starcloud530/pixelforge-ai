@@ -1,6 +1,5 @@
 //! Decode Tool API export payloads and write the PNG bytes.
 
-use std::fs;
 use std::path::Path;
 
 use base64::engine::general_purpose::STANDARD;
@@ -53,14 +52,18 @@ pub fn export_png_sequence(session: &mut Session, out_dir: &Path, scale: u32) ->
             }
         }
     }
-    if let Err(failure) = fs::create_dir_all(out_dir) {
-        return crate::output::emit(CliFailure::io(out_dir, failure));
+    let paths: Vec<_> = (0..decoded.len())
+        .map(|index| out_dir.join(format!("pixelforge-{index:03}.png")))
+        .collect();
+    let outputs: Vec<_> = paths.iter().map(|path| path.as_path()).collect();
+    if let Err(failure) = session.check_outputs(&outputs) {
+        return crate::output::emit(failure);
     }
     let mut written = Vec::with_capacity(decoded.len());
     for (index, bytes) in decoded.iter().enumerate() {
         let path = out_dir.join(format!("pixelforge-{index:03}.png"));
-        if let Err(failure) = fs::write(&path, bytes) {
-            return crate::output::emit(CliFailure::io(&path, failure));
+        if let Err(failure) = crate::store::write_atomic(&path, bytes) {
+            return crate::output::emit(failure);
         }
         eprintln!("pixelforge: wrote {}", path.display());
         let Some(path_text) = path.to_str() else {
@@ -95,6 +98,10 @@ pub fn export_sprite_sheet(
     columns: Option<u32>,
     atlas: Option<&Path>,
 ) -> i32 {
+    let outputs: Vec<_> = std::iter::once(output).chain(atlas).collect();
+    if let Err(failure) = session.check_outputs(&outputs) {
+        return crate::output::emit(failure);
+    }
     let mut params = serde_json::json!({ "scale": scale });
     if let Some(columns) = columns {
         params["columns"] = serde_json::json!(columns);
@@ -134,15 +141,8 @@ pub fn export_sprite_sheet(
             ));
         }
     };
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(failure) = fs::create_dir_all(parent) {
-                return crate::output::emit(CliFailure::io(parent, failure));
-            }
-        }
-    }
-    if let Err(failure) = fs::write(output, &bytes) {
-        return crate::output::emit(CliFailure::io(output, failure));
+    if let Err(failure) = crate::store::write_atomic(output, &bytes) {
+        return crate::output::emit(failure);
     }
     eprintln!("pixelforge: wrote {}", output.display());
     let Some(path_text) = output.to_str() else {
@@ -193,6 +193,9 @@ pub fn export_sprite_sheet(
 }
 
 pub fn export_direction(session: &mut Session, facing: &str, output: &Path, scale: u32) -> i32 {
+    if let Err(failure) = session.check_outputs(&[output]) {
+        return crate::output::emit(failure);
+    }
     let request = serde_json::json!({
         "apiVersion": TOOL_API_VERSION,
         "tool": "exportDirection",
@@ -252,6 +255,9 @@ pub fn export_apng(
     to: Option<u32>,
     loop_mode: Option<&str>,
 ) -> i32 {
+    if let Err(failure) = session.check_outputs(&[output]) {
+        return crate::output::emit(failure);
+    }
     let mut params = serde_json::json!({ "scale": scale });
     if let Some(tag) = tag {
         params["tag"] = serde_json::json!(tag);
@@ -291,15 +297,8 @@ pub fn export_apng(
             return crate::output::emit(CliFailure::new("Cli", "exportApng apng is not base64"));
         }
     };
-    if let Some(parent) = output.parent() {
-        if !parent.as_os_str().is_empty() {
-            if let Err(failure) = fs::create_dir_all(parent) {
-                return crate::output::emit(CliFailure::io(parent, failure));
-            }
-        }
-    }
-    if let Err(failure) = fs::write(output, &bytes) {
-        return crate::output::emit(CliFailure::io(output, failure));
+    if let Err(failure) = crate::store::write_atomic(output, &bytes) {
+        return crate::output::emit(failure);
     }
     eprintln!("pixelforge: wrote {}", output.display());
     let Some(path_text) = output.to_str() else {
@@ -335,12 +334,7 @@ pub fn export_apng(
 fn write_atlas(path: &Path, atlas: &Value) -> Result<(), CliFailure> {
     let mut text = serde_json::to_string_pretty(atlas).expect("atlas is JSON");
     text.push('\n');
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|err| CliFailure::io(parent, err))?;
-        }
-    }
-    fs::write(path, text).map_err(|err| CliFailure::io(path, err))
+    crate::store::write_atomic(path, text.as_bytes())
 }
 
 /// Writes a standard-base64 PNG. Returns the byte length.
@@ -352,12 +346,7 @@ pub fn write_png_b64(path: &Path, text: Option<&str>) -> Result<usize, CliFailur
         Ok(bytes) => bytes,
         Err(_) => return Err(CliFailure::new("Cli", "png is not base64")),
     };
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent).map_err(|err| CliFailure::io(parent, err))?;
-        }
-    }
-    fs::write(path, &bytes).map_err(|err| CliFailure::io(path, err))?;
+    crate::store::write_atomic(path, &bytes)?;
     Ok(bytes.len())
 }
 

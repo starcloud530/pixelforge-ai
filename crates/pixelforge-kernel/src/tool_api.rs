@@ -32,6 +32,18 @@ use crate::tag::{LoopMode, TagUpdate};
 use crate::LayerRole;
 use crate::MAX_CANVAS_EDGE;
 
+// Named parser/loader results keep the internal data contract readable.
+type ParseFillRectResult = Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure>;
+type ParseFillRectLikeResult = Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure>;
+type ParseLineResult = Result<(u16, u16, u16, u16, u8, bool, Option<usize>), ToolFailure>;
+type ParseEllipseResult = Result<(u16, u16, u16, u16, u8, bool, Option<usize>), ToolFailure>;
+type ParsePolygonResult = Result<(Vec<(u16, u16)>, u8, bool, Option<usize>), ToolFailure>;
+type ParsePreviewResult = Result<(usize, u32, Option<usize>, Option<ViewScope>, bool), ToolFailure>;
+type ParseDiffResult = Result<(usize, usize, u32, Option<usize>, Option<ViewScope>), ToolFailure>;
+type ParseEraseRectResult = Result<(u16, u16, u16, u16, Option<usize>, bool), ToolFailure>;
+type ParseResizeResult = Result<(u16, u16, Option<(i32, i32)>), ToolFailure>;
+type ParseApplyPngResult = Result<(Vec<u8>, Option<usize>, Option<usize>), ToolFailure>;
+
 /// Version written on every response. An omitted request version means this one.
 pub const TOOL_API_VERSION: u32 = 1;
 
@@ -978,7 +990,7 @@ fn dispatch(document: &mut Document, call: &Call) -> Result<Value, ToolFailure> 
             let sample = document
                 .sample_curve(&part, channel, frame)
                 .map_err(ToolFailure::Kernel)?;
-            Ok(curve_sample_value(&part.trim(), channel, frame, &sample))
+            Ok(curve_sample_value(part.trim(), channel, frame, &sample))
         }
         "samplePart" => {
             let (part, frame) = parse_sample_part(params)?;
@@ -2238,16 +2250,16 @@ fn with_dirty(
             let after = document
                 .layer_pixels(snap.frame, snap.layer)
                 .expect("a dirty report follows a successful edit");
-            scene::dirty_region(
-                snap.frame,
-                snap.layer,
-                &snap.pixels,
-                snap.width,
-                snap.height,
+            scene::dirty_region(crate::scene::DirtyRegionArgs {
+                frame: snap.frame,
+                layer: snap.layer,
+                before: &snap.pixels,
+                old_width: snap.width,
+                old_height: snap.height,
                 after,
-                document.width(),
-                document.height(),
-            )
+                new_width: document.width(),
+                new_height: document.height(),
+            })
         })
         .collect::<Vec<_>>();
     let changed: usize = regions.iter().map(|region| region.changed).sum();
@@ -2377,14 +2389,11 @@ fn parse_paint(params: Value) -> Result<(u16, u16, u8, Option<usize>), ToolFailu
     Ok((x, y, color_index, layer))
 }
 
-fn parse_fill_rect(params: Value) -> Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure> {
+fn parse_fill_rect(params: Value) -> ParseFillRectResult {
     parse_fill_rect_like("fillRect", params)
 }
 
-fn parse_fill_rect_like(
-    tool: &str,
-    params: Value,
-) -> Result<(u16, u16, u16, u16, u8, Option<usize>), ToolFailure> {
+fn parse_fill_rect_like(tool: &str, params: Value) -> ParseFillRectLikeResult {
     let map = expect_object(tool, params)?;
     reject_params(
         tool,
@@ -2397,7 +2406,7 @@ fn parse_fill_rect_like(
     Ok((x, y, width, height, color_index, layer))
 }
 
-fn parse_line(params: Value) -> Result<(u16, u16, u16, u16, u8, bool, Option<usize>), ToolFailure> {
+fn parse_line(params: Value) -> ParseLineResult {
     let map = expect_object("line", params)?;
     reject_params(
         "line",
@@ -2422,9 +2431,7 @@ fn parse_line(params: Value) -> Result<(u16, u16, u16, u16, u8, bool, Option<usi
     Ok((x0, y0, x1, y1, color_index, pixel_perfect, layer))
 }
 
-fn parse_ellipse(
-    params: Value,
-) -> Result<(u16, u16, u16, u16, u8, bool, Option<usize>), ToolFailure> {
+fn parse_ellipse(params: Value) -> ParseEllipseResult {
     let map = expect_object("ellipse", params)?;
     reject_params(
         "ellipse",
@@ -2438,7 +2445,7 @@ fn parse_ellipse(
     Ok((x, y, width, height, color_index, fill, layer))
 }
 
-fn parse_polygon(params: Value) -> Result<(Vec<(u16, u16)>, u8, bool, Option<usize>), ToolFailure> {
+fn parse_polygon(params: Value) -> ParsePolygonResult {
     let map = expect_object("polygon", params)?;
     reject_params("polygon", &map, &["points", "colorIndex", "fill", "layer"])?;
     let points = match map.get("points") {
@@ -3350,10 +3357,7 @@ fn parse_loop_mode(tool: &str, value: &Value) -> Result<LoopMode, ToolFailure> {
         .ok_or_else(|| invalid_params(tool, "loop must be forward, reverse, pingpong, or once"))
 }
 
-fn parse_preview(
-    params: Value,
-    document: &Document,
-) -> Result<(usize, u32, Option<usize>, Option<ViewScope>, bool), ToolFailure> {
+fn parse_preview(params: Value, document: &Document) -> ParsePreviewResult {
     let map = expect_object("previewFrame", params)?;
     reject_params(
         "previewFrame",
@@ -3395,10 +3399,7 @@ fn parse_preview(
     Ok((frame, scale, layer, scope, compare))
 }
 
-fn parse_diff(
-    params: Value,
-    document: &Document,
-) -> Result<(usize, usize, u32, Option<usize>, Option<ViewScope>), ToolFailure> {
+fn parse_diff(params: Value, document: &Document) -> ParseDiffResult {
     let map = expect_object("diffFrames", params)?;
     reject_params(
         "diffFrames",
@@ -3792,10 +3793,7 @@ fn parse_erase_cell(
     Ok((x, y, layer, pass))
 }
 
-fn parse_erase_rect(
-    tool: &str,
-    params: Value,
-) -> Result<(u16, u16, u16, u16, Option<usize>, bool), ToolFailure> {
+fn parse_erase_rect(tool: &str, params: Value) -> ParseEraseRectResult {
     let map = expect_object(tool, params)?;
     reject_params(tool, &map, &["x", "y", "width", "height", "layer", "mode"])?;
     let rect = rect_from(tool, &map)?;
@@ -3861,7 +3859,7 @@ fn parse_reorder(params: Value) -> Result<(usize, usize), ToolFailure> {
     Ok((from, to))
 }
 
-fn parse_resize(params: Value) -> Result<(u16, u16, Option<(i32, i32)>), ToolFailure> {
+fn parse_resize(params: Value) -> ParseResizeResult {
     let map = expect_object("resizeCanvas", params)?;
     reject_params(
         "resizeCanvas",
@@ -4303,7 +4301,7 @@ fn snapshot_json(snapshot: &crate::convert::TransformSnapshot) -> Value {
     value
 }
 
-fn parse_apply_png(params: Value) -> Result<(Vec<u8>, Option<usize>, Option<usize>), ToolFailure> {
+fn parse_apply_png(params: Value) -> ParseApplyPngResult {
     let map = expect_object("applyPng", params)?;
     reject_params("applyPng", &map, &["png", "frame", "layer"])?;
     let text = require_string("applyPng", &map, "png")?;
