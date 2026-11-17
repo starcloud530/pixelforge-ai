@@ -39,8 +39,8 @@ display-name = "pixelforge"
 # Release notes name the binary. The Cargo package stays pixelforge-cli.
 install-success-msg = "pixelforge is installed. Try: pixelforge --help"
 
-# dist 0.33.1 defaults Apple silicon to macos-14. That image is unsupported
-# after 2026-11-02. macos-15 is the current arm64 image and is available on
-# private repositories. Intel stays on dist's macos-15-intel.
+# Build both macOS archives on the supported Intel image. Apple's SDK supports
+# targeting Apple Silicon from this host; cargo-dist installs the Rust target.
+# This keeps packaging independent of Apple Silicon hosted-runner availability.
 [dist.github-custom-runners]
-aarch64-apple-darwin = "macos-15"
+aarch64-apple-darwin = "macos-15-intel"
