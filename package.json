@@ -11,9 +11,17 @@
     "build:landing": "pnpm --filter @pixelforge/landing build",
     "typecheck": "pnpm --filter @pixelforge/web typecheck",
     "typecheck:landing": "pnpm --filter @pixelforge/landing typecheck",
-    "test": "pnpm run build:wasm:node && pnpm --filter @pixelforge/web test"
+    "test": "pnpm run build:wasm:node && pnpm --filter @pixelforge/web test",
+    "lint": "python3 scripts/checks.py lint",
+    "check:docs": "python3 scripts/check_docs.py",
+    "quick": "python3 scripts/checks.py quick",
+    "smoke": "python3 scripts/checks.py smoke",
+    "test:browser": "node tests/browser/player.cjs",
+    "perf": "python3 scripts/benchmark.py"
   },
   "devDependencies": {
-    "wasm-pack": "0.15.0"
-  }
+    "wasm-pack": "0.15.0",
+    "playwright": "1.65.1"
+  },
+  "packageManager": "pnpm@10.34.9"
 }

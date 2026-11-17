@@ -657,10 +657,7 @@ fn project_files_omit_an_empty_list_and_reject_a_bad_constraint() {
 
     let bare = Document::new(4, 4).unwrap().save_project();
     assert!(!bare.contains("\"constraints\""));
-    assert_eq!(
-        bare.contains("\"version\": 1") || bare.contains("\"version\":1"),
-        true
-    );
+    assert!(bare.contains("\"version\": 1") || bare.contains("\"version\":1"));
 
     let mut saved: Value = serde_json::from_str(&document.save_project()).unwrap();
     saved["constraints"][0]["expression"] = json!(1);

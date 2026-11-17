@@ -52,6 +52,60 @@ use crate::MIN_FRAME_DELAY_MS;
 use crate::TIMELINE_RATIO_PPM;
 use crate::TRANSPARENT_INDEX;
 
+/// Named inputs for `transform_on`; keep related values explicit at call sites.
+struct TransformOnArgs {
+    layer: usize,
+    frame: usize,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+    turn: Turn,
+}
+
+/// Named inputs for `blit_between`; keep related values explicit at call sites.
+struct BlitBetweenArgs {
+    layer: usize,
+    src_frame: usize,
+    src_x: u16,
+    src_y: u16,
+    width: u16,
+    height: u16,
+    dst_frame: usize,
+    dst_x: u16,
+    dst_y: u16,
+    clear_source: bool,
+}
+
+/// Named inputs for `from_stored`; keep related values explicit at call sites.
+pub(crate) struct FromStoredArgs {
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) palette: Palette,
+    pub(crate) palette_locked: bool,
+    pub(crate) index_policy: IndexPolicy,
+    pub(crate) frames: Vec<Frame>,
+    pub(crate) active: usize,
+    pub(crate) layer_names: Vec<String>,
+    pub(crate) layer_roles: Vec<LayerRole>,
+    pub(crate) layer_visible: Vec<bool>,
+    pub(crate) layer_opacity: Vec<u8>,
+    pub(crate) layer_binds: Vec<Option<PolishBind>>,
+    pub(crate) active_layer: usize,
+    pub(crate) selection: Option<Mask>,
+    pub(crate) tags: Vec<Tag>,
+    pub(crate) direction_layout: Option<DirectionLayout>,
+    pub(crate) parts: Vec<Part>,
+    pub(crate) curves: Vec<Curve>,
+    pub(crate) constraints: Vec<Constraint>,
+    pub(crate) tileset: Option<TilesetDecl>,
+    pub(crate) engine: Option<String>,
+    pub(crate) transform: Option<crate::convert::TransformSnapshot>,
+}
+
+// Named parser/loader results keep the internal data contract readable.
+type PlanPartInkResult = Result<(Option<(usize, Vec<u8>, Vec<u8>)>, WarpReport), KernelError>;
+
 /// What [`Document::bake`] was asked to write.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BakeOptions {
@@ -747,16 +801,16 @@ impl Document {
         let source = self.frames[frame].layer_pixels(layer)[origin];
         let writable = vec![true; self.pixel_count()];
         let cells = if tolerance == 0 {
-            raster::flood_cells(
-                self.frames[frame].layer_pixels(layer),
+            raster::flood_cells(crate::raster::FloodCellsArgs {
+                pixels: self.frames[frame].layer_pixels(layer),
                 width,
                 height,
                 x,
                 y,
                 source,
                 connectivity,
-                &writable,
-            )
+                writable: &writable,
+            })
         } else {
             let seed_color = self
                 .palette
@@ -768,16 +822,16 @@ impl Document {
                 .iter()
                 .map(|color| seed_color.channel_distance(*color) <= tolerance)
                 .collect();
-            raster::flood_matching(
-                self.frames[frame].layer_pixels(layer),
+            raster::flood_matching(crate::raster::FloodMatchingArgs {
+                pixels: self.frames[frame].layer_pixels(layer),
                 width,
                 height,
                 x,
                 y,
                 connectivity,
-                &writable,
-                |index| accept.get(usize::from(index)).copied().unwrap_or(false),
-            )
+                writable: &writable,
+                matches: |index| accept.get(usize::from(index)).copied().unwrap_or(false),
+            })
         };
         debug_assert!(!cells.is_empty(), "the seed matches itself");
         self.replace_mask(Mask::from_cells(&cells, width, height))?;
@@ -1874,6 +1928,10 @@ impl Document {
     }
 
     /// [`Self::line`] on one layer. Does not change the active layer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn line_on(
         &mut self,
         layer: usize,
@@ -1916,6 +1974,10 @@ impl Document {
     }
 
     /// [`Self::ellipse`] on one layer. Does not change the active layer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn ellipse_on(
         &mut self,
         layer: usize,
@@ -2027,16 +2089,16 @@ impl Document {
                 }
             }
         }
-        let cells = raster::flood_cells(
-            self.frames[frame].layer_pixels(layer),
-            self.width,
-            self.height,
+        let cells = raster::flood_cells(crate::raster::FloodCellsArgs {
+            pixels: self.frames[frame].layer_pixels(layer),
+            width: self.width,
+            height: self.height,
             x,
             y,
             source,
             connectivity,
-            &writable,
-        );
+            writable: &writable,
+        });
         self.stamp_cells(layer, color_index, &cells)
     }
 
@@ -2118,6 +2180,10 @@ impl Document {
     ///
     /// When the frames differ there is no overlap: the source rectangle is read
     /// as it is, and the destination rectangle is replaced, including index 0.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn copy_rect_from(
         &mut self,
         src_frame: usize,
@@ -2144,6 +2210,10 @@ impl Document {
 
     /// [`Self::copy_rect_from`] on one layer of both frames. Does not change
     /// the active layer. The copy does not read or write any other layer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn copy_rect_from_on(
         &mut self,
         layer: usize,
@@ -2156,9 +2226,18 @@ impl Document {
         dst_x: u16,
         dst_y: u16,
     ) -> Result<(), KernelError> {
-        self.blit_between(
-            layer, src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, false,
-        )
+        self.blit_between(crate::document::BlitBetweenArgs {
+            layer,
+            src_frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_frame,
+            dst_x,
+            dst_y,
+            clear_source: false,
+        })
     }
 
     /// Moves palette indices from one rectangle to another on the active frame.
@@ -2195,6 +2274,10 @@ impl Document {
     /// active frame. Source cells that are not part of the destination become
     /// [`TRANSPARENT_INDEX`]. Across frames the whole source rectangle is
     /// cleared, because the destination lives on another frame.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn move_rect_from(
         &mut self,
         src_frame: usize,
@@ -2221,6 +2304,10 @@ impl Document {
 
     /// [`Self::move_rect_from`] on one layer of both frames. Does not change
     /// the active layer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn move_rect_from_on(
         &mut self,
         layer: usize,
@@ -2233,9 +2320,18 @@ impl Document {
         dst_x: u16,
         dst_y: u16,
     ) -> Result<(), KernelError> {
-        self.blit_between(
-            layer, src_frame, src_x, src_y, width, height, dst_frame, dst_x, dst_y, true,
-        )
+        self.blit_between(crate::document::BlitBetweenArgs {
+            layer,
+            src_frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_frame,
+            dst_x,
+            dst_y,
+            clear_source: true,
+        })
     }
 
     /// Mirrors palette indices left to right inside a rectangle.
@@ -2265,7 +2361,15 @@ impl Document {
         width: u16,
         height: u16,
     ) -> Result<(), KernelError> {
-        self.transform_on(layer, frame, x, y, width, height, Turn::Horizontal)
+        self.transform_on(crate::document::TransformOnArgs {
+            layer,
+            frame,
+            x,
+            y,
+            width,
+            height,
+            turn: Turn::Horizontal,
+        })
     }
 
     /// Mirrors palette indices top to bottom inside a rectangle.
@@ -2296,7 +2400,15 @@ impl Document {
         width: u16,
         height: u16,
     ) -> Result<(), KernelError> {
-        self.transform_on(layer, frame, x, y, width, height, Turn::Vertical)
+        self.transform_on(crate::document::TransformOnArgs {
+            layer,
+            frame,
+            x,
+            y,
+            width,
+            height,
+            turn: Turn::Vertical,
+        })
     }
 
     /// Turns palette indices clockwise inside a rectangle.
@@ -2319,6 +2431,10 @@ impl Document {
     }
 
     /// [`Self::rotate`] on one layer. Does not change the active layer.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn rotate_on(
         &mut self,
         layer: usize,
@@ -2334,19 +2450,27 @@ impl Document {
             QuarterTurn::Cw180 => Turn::Cw180,
             QuarterTurn::Cw270 => Turn::Cw270,
         };
-        self.transform_on(layer, frame, x, y, width, height, turn)
+        self.transform_on(crate::document::TransformOnArgs {
+            layer,
+            frame,
+            x,
+            y,
+            width,
+            height,
+            turn,
+        })
     }
 
-    fn transform_on(
-        &mut self,
-        layer: usize,
-        frame: usize,
-        x: u16,
-        y: u16,
-        width: u16,
-        height: u16,
-        turn: Turn,
-    ) -> Result<(), KernelError> {
+    fn transform_on(&mut self, args: TransformOnArgs) -> Result<(), KernelError> {
+        let TransformOnArgs {
+            layer,
+            frame,
+            x,
+            y,
+            width,
+            height,
+            turn,
+        } = args;
         let layer = self.layer_or_err(layer)?;
         let frame = self.frame_or_err(frame)?;
         let (x1, y1) = self.inclusive_rect(x, y, width, height)?;
@@ -2545,19 +2669,19 @@ impl Document {
     /// the destination never covers the source, so the whole source rectangle
     /// is cleared. A selection skips destination cells outside it on a copy.
     /// A move is refused unless both rectangles lie inside the selection.
-    fn blit_between(
-        &mut self,
-        layer: usize,
-        src_frame: usize,
-        src_x: u16,
-        src_y: u16,
-        width: u16,
-        height: u16,
-        dst_frame: usize,
-        dst_x: u16,
-        dst_y: u16,
-        clear_source: bool,
-    ) -> Result<(), KernelError> {
+    fn blit_between(&mut self, args: BlitBetweenArgs) -> Result<(), KernelError> {
+        let BlitBetweenArgs {
+            layer,
+            src_frame,
+            src_x,
+            src_y,
+            width,
+            height,
+            dst_frame,
+            dst_x,
+            dst_y,
+            clear_source,
+        } = args;
         let layer = self.layer_or_err(layer)?;
         let src_frame = self.frame_or_err(src_frame)?;
         let dst_frame = self.frame_or_err(dst_frame)?;
@@ -2712,9 +2836,7 @@ impl Document {
             ));
         }
         let bad_x = if x >= self.width { x } else { self.width };
-        let bad_y = if y >= self.height {
-            y
-        } else if y1.is_some_and(|end| end < self.height) {
+        let bad_y = if y >= self.height || y1.is_some_and(|end| end < self.height) {
             y
         } else {
             self.height
@@ -4166,6 +4288,10 @@ impl Document {
     /// does not move pixels. Solving is [`Self::solve_constraints`].
     ///
     /// `ik` and `plant` use [`Self::add_constraint_full`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn add_constraint(
         &mut self,
         name: &str,
@@ -4197,6 +4323,10 @@ impl Document {
     /// `chain` is root-first and has two or three parts. The last name is `part`.
     /// `bend` is `1`, `-1`, or omitted. `contacts` are inclusive frame spans on
     /// cells that already exist. One undo step. This does not move pixels.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Keep the existing public scalar API source-compatible; internal calls use named parameter objects"
+    )]
     pub fn add_constraint_full(
         &mut self,
         name: &str,
@@ -4211,12 +4341,12 @@ impl Document {
         bend: Option<i8>,
         contacts: &[Contact],
     ) -> Result<usize, KernelError> {
-        let constraint = prepare_constraint(
-            &self.constraints,
-            &self.parts,
-            self.width,
-            self.height,
-            self.frames.len(),
+        let constraint = prepare_constraint(crate::constraint::PrepareConstraintArgs {
+            existing: &self.constraints,
+            parts: &self.parts,
+            width: self.width,
+            height: self.height,
+            frame_count: self.frames.len(),
             name,
             kind,
             part,
@@ -4228,7 +4358,7 @@ impl Document {
             chain,
             bend,
             contacts,
-        )?;
+        })?;
         let index = self.constraints.len();
         let before = self.constraints.clone();
         self.constraints.push(constraint);
@@ -4292,16 +4422,16 @@ impl Document {
         }
         let order = solve_order(&self.constraints)?;
         let stored = self.parts.clone();
-        let solved = apply_deltas(
-            &mut posed,
-            &stored,
-            &self.constraints,
-            &order,
-            self.width,
-            self.height,
+        let solved = apply_deltas(crate::constraint::ApplyDeltasArgs {
+            posed: &mut posed,
+            stored: &stored,
+            constraints: &self.constraints,
+            order: &order,
+            width: self.width,
+            height: self.height,
             frame,
             pixel_frame,
-        )?;
+        })?;
         let order_names: Vec<String> = order
             .iter()
             .map(|index| self.constraints[*index].name.clone())
@@ -4806,16 +4936,16 @@ impl Document {
                 .collect();
             let order = solve_order(&filtered)?;
             let pixel_frame = frame as usize;
-            apply_deltas(
-                &mut posed,
-                &self.parts,
-                &filtered,
-                &order,
-                self.width,
-                self.height,
-                Some(frame),
+            apply_deltas(crate::constraint::ApplyDeltasArgs {
+                posed: &mut posed,
+                stored: &self.parts,
+                constraints: &filtered,
+                order: &order,
+                width: self.width,
+                height: self.height,
+                frame: Some(frame),
                 pixel_frame,
-            )?;
+            })?;
         } else {
             for part in &posed {
                 place_origin(part, self.width, self.height)?;
@@ -5153,7 +5283,7 @@ impl Document {
         pivot_x: i32,
         pivot_y: i32,
         map: &CellMap,
-    ) -> Result<(Option<(usize, Vec<u8>, Vec<u8>)>, WarpReport), KernelError> {
+    ) -> PlanPartInkResult {
         let Some(layer) = part.layer else {
             return Ok((None, WarpReport::ZERO));
         };
@@ -5370,30 +5500,31 @@ impl Document {
     ///
     /// The project loader checks size, palette, frames, and the active frame
     /// before calling this.
-    pub(crate) fn from_stored(
-        width: u16,
-        height: u16,
-        palette: Palette,
-        palette_locked: bool,
-        index_policy: IndexPolicy,
-        frames: Vec<Frame>,
-        active: usize,
-        layer_names: Vec<String>,
-        layer_roles: Vec<LayerRole>,
-        layer_visible: Vec<bool>,
-        layer_opacity: Vec<u8>,
-        layer_binds: Vec<Option<PolishBind>>,
-        active_layer: usize,
-        selection: Option<Mask>,
-        tags: Vec<Tag>,
-        direction_layout: Option<DirectionLayout>,
-        parts: Vec<Part>,
-        curves: Vec<Curve>,
-        constraints: Vec<Constraint>,
-        tileset: Option<TilesetDecl>,
-        engine: Option<String>,
-        transform: Option<crate::convert::TransformSnapshot>,
-    ) -> Self {
+    pub(crate) fn from_stored(args: FromStoredArgs) -> Self {
+        let FromStoredArgs {
+            width,
+            height,
+            palette,
+            palette_locked,
+            index_policy,
+            frames,
+            active,
+            layer_names,
+            layer_roles,
+            layer_visible,
+            layer_opacity,
+            layer_binds,
+            active_layer,
+            selection,
+            tags,
+            direction_layout,
+            parts,
+            curves,
+            constraints,
+            tileset,
+            engine,
+            transform,
+        } = args;
         debug_assert!(!frames.is_empty(), "project files keep at least one frame");
         debug_assert!(active < frames.len(), "active frame was checked");
         debug_assert!(
@@ -7023,14 +7154,14 @@ mod tests {
         assert_eq!(document.active_frame(), 1);
         assert_eq!(document.frame_delay(1).unwrap(), 80);
         assert!(document.palette_locked());
-        assert_eq!(document.frame_pixels(0).unwrap()[1 * 6 + 1], 1);
+        assert_eq!(document.frame_pixels(0).unwrap()[6 + 1], 1);
         assert_eq!(document.frame_pixels(0).unwrap()[2 * 6 + 4], 2);
         assert_eq!(document.frame_pixels(0).unwrap()[0], 0);
         assert_eq!(document.get(2, 1).unwrap(), 3);
         let json = document.save_project();
         let loaded = Document::load_project(&json).unwrap();
         assert_eq!(loaded.width(), 6);
-        assert_eq!(loaded.frame_pixels(0).unwrap()[1 * 6 + 1], 1);
+        assert_eq!(loaded.frame_pixels(0).unwrap()[6 + 1], 1);
         assert_eq!(loaded.frame_delay(1).unwrap(), 80);
 
         document.undo().unwrap();

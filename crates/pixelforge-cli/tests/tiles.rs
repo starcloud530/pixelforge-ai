@@ -59,8 +59,8 @@ impl Drop for Scratch {
 fn rules_text(bad_tile: Option<u32>) -> String {
     let mut rules = Vec::new();
     for mask in 0..16 {
-        let tile = if bad_tile.is_some() && mask == 0 {
-            bad_tile.unwrap()
+        let tile = if mask == 0 {
+            bad_tile.unwrap_or(mask)
         } else {
             mask
         };

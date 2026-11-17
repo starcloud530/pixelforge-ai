@@ -23,6 +23,18 @@ use crate::error::KernelError;
 use crate::palette_map::{self, INDEX_ALPHA_CUTOFF};
 use crate::Rgba;
 
+/// Named inputs for `copy_pixel`; keep related values explicit at call sites.
+struct CopyPixelArgs<'a> {
+    rgba: &'a [u8],
+    width: u32,
+    sx: u32,
+    sy: u32,
+    out: &'a mut [u8],
+    target_w: u32,
+    x: u32,
+    y: u32,
+}
+
 /// Engine used when a project has not stored one.
 pub(crate) const DEFAULT_ENGINE_ID: &str = "center-sample";
 
@@ -439,13 +451,33 @@ pub(crate) fn cap_opaque(colors: &[(Rgba, u32)], max_colors: usize) -> Vec<Rgba>
     if colors.is_empty() || max_colors == 0 {
         return vec![Rgba::TRANSPARENT];
     }
-    let mut palette = Vec::with_capacity(colors.len() + 1);
-    let mut counts = Vec::with_capacity(colors.len() + 1);
+    // The palette quantizer operates on u8 indices, not arbitrary sample IDs.
+    // Bound its working set just as strategy `limit` does: most frequent 255
+    // colors, lower RGB on ties, then restore the original survivor order.
+    let mut ranked: Vec<usize> = (0..colors.len()).collect();
+    if ranked.len() > 255 {
+        ranked.sort_by(|&a, &b| {
+            colors[b]
+                .1
+                .cmp(&colors[a].1)
+                .then((colors[a].0.r, colors[a].0.g, colors[a].0.b).cmp(&(
+                    colors[b].0.r,
+                    colors[b].0.g,
+                    colors[b].0.b,
+                )))
+                .then(a.cmp(&b))
+        });
+        ranked.truncate(255);
+        ranked.sort_unstable();
+    }
+    let mut palette = Vec::with_capacity(ranked.len() + 1);
+    let mut counts = Vec::with_capacity(ranked.len() + 1);
     palette.push(Rgba::TRANSPARENT);
     counts.push(0);
-    for (color, count) in colors {
-        palette.push(*color);
-        counts.push(*count);
+    for index in ranked {
+        let (color, count) = colors[index];
+        palette.push(color);
+        counts.push(count);
     }
     palette_map::plan_max_colors(&palette, &counts, max_colors).colors
 }
@@ -583,7 +615,16 @@ fn sample_center(rgba: &[u8], width: u32, height: u32, target_w: u32, target_h: 
         let sy = center_index(y, height, target_h);
         for x in 0..target_w {
             let sx = center_index(x, width, target_w);
-            copy_pixel(rgba, width, sx, sy, &mut out, target_w, x, y);
+            copy_pixel(crate::convert::CopyPixelArgs {
+                rgba,
+                width,
+                sx,
+                sy,
+                out: &mut out,
+                target_w,
+                x,
+                y,
+            });
         }
     }
     out
@@ -878,21 +919,29 @@ fn init_centers(colors: &[((u8, u8, u8), u32)], k: usize) -> Vec<(u8, u8, u8)> {
             .then(colors[left].0.cmp(&colors[right].0))
     });
     let mut centers = vec![colors[order[0]].0];
+    if k <= 1 {
+        return centers;
+    }
+    let mut selected = vec![false; colors.len()];
+    selected[order[0]] = true;
+    // Maintain the distance to the nearest selected center. Re-scanning all
+    // previous centers at every choice made seeding O(colors * k^2).
+    let mut nearest: Vec<u32> = colors
+        .iter()
+        .map(|(color, _)| dist_sq(*color, centers[0]))
+        .collect();
     while centers.len() < k {
         let mut found = false;
         let mut best_color = colors[order[0]].0;
+        let mut best_index = order[0];
         let mut best_dist = 0u32;
         let mut best_count = 0u32;
         for &index in &order {
             let color = colors[index].0;
-            if centers.contains(&color) {
+            if selected[index] {
                 continue;
             }
-            let dist = centers
-                .iter()
-                .map(|center| dist_sq(color, *center))
-                .min()
-                .unwrap_or(0);
+            let dist = nearest[index];
             let count = colors[index].1;
             let better = !found
                 || dist > best_dist
@@ -901,6 +950,7 @@ fn init_centers(colors: &[((u8, u8, u8), u32)], k: usize) -> Vec<(u8, u8, u8)> {
             if better {
                 found = true;
                 best_color = color;
+                best_index = index;
                 best_dist = dist;
                 best_count = count;
             }
@@ -909,6 +959,12 @@ fn init_centers(colors: &[((u8, u8, u8), u32)], k: usize) -> Vec<(u8, u8, u8)> {
             break;
         }
         centers.push(best_color);
+        selected[best_index] = true;
+        if centers.len() < k {
+            for (index, (color, _)) in colors.iter().enumerate() {
+                nearest[index] = nearest[index].min(dist_sq(*color, best_color));
+            }
+        }
     }
     centers
 }
@@ -1272,16 +1328,17 @@ fn pixel_at(rgba: &[u8], width: u32, x: u32, y: u32) -> &[u8] {
     &rgba[offset..offset + 4]
 }
 
-fn copy_pixel(
-    rgba: &[u8],
-    width: u32,
-    sx: u32,
-    sy: u32,
-    out: &mut [u8],
-    target_w: u32,
-    x: u32,
-    y: u32,
-) {
+fn copy_pixel(args: CopyPixelArgs<'_>) {
+    let CopyPixelArgs {
+        rgba,
+        width,
+        sx,
+        sy,
+        out,
+        target_w,
+        x,
+        y,
+    } = args;
     let pixel = pixel_at(rgba, width, sx, sy);
     if pixel[3] < INDEX_ALPHA_CUTOFF {
         return;
@@ -1430,5 +1487,39 @@ mod tests {
         assert_eq!(params, explicit);
         let bad = normalize_params("kmeans", &one_u8("k", 0)).unwrap_err();
         assert!(matches!(bad, KernelError::EngineParams { .. }));
+    }
+    #[test]
+    fn high_color_working_set_keeps_frequent_colors_and_breaks_ties_by_rgb() {
+        let colors: Vec<_> = (0..300u16)
+            .map(|n| {
+                (
+                    Rgba::rgb((n / 256) as u8, (n % 256) as u8, 0),
+                    if n == 299 { 1000 } else { 1 },
+                )
+            })
+            .collect();
+        let capped = cap_opaque(&colors, 255);
+        assert_eq!(capped.len(), 256);
+        assert!(capped.contains(&colors[299].0));
+        assert!(!capped.contains(&colors[254].0));
+        assert_eq!(
+            &capped[1..255],
+            &colors[..254].iter().map(|(c, _)| *c).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn kmeans_seeds_preserve_distance_frequency_and_rgb_tie_breaking() {
+        let colors = vec![
+            ((0, 0, 0), 2),
+            ((255, 255, 255), 1),
+            ((255, 0, 0), 3),
+            ((0, 255, 0), 2),
+            ((0, 0, 255), 1),
+        ];
+        assert_eq!(
+            init_centers(&colors, 4),
+            vec![(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)]
+        );
     }
 }

@@ -335,7 +335,7 @@
     </div>
   </div>
   <div class="stage" id="stage">
-    <canvas id="view" width="16" height="16"></canvas>
+    <canvas id="view" width="16" height="16" role="img" aria-label="动画预览画布"></canvas>
   </div>
   <section class="transport" aria-label="播放控制">
     <div class="scrub">
@@ -677,6 +677,7 @@
     document.querySelectorAll(".swatch").forEach(function (button) {
       const on = button.dataset.background === state.background;
       button.classList.toggle("is-selected", on);
+      button.setAttribute("aria-pressed", String(on));
       button.innerHTML = on ? check : "";
     });
     syncTransport(performance.now(), false);
@@ -880,11 +881,16 @@
       showError(message);
     }
   }
+  let polling = false;
   async function poll() {
+    if (polling) return;
+    polling = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(function () { controller.abort(); }, 5000);
     try {
       const headers = { Accept: "application/json" };
       if (etag && !holdingError) headers["If-None-Match"] = '"' + etag + '"';
-      const response = await fetch(snapshotUrl, { headers: headers, cache: "no-store" });
+      const response = await fetch(snapshotUrl, { headers: headers, cache: "no-store", signal: controller.signal });
       if (response.status === 304) return;
       accept(await response.json());
     } catch (err) {
@@ -897,6 +903,9 @@
       } else {
         showError(message);
       }
+    } finally {
+      clearTimeout(timeout);
+      polling = false;
     }
   }
   let lastStep = -1;

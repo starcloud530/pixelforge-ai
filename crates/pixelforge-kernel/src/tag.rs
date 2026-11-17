@@ -19,9 +19,10 @@ use crate::MAX_TAG_NAME_CHARS;
 /// This is not the document playback clock. `forward`, `reverse`, and
 /// `pingpong` repeat. `once` plays the range a single time, from `from` to
 /// `to`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LoopMode {
     /// Play `from` through `to`, then repeat.
+    #[default]
     Forward,
     /// Play `to` through `from`, then repeat.
     Reverse,
@@ -53,12 +54,6 @@ impl LoopMode {
             "once" => Some(Self::Once),
             _ => None,
         }
-    }
-}
-
-impl Default for LoopMode {
-    fn default() -> Self {
-        Self::Forward
     }
 }
 

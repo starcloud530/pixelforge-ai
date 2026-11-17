@@ -63,6 +63,19 @@ use crate::MAX_FRAME_DELAY_MS;
 use crate::MAX_LAYER_NAME_CHARS;
 use crate::MIN_FRAME_DELAY_MS;
 
+// Named parser/loader results keep the internal data contract readable.
+type LayerNamesFromFileResult = Result<
+    (
+        Vec<String>,
+        Vec<LayerRole>,
+        Vec<bool>,
+        Vec<u8>,
+        Vec<(Option<String>, Option<String>)>,
+    ),
+    KernelError,
+>;
+type LayerBuffersFromFileResult = Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), KernelError>;
+
 /// `format` field written by [`Document::save_project`].
 pub const PROJECT_FORMAT: &str = "pixelforge-project";
 
@@ -548,19 +561,19 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
     let tileset = tileset_from_file(file.tileset)?;
     let engine = engine_from_file(file.engine)?;
     let transform = transform_from_file(file.transform)?;
-    Ok(Document::from_stored(
+    Ok(Document::from_stored(crate::document::FromStoredArgs {
         width,
         height,
         palette,
-        file.palette_locked,
+        palette_locked: file.palette_locked,
         index_policy,
         frames,
         active,
-        names,
-        roles,
-        visible,
-        opacity,
-        binds,
+        layer_names: names,
+        layer_roles: roles,
+        layer_visible: visible,
+        layer_opacity: opacity,
+        layer_binds: binds,
         active_layer,
         selection,
         tags,
@@ -571,7 +584,7 @@ fn document_from_file(file: ProjectFile) -> Result<Document, KernelError> {
         tileset,
         engine,
         transform,
-    ))
+    }))
 }
 
 fn engine_from_file(id: Option<String>) -> Result<Option<String>, KernelError> {
@@ -1276,18 +1289,7 @@ fn marks_to_file(marks: &[u8]) -> Vec<u64> {
     }
 }
 
-fn layer_names_from_file(
-    layers: Vec<LayerNameFile>,
-) -> Result<
-    (
-        Vec<String>,
-        Vec<LayerRole>,
-        Vec<bool>,
-        Vec<u8>,
-        Vec<(Option<String>, Option<String>)>,
-    ),
-    KernelError,
-> {
+fn layer_names_from_file(layers: Vec<LayerNameFile>) -> LayerNamesFromFileResult {
     let mut names = Vec::with_capacity(layers.len());
     let mut roles = Vec::with_capacity(layers.len());
     let mut visible = Vec::with_capacity(layers.len());
@@ -1378,7 +1380,7 @@ fn layer_buffers_from_file(
     layers: Vec<LayerPixelsFile>,
     expected: usize,
     palette: &Palette,
-) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), KernelError> {
+) -> LayerBuffersFromFileResult {
     if !pixels.is_empty() && !layers.is_empty() {
         return Err(invalid(ProjectFileError::LayerPixels { frame }));
     }

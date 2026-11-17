@@ -274,7 +274,7 @@ fn convert_errors_leave_the_document_unchanged() {
     assert_eq!(allowed["width"], json!(4));
     assert!(document.palette_locked());
     document.undo().unwrap();
-    assert_eq!(document.save_project().contains("\"transform\""), false);
+    assert!(!document.save_project().contains("\"transform\""));
     let _ = before;
     match Document::load_project("{\"format\":\"pixelforge-project\",\"version\":1,\"width\":1,\"height\":1,\"activeFrame\":0,\"palette\":[{\"r\":0,\"g\":0,\"b\":0,\"a\":0}],\"paletteLocked\":false,\"frames\":[{\"pixels\":[0],\"delayMs\":100}],\"engine\":\"nope\"}") {
         Err(KernelError::ProjectFile(ProjectFileError::Engine)) => {}
@@ -319,7 +319,7 @@ fn contrast_outline_differs_from_center_sample_on_a_thin_edge() {
 
 #[test]
 fn a_wide_source_downsamples_and_export_uses_the_target() {
-    let rgba = vec![255u8, 0, 0, 255].repeat(300);
+    let rgba = [255u8, 0, 0, 255].repeat(300);
     let png = encode_png(300, 1, &rgba);
     let mut document = Document::new(16, 16).unwrap();
     tool(
@@ -343,4 +343,35 @@ fn a_wide_source_downsamples_and_export_uses_the_target() {
     assert_eq!(exported["width"], json!(8));
     assert_eq!(exported["height"], json!(4));
     assert_eq!(converted["engine"]["id"], json!("dominant"));
+}
+
+#[test]
+fn source_mode_caps_more_than_255_sample_colors_without_panicking() {
+    let mut rgba = Vec::new();
+    for index in 0..1024u16 {
+        rgba.extend_from_slice(&[(index % 256) as u8, (index / 256) as u8, 17, 255]);
+    }
+    let png = encode_png(32, 32, &rgba);
+    for engine in [
+        "center-sample",
+        "dominant",
+        "kmeans",
+        "contrast-outline",
+        "grid-snap",
+    ] {
+        let request = json!({"png": png, "width": 32, "height": 32, "engine": engine,
+            "palette": {"mode": "source", "maxColors": 16}});
+        let mut first = Document::new(2, 2).unwrap();
+        let before = first.save_project();
+        tool(&mut first, "convertPng", request.clone());
+        assert!(first.palette_colors().len() <= 17);
+        assert!(indices(&first)
+            .iter()
+            .all(|&i| usize::from(i) < first.palette_colors().len()));
+        let mut second = Document::new(2, 2).unwrap();
+        tool(&mut second, "convertPng", request);
+        assert_eq!(first.save_project(), second.save_project(), "{engine}");
+        first.undo().unwrap();
+        assert_eq!(first.save_project(), before, "{engine}");
+    }
 }

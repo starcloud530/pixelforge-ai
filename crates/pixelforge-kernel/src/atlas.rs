@@ -1013,7 +1013,7 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
                     "naming",
                     format!("idle_{facing} must cover only frame {row_start}"),
                     None,
-                    Some((*idle).name.clone()),
+                    Some(idle.name.clone()),
                 );
             }
         }
@@ -1026,7 +1026,7 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
                         "naming",
                         format!("walk_{facing} must cover frames {row_start}-{row_end}"),
                         None,
-                        Some((*walk).name.clone()),
+                        Some(walk.name.clone()),
                     );
                 }
             }
@@ -1038,7 +1038,7 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
                     "naming",
                     format!("walk_{facing} has no frames after idle on a one-frame row"),
                     None,
-                    Some((*walk).name.clone()),
+                    Some(walk.name.clone()),
                 );
             }
         } else if let Some(walk) = walks.first() {
@@ -1050,7 +1050,7 @@ fn check_four_direction(atlas: &ParsedAtlas, drafts: &mut Vec<Draft>) {
                     "naming",
                     format!("walk_{facing} must cover frames {expect_from}-{row_end}"),
                     None,
-                    Some((*walk).name.clone()),
+                    Some(walk.name.clone()),
                 );
             }
         } else {
@@ -1670,8 +1670,10 @@ mod tests {
         assert_eq!(codes(&strict.errors), vec!["size"]);
         assert!(strict.errors[0].message.contains("32x32"));
 
-        let mut loose = AtlasRules::default();
-        loose.mode = AtlasMode::Loose;
+        let loose = AtlasRules {
+            mode: AtlasMode::Loose,
+            ..AtlasRules::default()
+        };
         let report = validate_atlas(&atlas, &sheet, Some("hero-sheet.png"), &loose).unwrap();
         assert!(report.ok(), "{:?}", report.errors);
         assert_eq!(codes(&report.warnings), vec!["size"]);
@@ -1798,8 +1800,10 @@ mod tests {
             "{:?}",
             strict.errors
         );
-        let mut loose = AtlasRules::default();
-        loose.mode = AtlasMode::Loose;
+        let loose = AtlasRules {
+            mode: AtlasMode::Loose,
+            ..AtlasRules::default()
+        };
         let warning = validate_atlas(&renamed, &sheet, Some("hero-sheet.png"), &loose).unwrap();
         assert!(warning.ok(), "{:?}", warning.errors);
         assert!(codes(&warning.warnings).contains(&"naming"));
@@ -1832,9 +1836,11 @@ mod tests {
             report.errors
         );
 
-        let mut rules = AtlasRules::default();
-        rules.pivot = Some(Pivot { x: 32.0, y: 64.0 });
-        rules.mode = AtlasMode::Loose;
+        let rules = AtlasRules {
+            pivot: Some(Pivot { x: 32.0, y: 64.0 }),
+            mode: AtlasMode::Loose,
+            ..AtlasRules::default()
+        };
         atlas.as_object_mut().unwrap().remove("pivot");
         let loose = validate_atlas(&atlas, &sheet, Some("hero-sheet.png"), &rules).unwrap();
         assert!(loose.ok(), "{:?}", loose.errors);
@@ -1854,16 +1860,20 @@ mod tests {
         .unwrap();
         assert_eq!(codes(&strict.errors), vec!["missingTags"]);
 
-        let mut optional = AtlasRules::default();
-        optional.tag_policy = Some(TagPolicy::Optional);
+        let optional = AtlasRules {
+            tag_policy: Some(TagPolicy::Optional),
+            ..AtlasRules::default()
+        };
         let report = validate_atlas(&atlas, &sheet, Some("hero-sheet.png"), &optional).unwrap();
         assert!(report.ok(), "{:?}", report.errors);
         assert!(report.warnings.is_empty(), "{:?}", report.warnings);
         assert_eq!(report.checks.empty_tags, "off");
 
-        let mut loose = AtlasRules::default();
-        loose.mode = AtlasMode::Loose;
-        loose.require_tags = vec!["hit".to_string()];
+        let loose = AtlasRules {
+            mode: AtlasMode::Loose,
+            require_tags: vec!["hit".to_string()],
+            ..AtlasRules::default()
+        };
         let report = validate_atlas(&atlas, &sheet, Some("hero-sheet.png"), &loose).unwrap();
         assert!(codes(&report.errors).contains(&"missingTags"));
         assert!(codes(&report.warnings).contains(&"missingTags"));
@@ -1900,8 +1910,10 @@ mod tests {
         let strict =
             validate_atlas(&atlas, &sheet, Some("other.png"), &AtlasRules::default()).unwrap();
         assert_eq!(codes(&strict.errors), vec!["image"]);
-        let mut loose = AtlasRules::default();
-        loose.mode = AtlasMode::Loose;
+        let loose = AtlasRules {
+            mode: AtlasMode::Loose,
+            ..AtlasRules::default()
+        };
         let warning = validate_atlas(&atlas, &sheet, Some("other.png"), &loose).unwrap();
         assert!(warning.ok());
         assert_eq!(codes(&warning.warnings), vec!["image"]);

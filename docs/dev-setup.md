@@ -122,22 +122,28 @@ cargo test -p pixelforge-cli
 
 这两条包含内核和 CLI 的集成测试，包括转换、调色板策略、跨进程并发、revision、技能打包和只读播放器（含 Node.js 脚本测试）。`crates/*/tests/fixtures/` 是测试夹具，不是对外演示。演示、导出验收和灯塔场景已迁往 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)，当前 CI 不运行该仓库的脚本。
 
-本地额外检查（当前 CI 未自动执行）：
+完整本地门禁与各命令范围见 [quality.md](quality.md)：
 
 ```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo build --workspace
 pnpm install --frozen-lockfile
+pnpm lint
+cargo test --workspace --locked --no-fail-fast
+pnpm quick
+pnpm smoke
 pnpm build
 pnpm test
 pnpm build:landing
+cargo build -p pixelforge-cli --locked
+pnpm exec playwright install chromium
+pnpm test:browser
 mkdocs build --strict
 ```
 
-先按上文安装 Python 文档依赖。`pnpm build` 和 `pnpm test` 分别生成浏览器与 Node.js 的 wasm 包。仓库未定义名为 `lint`、`quick` 或 `smoke` 的脚本；报告检查结果时请写明实际运行的命令。
+先按上文安装 Python 文档依赖。CI 保留 `test and export gate` 必需检查名称，并汇总 Linux/macOS/Windows、
+Rust 1.83、Node 20/22、Web/WASM、浏览器及文档检查。`pnpm build` 和 `pnpm test` 分别生成浏览器与 Node.js wasm 包。
 
-*The CI workflow runs the two crate test commands above on pull requests and pushes to `main`. Tests include conversion, palette strategies, concurrency, revisions, and bundled skills. Fixtures under `crates/*/tests/fixtures/` support tests; demos and their validation scripts live in pixelforge-demos and are not run by this CI. The additional local checks are not CI gates. Install the documented Python dependencies before building docs. The repository does not define scripts named `lint`, `quick`, or `smoke`; report the actual commands used.*
+*The complete local gates and their scope are documented in [quality.md](quality.md). CI keeps the required check name
+`test and export gate` and includes cross-platform Rust, minimum-version compatibility, frontend, browser, and documentation checks.*
 
 ## 预编译与发版 Prebuilt releases
 

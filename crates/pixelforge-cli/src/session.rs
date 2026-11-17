@@ -38,13 +38,15 @@ pub struct Session {
     /// Canonical file the lock covers. Renames land here.
     write_path: PathBuf,
     document: Document,
-    /// Canonical project text last known to be on disk.
+    /// Writable baseline. Read-only sessions retain only its fingerprint.
     disk: String,
     checkpoint: Option<Checkpoint>,
     /// Held so the OS lock stays acquired until the command finishes.
     #[allow(dead_code)]
     lock: Option<ProjectLock>,
     writable: bool,
+    // Read-only calls cannot mutate the snapshot, so its fingerprint is reusable.
+    read_revision: Option<String>,
 }
 
 enum HistoryTool {
@@ -93,6 +95,7 @@ impl Session {
             checkpoint: None,
             lock: Some(lock),
             writable: true,
+            read_revision: None,
         };
         session.attach_checkpoint(checkpoint, &disk)?;
         Ok(session)
@@ -111,10 +114,11 @@ impl Session {
             path: path.to_path_buf(),
             write_path: path.to_path_buf(),
             document,
-            disk: disk.clone(),
+            disk: String::new(),
             checkpoint: None,
             lock: None,
             writable: false,
+            read_revision: Some(store::revision_of(&disk)),
         };
         session.attach_checkpoint(checkpoint, &disk)?;
         Ok(session)
@@ -140,6 +144,7 @@ impl Session {
             checkpoint: None,
             lock: Some(lock),
             writable: true,
+            read_revision: None,
         })
     }
 
@@ -163,6 +168,7 @@ impl Session {
             checkpoint: None,
             lock: Some(lock),
             writable: true,
+            read_revision: None,
         })
     }
 
@@ -190,7 +196,17 @@ impl Session {
 
     /// Fingerprint of the document currently in memory, not a second disk read.
     pub fn revision(&self) -> String {
-        store::revision_of(&self.document.save_project())
+        self.read_revision
+            .clone()
+            .unwrap_or_else(|| store::revision_of(&self.document.save_project()))
+    }
+
+    pub fn check_outputs(&self, outputs: &[&Path]) -> Result<(), CliFailure> {
+        let mut inputs = vec![self.path.as_path(), self.write_path.as_path()];
+        if let Some(checkpoint) = self.checkpoint_path() {
+            inputs.push(checkpoint);
+        }
+        crate::output_paths::check(&inputs, outputs)
     }
 
     pub fn checkpoint_path(&self) -> Option<&Path> {
@@ -202,6 +218,16 @@ impl Session {
     }
 
     pub fn call(&mut self, request: &str) -> String {
+        if !self.writable && crate::requests::batch_mutates(&[request.to_string()]) {
+            let id = serde_json::from_str::<Value>(request)
+                .ok()
+                .and_then(|v| v.get("id").cloned());
+            return history_err(
+                id,
+                "ReadOnlySession",
+                "refusing a mutating tool on a read-only snapshot",
+            );
+        }
         if let Some((kind, id)) = history_request(request) {
             let take = match kind {
                 HistoryTool::Undo => self.checkpoint_undo_ready(),
@@ -222,18 +248,20 @@ impl Session {
     /// the checkpoint write fails after the project write, the project file
     /// already contains this edit.
     pub fn save_if_changed(&mut self) -> Result<SaveReport, CliFailure> {
+        // `call` rejects writes before entering the kernel. Avoid serializing
+        // every pixel again merely to prove that a read did not change it.
+        if !self.writable {
+            return Ok(SaveReport {
+                project: false,
+                checkpoint: false,
+            });
+        }
         let text = self.document.save_project();
         let mut report = SaveReport {
             project: false,
             checkpoint: false,
         };
         if text != self.disk {
-            if !self.writable {
-                return Err(CliFailure::new(
-                    "Cli",
-                    "refusing to write a project opened for reading",
-                ));
-            }
             store::test_edit_barrier();
             store::write_atomic(&self.write_path, text.as_bytes())?;
             self.disk = text.clone();
@@ -437,4 +465,50 @@ fn history_err(id: Option<Value>, code: &str, message: impl AsRef<str>) -> Strin
             .insert("id".to_string(), id);
     }
     body.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Access, Session};
+    use pixelforge_kernel::Document;
+    use serde_json::Value;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn readonly_sessions_reject_mutations_and_keep_the_loaded_revision() {
+        let path = std::env::temp_dir().join(format!(
+            "pixelforge-readonly-{}-{}.json",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut document = Document::new(2, 2).unwrap();
+        fs::write(&path, document.save_project()).unwrap();
+        let mut session = Session::open_with(&path, None, None, Access::ReadOnly).unwrap();
+        let revision = session.revision();
+        let before = session.document().save_project();
+        let refused: Value = serde_json::from_str(
+            &session.call(r#"{"id":"edit","tool":"paint","params":{"x":0,"y":0,"colorIndex":1}}"#),
+        )
+        .unwrap();
+        assert_eq!(refused["error"]["code"], "ReadOnlySession");
+        assert_eq!(refused["id"], "edit");
+        assert_eq!(session.document().save_project(), before);
+        document.paint(0, 0, 2).unwrap();
+        let external = document.save_project();
+        fs::write(&path, &external).unwrap();
+        for tool in ["beginGesture", "inspect", "endGesture"] {
+            let response: Value =
+                serde_json::from_str(&session.call(&format!(r#"{{"tool":"{tool}"}}"#))).unwrap();
+            assert_eq!(response["ok"], true);
+        }
+        assert_eq!(session.revision(), revision);
+        let saved = session.save_if_changed().unwrap();
+        assert!(!saved.project && !saved.checkpoint);
+        assert_eq!(fs::read_to_string(&path).unwrap(), external);
+        fs::remove_file(path).unwrap();
+    }
 }

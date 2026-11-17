@@ -1,5 +1,18 @@
 //! Indexed `.aseprite` bytes are built in this test. There is no external fixture.
 
+/// Named inputs for `cel`; keep related values explicit at call sites.
+struct CelArgs<'a> {
+    layer_index: u16,
+    x: i16,
+    y: i16,
+    width: u16,
+    height: u16,
+    pixels: &'a [u8],
+    opacity: u8,
+    z: i16,
+    compressed: bool,
+}
+
 use std::io::Write;
 
 use flate2::write::ZlibEncoder;
@@ -62,17 +75,18 @@ fn palette(colors: &[[u8; 4]]) -> Vec<u8> {
     chunk(0x2019, &payload)
 }
 
-fn cel(
-    layer_index: u16,
-    x: i16,
-    y: i16,
-    width: u16,
-    height: u16,
-    pixels: &[u8],
-    opacity: u8,
-    z: i16,
-    compressed: bool,
-) -> Vec<u8> {
+fn cel(args: CelArgs<'_>) -> Vec<u8> {
+    let CelArgs {
+        layer_index,
+        x,
+        y,
+        width,
+        height,
+        pixels,
+        opacity,
+        z,
+        compressed,
+    } = args;
     let mut payload = Vec::new();
     le_u16(&mut payload, layer_index);
     le_i16(&mut payload, x);
@@ -161,9 +175,39 @@ fn sample() -> Vec<u8> {
             layer("guide", 1 | 64, 0, 0, 255),
             palette(&colors),
             chunk(0x2018, &[]),
-            cel(1, 1, 0, 2, 2, &[1, 2, 1, 0], 255, 0, false),
-            cel(2, 3, 1, 1, 1, &[2], 128, 2, true),
-            cel(3, 0, 1, 1, 1, &[1], 255, 0, false),
+            cel(crate::CelArgs {
+                layer_index: 1,
+                x: 1,
+                y: 0,
+                width: 2,
+                height: 2,
+                pixels: &[1, 2, 1, 0],
+                opacity: 255,
+                z: 0,
+                compressed: false,
+            }),
+            cel(crate::CelArgs {
+                layer_index: 2,
+                x: 3,
+                y: 1,
+                width: 1,
+                height: 1,
+                pixels: &[2],
+                opacity: 128,
+                z: 2,
+                compressed: true,
+            }),
+            cel(crate::CelArgs {
+                layer_index: 3,
+                x: 0,
+                y: 1,
+                width: 1,
+                height: 1,
+                pixels: &[1],
+                opacity: 255,
+                z: 0,
+                compressed: false,
+            }),
         ],
     );
     let frame1 = frame(0, &[link(1, 0, 0, 0)]);
@@ -268,7 +312,17 @@ fn transparent_index_swaps_into_slot_zero() {
             &[
                 layer("Layer 1", 1, 0, 0, 255),
                 palette(&colors),
-                cel(0, 0, 0, 2, 1, &[2, 0], 255, 0, false),
+                cel(crate::CelArgs {
+                    layer_index: 0,
+                    x: 0,
+                    y: 0,
+                    width: 2,
+                    height: 1,
+                    pixels: &[2, 0],
+                    opacity: 255,
+                    z: 0,
+                    compressed: false,
+                }),
             ],
         )],
     );
@@ -302,7 +356,17 @@ fn old_palette_is_used_until_a_new_one_replaces_it() {
             &[
                 layer("ink", 1, 0, 0, 255),
                 chunk(0x0004, &old),
-                cel(0, 0, 0, 1, 1, &[1], 255, 0, false),
+                cel(crate::CelArgs {
+                    layer_index: 0,
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    pixels: &[1],
+                    opacity: 255,
+                    z: 0,
+                    compressed: false,
+                }),
             ],
         )],
     );
@@ -325,7 +389,17 @@ fn old_palette_is_used_until_a_new_one_replaces_it() {
                 layer("ink", 1, 0, 0, 255),
                 chunk(0x0004, &old),
                 palette(&[[0, 0, 0, 0], [7, 8, 9, 255]]),
-                cel(0, 0, 0, 1, 1, &[1], 255, 0, false),
+                cel(crate::CelArgs {
+                    layer_index: 0,
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    pixels: &[1],
+                    opacity: 255,
+                    z: 0,
+                    compressed: false,
+                }),
             ],
         )],
     );
@@ -350,7 +424,20 @@ fn six_bit_palette_scales_to_byte_channels() {
         0,
         &[frame(
             10,
-            &[chunk(0x0011, &old), cel(0, 0, 0, 1, 1, &[1], 255, 0, false)],
+            &[
+                chunk(0x0011, &old),
+                cel(crate::CelArgs {
+                    layer_index: 0,
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                    pixels: &[1],
+                    opacity: 255,
+                    z: 0,
+                    compressed: false,
+                }),
+            ],
         )],
     );
     let (document, _) = Document::from_aseprite(&bytes).unwrap();
@@ -371,7 +458,17 @@ fn clipped_cel_drops_cells_outside_the_canvas() {
             10,
             &[
                 palette(&[[0, 0, 0, 0], [1, 0, 0, 255]]),
-                cel(0, 1, 0, 2, 1, &[1, 1], 255, 0, false),
+                cel(crate::CelArgs {
+                    layer_index: 0,
+                    x: 1,
+                    y: 0,
+                    width: 2,
+                    height: 1,
+                    pixels: &[1, 1],
+                    opacity: 255,
+                    z: 0,
+                    compressed: false,
+                }),
             ],
         )],
     );

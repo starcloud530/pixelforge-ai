@@ -7,6 +7,30 @@
 //! vertex list with the same line, and a fill is the even-odd interior plus
 //! that outline. Flood fill replaces one index. There is no anti-aliasing.
 
+/// Named inputs for `flood_cells`; keep related values explicit at call sites.
+pub(crate) struct FloodCellsArgs<'a> {
+    pub(crate) pixels: &'a [u8],
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) x: u16,
+    pub(crate) y: u16,
+    pub(crate) source: u8,
+    pub(crate) connectivity: Connectivity,
+    pub(crate) writable: &'a [bool],
+}
+
+/// Named inputs for `flood_matching`; keep related values explicit at call sites.
+pub(crate) struct FloodMatchingArgs<'a, F: Fn(u8) -> bool> {
+    pub(crate) pixels: &'a [u8],
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) x: u16,
+    pub(crate) y: u16,
+    pub(crate) connectivity: Connectivity,
+    pub(crate) writable: &'a [bool],
+    pub(crate) matches: F,
+}
+
 /// 4-connected or 8-connected neighborhood for [`flood_cells`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Connectivity {
@@ -348,17 +372,18 @@ pub fn stroke_rect_cells(x: i32, y: i32, width: i32, height: i32) -> Vec<(i32, i
 /// The seed itself is included when it is writable and holds `source`.
 /// This is [`flood_matching`] with an exact index predicate. A selection
 /// wand uses the same walk when the match is a palette-distance predicate.
-pub fn flood_cells(
-    pixels: &[u8],
-    width: u16,
-    height: u16,
-    x: u16,
-    y: u16,
-    source: u8,
-    connectivity: Connectivity,
-    writable: &[bool],
-) -> Vec<(u16, u16)> {
-    flood_matching(
+pub fn flood_cells(args: FloodCellsArgs<'_>) -> Vec<(u16, u16)> {
+    let FloodCellsArgs {
+        pixels,
+        width,
+        height,
+        x,
+        y,
+        source,
+        connectivity,
+        writable,
+    } = args;
+    flood_matching(crate::raster::FloodMatchingArgs {
         pixels,
         width,
         height,
@@ -366,8 +391,8 @@ pub fn flood_cells(
         y,
         connectivity,
         writable,
-        |index| index == source,
-    )
+        matches: |index| index == source,
+    })
 }
 
 /// Cells reached from `(x, y)` through `writable` cells that `matches` accepts.
@@ -375,16 +400,17 @@ pub fn flood_cells(
 /// A cell that is not writable, or that `matches` rejects, is a barrier.
 /// The seed is included only when it is writable and `matches` accepts its
 /// index. The walk is the same stack as [`flood_cells`].
-pub fn flood_matching(
-    pixels: &[u8],
-    width: u16,
-    height: u16,
-    x: u16,
-    y: u16,
-    connectivity: Connectivity,
-    writable: &[bool],
-    matches: impl Fn(u8) -> bool,
-) -> Vec<(u16, u16)> {
+pub fn flood_matching(args: FloodMatchingArgs<'_, impl Fn(u8) -> bool>) -> Vec<(u16, u16)> {
+    let FloodMatchingArgs {
+        pixels,
+        width,
+        height,
+        x,
+        y,
+        connectivity,
+        writable,
+        matches,
+    } = args;
     let count = usize::from(width) * usize::from(height);
     debug_assert_eq!(pixels.len(), count);
     debug_assert_eq!(writable.len(), count);
@@ -460,6 +486,7 @@ fn is_8_connected(cells: &[(i32, i32)]) -> bool {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -549,7 +576,7 @@ mod tests {
         let mut unique = cells.clone();
         unique.sort_unstable();
         unique.dedup();
-        assert_eq!(unique.len(), 4 * 2 + 1 * 2);
+        assert_eq!(unique.len(), 4 * 2 + 2);
         assert!(!unique.contains(&(2, 3)));
         assert_eq!(stroke_rect_cells(0, 0, 1, 3).len(), 3);
     }
@@ -560,34 +587,43 @@ mod tests {
         let height = 2u16;
         let pixels = [1u8, 0, 0, 0, 1, 0];
         let writable = [true; 6];
-        let four = flood_cells(
-            &pixels,
+        let four = flood_cells(crate::raster::FloodCellsArgs {
+            pixels: &pixels,
             width,
             height,
-            0,
-            0,
-            1,
-            Connectivity::Four,
-            &writable,
-        );
+            x: 0,
+            y: 0,
+            source: 1,
+            connectivity: Connectivity::Four,
+            writable: &writable,
+        });
         assert_eq!(four, vec![(0, 0)]);
-        let eight = flood_cells(
-            &pixels,
+        let eight = flood_cells(crate::raster::FloodCellsArgs {
+            pixels: &pixels,
             width,
             height,
-            0,
-            0,
-            1,
-            Connectivity::Eight,
-            &writable,
-        );
+            x: 0,
+            y: 0,
+            source: 1,
+            connectivity: Connectivity::Eight,
+            writable: &writable,
+        });
         let mut eight = eight;
         eight.sort_unstable();
         assert_eq!(eight, vec![(0, 0), (1, 1)]);
 
         let pixels = [0u8, 0, 0];
         let blocked = [true, false, true];
-        let cells = flood_cells(&pixels, 3, 1, 0, 0, 0, Connectivity::Four, &blocked);
+        let cells = flood_cells(crate::raster::FloodCellsArgs {
+            pixels: &pixels,
+            width: 3,
+            height: 1,
+            x: 0,
+            y: 0,
+            source: 0,
+            connectivity: Connectivity::Four,
+            writable: &blocked,
+        });
         assert_eq!(cells, vec![(0, 0)]);
     }
 
@@ -595,16 +631,16 @@ mod tests {
     fn flood_matching_uses_the_same_walk_as_an_exact_index() {
         let pixels = [1u8, 2, 1, 9];
         let writable = [true; 4];
-        let cells = flood_matching(
-            &pixels,
-            2,
-            2,
-            0,
-            0,
-            Connectivity::Four,
-            &writable,
-            |index| index == 1 || index == 2,
-        );
+        let cells = flood_matching(crate::raster::FloodMatchingArgs {
+            pixels: &pixels,
+            width: 2,
+            height: 2,
+            x: 0,
+            y: 0,
+            connectivity: Connectivity::Four,
+            writable: &writable,
+            matches: |index| index == 1 || index == 2,
+        });
         let mut cells = cells;
         cells.sort_unstable();
         assert_eq!(cells, vec![(0, 0), (0, 1), (1, 0)]);

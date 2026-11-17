@@ -353,12 +353,12 @@ fn expected_actions(
 ) -> Vec<String> {
     let mut actions = BTreeSet::new();
     for asset in manifest.assets() {
-        if asset.id == owner_id || asset.owner.as_deref() == Some(owner_id) {
-            if asset.kind == "clip" || asset.id == owner_id {
-                for tag in &asset.tags {
-                    if let Some((action, _)) = parse_direction_tag(tag) {
-                        actions.insert(action.as_str().to_string());
-                    }
+        if (asset.id == owner_id || asset.owner.as_deref() == Some(owner_id))
+            && (asset.kind == "clip" || asset.id == owner_id)
+        {
+            for tag in &asset.tags {
+                if let Some((action, _)) = parse_direction_tag(tag) {
+                    actions.insert(action.as_str().to_string());
                 }
             }
         }

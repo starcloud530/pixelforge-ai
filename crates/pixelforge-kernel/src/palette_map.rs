@@ -18,6 +18,9 @@ use crate::palette::Palette;
 use crate::Rgba;
 use crate::MAX_CANVAS_EDGE;
 
+// Named parser/loader results keep the internal data contract readable.
+type CrushRgbaResult = BTreeMap<(u8, u8, u8), (u32, u8, Rgba, u32)>;
+
 /// One source color folded onto a destination palette entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ColorMerge {
@@ -308,7 +311,7 @@ pub(crate) fn crush_rgba(
         return Err(KernelError::PngFile);
     }
     let mut indices = Vec::with_capacity(rgba.len() / 4);
-    let mut groups: BTreeMap<(u8, u8, u8), (u32, u8, Rgba, u32)> = BTreeMap::new();
+    let mut groups: CrushRgbaResult = BTreeMap::new();
     for pixel in rgba.chunks_exact(4) {
         if pixel[3] < INDEX_ALPHA_CUTOFF {
             indices.push(0);

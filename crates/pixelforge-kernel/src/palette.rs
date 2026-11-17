@@ -86,7 +86,7 @@ impl Palette {
 
     /// Appends an opaque color and returns its index.
     pub fn push_rgb(&mut self, r: u8, g: u8, b: u8) -> Result<u8, KernelError> {
-        if self.colors.len() >= usize::from(u8::MAX) + 1 {
+        if self.colors.len() > usize::from(u8::MAX) {
             return Err(KernelError::PaletteTooLarge {
                 len: self.colors.len() + 1,
             });
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn rejects_more_than_256_entries() {
         let mut colors = vec![Rgba::TRANSPARENT];
-        colors.extend(std::iter::repeat(Rgba::rgb(1, 1, 1)).take(256));
+        colors.extend(std::iter::repeat_n(Rgba::rgb(1, 1, 1), 256));
         assert_eq!(
             Palette::new(colors).unwrap_err(),
             KernelError::PaletteTooLarge { len: 257 }

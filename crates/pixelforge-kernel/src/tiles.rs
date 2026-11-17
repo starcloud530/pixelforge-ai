@@ -24,6 +24,19 @@ use crate::MAX_TILEMAP_EDGE;
 use crate::MAX_UNDO;
 use crate::TOOL_API_VERSION;
 
+/// Named inputs for `blit_tile`; keep related values explicit at call sites.
+struct BlitTileArgs<'a> {
+    dst: &'a mut [u8],
+    dst_width: u32,
+    origin_x: u32,
+    origin_y: u32,
+    tile_w: u32,
+    tile_h: u32,
+    src: &'a [u8],
+    flip_h: bool,
+    flip_v: bool,
+}
+
 /// `format` of a tilemap file.
 pub const TILEMAP_FORMAT: &str = "pixelforge-tilemap";
 
@@ -783,10 +796,8 @@ impl TileMap {
             if layer.cells.len() != expect {
                 return Err(tilemap_file("tile layer cell count does not match the map"));
             }
-            for cell in &layer.cells {
-                if let Some(cell) = cell {
-                    self.check_tile(cell.tile)?;
-                }
+            for cell in layer.cells.iter().flatten() {
+                self.check_tile(cell.tile)?;
             }
         }
         Ok(())
@@ -871,17 +882,17 @@ impl TileMap {
                         continue;
                     };
                     let src = &tile_rgba[cell.tile as usize];
-                    blit_tile(
-                        &mut raw,
-                        raw_w,
-                        x * tile_w,
-                        y * tile_h,
+                    blit_tile(crate::tiles::BlitTileArgs {
+                        dst: &mut raw,
+                        dst_width: raw_w,
+                        origin_x: x * tile_w,
+                        origin_y: y * tile_h,
                         tile_w,
                         tile_h,
                         src,
-                        cell.flip_h,
-                        cell.flip_v,
-                    );
+                        flip_h: cell.flip_h,
+                        flip_v: cell.flip_v,
+                    });
                 }
             }
         }
@@ -1348,17 +1359,18 @@ fn scaled_map_size(map: &TileMap, scale: u32) -> Result<(u32, u32), KernelError>
     Ok((width, height))
 }
 
-fn blit_tile(
-    dst: &mut [u8],
-    dst_width: u32,
-    origin_x: u32,
-    origin_y: u32,
-    tile_w: u32,
-    tile_h: u32,
-    src: &[u8],
-    flip_h: bool,
-    flip_v: bool,
-) {
+fn blit_tile(args: BlitTileArgs<'_>) {
+    let BlitTileArgs {
+        dst,
+        dst_width,
+        origin_x,
+        origin_y,
+        tile_w,
+        tile_h,
+        src,
+        flip_h,
+        flip_v,
+    } = args;
     let stride = dst_width as usize;
     for y in 0..tile_h {
         let src_y = if flip_v { tile_h - 1 - y } else { y };

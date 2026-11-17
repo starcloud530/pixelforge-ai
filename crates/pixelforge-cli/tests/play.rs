@@ -266,5 +266,5 @@ fn an_occupied_port_exits_and_a_bad_project_does_not_listen() {
     assert!(String::from_utf8_lossy(&output.stderr)
         .to_ascii_lowercase()
         .contains("checkpoint"));
-    assert_eq!(fs::read(&path).unwrap().len() > 0, true);
+    assert!(!fs::read(&path).unwrap().is_empty());
 }

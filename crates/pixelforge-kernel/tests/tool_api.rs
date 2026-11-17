@@ -758,8 +758,8 @@ fn preview_diff_flip_resize_and_cross_frame_blit() {
     );
     tool(&mut document, "setActiveFrame", json!({"index": 1}));
     let copied = tool(&mut document, "inspect", json!({}));
-    assert_eq!(copied["pixels"][1 * 4 + 1], json!(1));
-    assert_eq!(copied["pixels"][1 * 4 + 2], json!(2));
+    assert_eq!(copied["pixels"][4 + 1], json!(1));
+    assert_eq!(copied["pixels"][4 + 2], json!(2));
     assert_eq!(copied["activeFrame"], json!(1));
     tool(&mut document, "setActiveFrame", json!({"index": 0}));
     assert_eq!(
@@ -839,11 +839,11 @@ fn preview_diff_flip_resize_and_cross_frame_blit() {
     assert_eq!(resized["offsetX"], json!(2));
     assert_eq!(resized["offsetY"], json!(1));
     let placed = tool(&mut document, "inspect", json!({}));
-    assert_eq!(placed["pixels"][1 * 8 + 2], json!(2));
+    assert_eq!(placed["pixels"][8 + 2], json!(2));
     let saved = tool(&mut document, "saveProject", json!({}));
     let mut loaded = Document::load_project(saved["json"].as_str().unwrap()).unwrap();
     assert_eq!(loaded.width(), 8);
-    assert_eq!(loaded.pixels()[1 * 8 + 2], 2);
+    assert_eq!(loaded.pixels()[8 + 2], 2);
     tool(&mut document, "undo", json!({}));
     assert_eq!(tool(&mut document, "inspect", json!({}))["width"], json!(4));
     let shifted = tool(

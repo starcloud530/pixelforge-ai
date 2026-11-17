@@ -19,6 +19,93 @@ use crate::part::{anchor_offset_i64, normalize_part_name, Anchor, Part};
 use crate::part_xform::{self, map_point, round_half_away, unmap_continuous, CellMap, Motion};
 use crate::TRANSPARENT_INDEX;
 
+/// Named inputs for `prepare_constraint`; keep related values explicit at call sites.
+pub(crate) struct PrepareConstraintArgs<'a> {
+    pub(crate) existing: &'a [Constraint],
+    pub(crate) parts: &'a [Part],
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) frame_count: usize,
+    pub(crate) name: &'a str,
+    pub(crate) kind: ConstraintKind,
+    pub(crate) part: &'a str,
+    pub(crate) anchor: Option<&'a str>,
+    pub(crate) target: Option<&'a str>,
+    pub(crate) target_anchor: Option<&'a str>,
+    pub(crate) x: Option<i32>,
+    pub(crate) y: Option<i32>,
+    pub(crate) chain: &'a [String],
+    pub(crate) bend: Option<i8>,
+    pub(crate) contacts: &'a [Contact],
+}
+
+/// Named inputs for `apply_deltas`; keep related values explicit at call sites.
+pub(crate) struct ApplyDeltasArgs<'a> {
+    pub(crate) posed: &'a mut [PosedPart],
+    pub(crate) stored: &'a [Part],
+    pub(crate) constraints: &'a [Constraint],
+    pub(crate) order: &'a [usize],
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) frame: Option<f64>,
+    pub(crate) pixel_frame: usize,
+}
+
+/// Named inputs for `seal_notches`; keep related values explicit at call sites.
+struct SealNotchesArgs<'a, F: FnMut(u16, u16) -> bool> {
+    width: u16,
+    height: u16,
+    source: &'a [u8],
+    next: &'a mut [u8],
+    claims: &'a [u8],
+    steps: &'a [MotionStep],
+    source_count: u32,
+    written: u32,
+    blocked: &'a [u8],
+    accepts: &'a mut F,
+}
+
+/// Named inputs for `translate_follower`; keep related values explicit at call sites.
+struct TranslateFollowerArgs<'a> {
+    posed: &'a mut [PosedPart],
+    follower: usize,
+    from_x: i32,
+    from_y: i32,
+    to_x: i32,
+    to_y: i32,
+    width: u16,
+    height: u16,
+}
+
+/// Named inputs for `solved_record`; keep related values explicit at call sites.
+struct SolvedRecordArgs<'a> {
+    constraint: &'a Constraint,
+    index: usize,
+    dx: i32,
+    dy: i32,
+    satisfied: bool,
+    from_x: i32,
+    from_y: i32,
+    to_x: i32,
+    to_y: i32,
+    planted: bool,
+}
+
+/// Named inputs for `search_bone`; keep related values explicit at call sites.
+struct SearchBoneArgs<'a> {
+    maps: &'a [BTreeMap<(i32, i32), i32>],
+    bones: &'a [(i32, i32)],
+    root: (i32, i32),
+    target: (i32, i32),
+    bend: i8,
+    width: u16,
+    height: u16,
+    depth: usize,
+    centis: &'a mut Vec<i32>,
+    pivots: &'a mut Vec<(i32, i32)>,
+    best: &'a mut Option<ChainSolve>,
+}
+
 /// What a stored constraint asks the solver to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConstraintKind {
@@ -209,23 +296,26 @@ pub(crate) struct MotionStep {
 
 /// Build the canonical constraint, or refuse it before it is stored.
 pub(crate) fn prepare_constraint(
-    existing: &[Constraint],
-    parts: &[Part],
-    width: u16,
-    height: u16,
-    frame_count: usize,
-    name: &str,
-    kind: ConstraintKind,
-    part: &str,
-    anchor: Option<&str>,
-    target: Option<&str>,
-    target_anchor: Option<&str>,
-    x: Option<i32>,
-    y: Option<i32>,
-    chain: &[String],
-    bend: Option<i8>,
-    contacts: &[Contact],
+    args: PrepareConstraintArgs<'_>,
 ) -> Result<Constraint, KernelError> {
+    let PrepareConstraintArgs {
+        existing,
+        parts,
+        width,
+        height,
+        frame_count,
+        name,
+        kind,
+        part,
+        anchor,
+        target,
+        target_anchor,
+        x,
+        y,
+        chain,
+        bend,
+        contacts,
+    } = args;
     let name = normalize_part_name(name).map_err(|()| KernelError::ConstraintName)?;
     if existing.iter().any(|constraint| constraint.name == name) {
         return Err(KernelError::ConstraintExists);
@@ -375,7 +465,7 @@ pub(crate) fn solve_order(constraints: &[Constraint]) -> Result<Vec<usize>, Kern
             if constraints
                 .iter()
                 .take(index)
-                .any(|earlier| driven_parts(earlier).iter().any(|driven| *driven == part))
+                .any(|earlier| driven_parts(earlier).contains(&part))
             {
                 return Err(KernelError::ConstraintConflict {
                     part: part.to_string(),
@@ -389,14 +479,14 @@ pub(crate) fn solve_order(constraints: &[Constraint]) -> Result<Vec<usize>, Kern
         let Some(target) = constraint.target.as_deref() else {
             continue;
         };
-        if driven_parts(constraint).iter().any(|part| *part == target) {
+        if driven_parts(constraint).contains(&target) {
             return Err(KernelError::ConstraintCycle {
                 name: constraint.name.clone(),
             });
         }
         if let Some(source) = constraints
             .iter()
-            .position(|item| driven_parts(item).iter().any(|part| *part == target))
+            .position(|item| driven_parts(item).contains(&target))
         {
             outgoing[source].push(index);
             incoming[index] += 1;
@@ -498,15 +588,18 @@ pub(crate) fn orient_part(
 /// at `pixel_frame`. An `ik` or `plant` with no span on that frame, and no
 /// static target, leaves the curve pose in place.
 pub(crate) fn apply_deltas(
-    posed: &mut [PosedPart],
-    stored: &[Part],
-    constraints: &[Constraint],
-    order: &[usize],
-    width: u16,
-    height: u16,
-    frame: Option<f64>,
-    pixel_frame: usize,
+    args: ApplyDeltasArgs<'_>,
 ) -> Result<Vec<SolvedConstraint>, KernelError> {
+    let ApplyDeltasArgs {
+        posed,
+        stored,
+        constraints,
+        order,
+        width,
+        height,
+        frame,
+        pixel_frame,
+    } = args;
     let sample = frame.unwrap_or(pixel_frame as f64);
     let mut solved = Vec::with_capacity(order.len());
     for &index in order {
@@ -700,18 +793,18 @@ pub(crate) fn warp_overlay(
         .iter()
         .any(|step| matches!(step.map, CellMap::Nearest { .. }));
     let sealed = if nearest && dropped > 0 {
-        seal_notches(
+        seal_notches(crate::constraint::SealNotchesArgs {
             width,
             height,
-            indices,
-            &mut next,
-            &claims,
+            source: indices,
+            next: &mut next,
+            claims: &claims,
             steps,
             source_count,
-            unique,
-            &next_erase,
-            &mut accepts,
-        )
+            written: unique,
+            blocked: &next_erase,
+            accepts: &mut accepts,
+        })
     } else {
         0
     };
@@ -781,18 +874,18 @@ fn rasterize(
         .iter()
         .any(|step| matches!(step.map, CellMap::Nearest { .. }));
     let sealed = if seal && nearest && dropped > 0 {
-        seal_notches(
+        seal_notches(crate::constraint::SealNotchesArgs {
             width,
             height,
-            old,
-            &mut next,
-            &claims,
+            source: old,
+            next: &mut next,
+            claims: &claims,
             steps,
             source_count,
-            unique,
-            &[],
-            &mut accepts,
-        )
+            written: unique,
+            blocked: &[],
+            accepts: &mut accepts,
+        })
     } else {
         0
     };
@@ -818,18 +911,19 @@ struct SealCandidate {
     index: u8,
 }
 
-fn seal_notches(
-    width: u16,
-    height: u16,
-    source: &[u8],
-    next: &mut [u8],
-    claims: &[u8],
-    steps: &[MotionStep],
-    source_count: u32,
-    mut written: u32,
-    blocked: &[u8],
-    accepts: &mut impl FnMut(u16, u16) -> bool,
-) -> u32 {
+fn seal_notches(args: SealNotchesArgs<'_, impl FnMut(u16, u16) -> bool>) -> u32 {
+    let SealNotchesArgs {
+        width,
+        height,
+        source,
+        next,
+        claims,
+        steps,
+        source_count,
+        mut written,
+        blocked,
+        accepts,
+    } = args;
     let width_us = usize::from(width);
     let height_us = usize::from(height);
     let mut min_x = width_us;
@@ -1244,19 +1338,28 @@ fn apply_translation(
             return Err(KernelError::ConstraintFields);
         }
     };
-    translate_follower(posed, follower, from_x, from_y, to_x, to_y, width, height)?;
-    Ok(solved_record(
-        constraint,
-        index,
-        to_x - from_x,
-        to_y - from_y,
-        from_x == to_x && from_y == to_y,
+    translate_follower(crate::constraint::TranslateFollowerArgs {
+        posed,
+        follower,
         from_x,
         from_y,
         to_x,
         to_y,
-        false,
-    ))
+        width,
+        height,
+    })?;
+    Ok(solved_record(crate::constraint::SolvedRecordArgs {
+        constraint,
+        index,
+        dx: to_x - from_x,
+        dy: to_y - from_y,
+        satisfied: from_x == to_x && from_y == to_y,
+        from_x,
+        from_y,
+        to_x,
+        to_y,
+        planted: false,
+    }))
 }
 
 fn apply_plant(
@@ -1271,24 +1374,42 @@ fn apply_plant(
     let (local_x, local_y) = local_of(&posed[follower].oriented, constraint.anchor.as_deref())?;
     let (from_x, from_y) = canvas_local(&posed[follower], local_x, local_y)?;
     let Some(contact) = contact_at(&constraint.contacts, frame) else {
-        return Ok(solved_record(
-            constraint, index, 0, 0, true, from_x, from_y, from_x, from_y, false,
-        ));
+        return Ok(solved_record(crate::constraint::SolvedRecordArgs {
+            constraint,
+            index,
+            dx: 0,
+            dy: 0,
+            satisfied: true,
+            from_x,
+            from_y,
+            to_x: from_x,
+            to_y: from_y,
+            planted: false,
+        }));
     };
     let (to_x, to_y) = (i32::from(contact.x), i32::from(contact.y));
-    translate_follower(posed, follower, from_x, from_y, to_x, to_y, width, height)?;
-    Ok(solved_record(
-        constraint,
-        index,
-        to_x - from_x,
-        to_y - from_y,
-        from_x == to_x && from_y == to_y,
+    translate_follower(crate::constraint::TranslateFollowerArgs {
+        posed,
+        follower,
         from_x,
         from_y,
         to_x,
         to_y,
-        true,
-    ))
+        width,
+        height,
+    })?;
+    Ok(solved_record(crate::constraint::SolvedRecordArgs {
+        constraint,
+        index,
+        dx: to_x - from_x,
+        dy: to_y - from_y,
+        satisfied: from_x == to_x && from_y == to_y,
+        from_x,
+        from_y,
+        to_x,
+        to_y,
+        planted: true,
+    }))
 }
 
 fn apply_ik(
@@ -1305,9 +1426,18 @@ fn apply_ik(
     let (from_x, from_y) = canvas_local(&posed[end], local_x, local_y)?;
     let planted = contact_at(&constraint.contacts, frame).is_some();
     let Some((to_x, to_y)) = ik_target(posed, constraint, frame)? else {
-        return Ok(solved_record(
-            constraint, index, 0, 0, true, from_x, from_y, from_x, from_y, false,
-        ));
+        return Ok(solved_record(crate::constraint::SolvedRecordArgs {
+            constraint,
+            index,
+            dx: 0,
+            dy: 0,
+            satisfied: true,
+            from_x,
+            from_y,
+            to_x: from_x,
+            to_y: from_y,
+            planted: false,
+        }));
     };
     if !cell_on_canvas(to_x, to_y, width, height) {
         return Err(KernelError::PartOffCanvas { x: to_x, y: to_y });
@@ -1387,30 +1517,31 @@ fn apply_ik(
     }
     let dx = to_x - from_x;
     let dy = to_y - from_y;
-    Ok(solved_record(
+    Ok(solved_record(crate::constraint::SolvedRecordArgs {
         constraint,
         index,
         dx,
         dy,
-        dx == 0 && dy == 0,
+        satisfied: dx == 0 && dy == 0,
         from_x,
         from_y,
         to_x,
         to_y,
         planted,
-    ))
+    }))
 }
 
-fn translate_follower(
-    posed: &mut [PosedPart],
-    follower: usize,
-    from_x: i32,
-    from_y: i32,
-    to_x: i32,
-    to_y: i32,
-    width: u16,
-    height: u16,
-) -> Result<(), KernelError> {
+fn translate_follower(args: TranslateFollowerArgs<'_>) -> Result<(), KernelError> {
+    let TranslateFollowerArgs {
+        posed,
+        follower,
+        from_x,
+        from_y,
+        to_x,
+        to_y,
+        width,
+        height,
+    } = args;
     let dx = to_x
         .checked_sub(from_x)
         .ok_or(KernelError::PartOffCanvas { x: to_x, y: to_y })?;
@@ -1429,18 +1560,19 @@ fn translate_follower(
     Ok(())
 }
 
-fn solved_record(
-    constraint: &Constraint,
-    index: usize,
-    dx: i32,
-    dy: i32,
-    satisfied: bool,
-    from_x: i32,
-    from_y: i32,
-    to_x: i32,
-    to_y: i32,
-    planted: bool,
-) -> SolvedConstraint {
+fn solved_record(args: SolvedRecordArgs<'_>) -> SolvedConstraint {
+    let SolvedRecordArgs {
+        constraint,
+        index,
+        dx,
+        dy,
+        satisfied,
+        from_x,
+        from_y,
+        to_x,
+        to_y,
+        planted,
+    } = args;
     SolvedConstraint {
         index,
         name: constraint.name.clone(),
@@ -1481,35 +1613,36 @@ fn search_chain(
     let mut centis = Vec::with_capacity(bones.len());
     let mut pivots = Vec::with_capacity(bones.len() + 1);
     pivots.push(root);
-    search_bone(
-        &maps,
+    search_bone(crate::constraint::SearchBoneArgs {
+        maps: &maps,
         bones,
         root,
         target,
         bend,
         width,
         height,
-        0,
-        &mut centis,
-        &mut pivots,
-        &mut best,
-    );
+        depth: 0,
+        centis: &mut centis,
+        pivots: &mut pivots,
+        best: &mut best,
+    });
     best
 }
 
-fn search_bone(
-    maps: &[BTreeMap<(i32, i32), i32>],
-    bones: &[(i32, i32)],
-    root: (i32, i32),
-    target: (i32, i32),
-    bend: i8,
-    width: u16,
-    height: u16,
-    depth: usize,
-    centis: &mut Vec<i32>,
-    pivots: &mut Vec<(i32, i32)>,
-    best: &mut Option<ChainSolve>,
-) {
+fn search_bone(args: SearchBoneArgs<'_>) {
+    let SearchBoneArgs {
+        maps,
+        bones,
+        root,
+        target,
+        bend,
+        width,
+        height,
+        depth,
+        centis,
+        pivots,
+        best,
+    } = args;
     let pivot = *pivots.last().expect("the root pivot is pushed");
     if depth + 1 == bones.len() {
         let rel = (target.0 - pivot.0, target.1 - pivot.1);
@@ -1545,7 +1678,7 @@ fn search_bone(
         }
         centis.push(centi);
         pivots.push((next_x, next_y));
-        search_bone(
+        search_bone(crate::constraint::SearchBoneArgs {
             maps,
             bones,
             root,
@@ -1553,11 +1686,11 @@ fn search_bone(
             bend,
             width,
             height,
-            depth + 1,
+            depth: depth + 1,
             centis,
             pivots,
             best,
-        );
+        });
         pivots.pop();
         centis.pop();
     }
@@ -2143,7 +2276,7 @@ mod tests {
         assert_eq!(report.sealed, 2);
 
         let mut pair = vec![TRANSPARENT_INDEX; 8 * 8];
-        pair[1 * 8 + 5] = 1;
+        pair[8 + 5] = 1;
         pair[2 * 8 + 5] = 2;
         let resolved = part_xform::resolve_motion(Motion::Rotate(20.0)).unwrap();
         let steps = [MotionStep {

@@ -332,14 +332,14 @@ fn ensure_supported_file(target: &Path, user: &Path) -> Result<(), CliFailure> {
 }
 
 #[cfg(unix)]
-fn link_count(path: &Path) -> Result<u64, CliFailure> {
+pub(crate) fn link_count(path: &Path) -> Result<u64, CliFailure> {
     use std::os::unix::fs::MetadataExt;
     let meta = fs::metadata(path).map_err(|err| CliFailure::io(path, err))?;
     Ok(meta.nlink())
 }
 
 #[cfg(windows)]
-fn link_count(path: &Path) -> Result<u64, CliFailure> {
+pub(crate) fn link_count(path: &Path) -> Result<u64, CliFailure> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,

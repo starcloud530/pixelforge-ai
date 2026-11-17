@@ -268,7 +268,7 @@ fn duplicate_resize_and_a_second_frame_keep_the_stack() {
 
     document.resize_canvas(6, 2, 1, 0).unwrap();
     assert_eq!(document.layer_pixels(0, 0).unwrap()[1], 1);
-    assert_eq!(document.layer_pixels(0, 1).unwrap()[1 * 6 + 4], 6);
+    assert_eq!(document.layer_pixels(0, 1).unwrap()[6 + 4], 6);
     assert_eq!(document.layer_count(), 2);
     document.undo().unwrap();
     assert_eq!(document.width(), 4);

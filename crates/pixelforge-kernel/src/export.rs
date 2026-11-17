@@ -1303,7 +1303,7 @@ mod tests {
         let paper = document.palette_colors()[2];
         assert_eq!(&first[0..4], &[ink.r, ink.g, ink.b, ink.a]);
         assert!(first[4..].iter().all(|byte| *byte == 0));
-        let last = (1 * 4 + 3) * 4;
+        let last = (4 + 3) * 4;
         assert!(second[..last].iter().all(|byte| *byte == 0));
         assert_eq!(
             &second[last..last + 4],

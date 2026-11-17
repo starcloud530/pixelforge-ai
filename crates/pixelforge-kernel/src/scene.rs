@@ -8,6 +8,18 @@
 
 use crate::Rgba;
 
+/// Named inputs for `dirty_region`; keep related values explicit at call sites.
+pub(crate) struct DirtyRegionArgs<'a> {
+    pub(crate) frame: usize,
+    pub(crate) layer: usize,
+    pub(crate) before: &'a [u8],
+    pub(crate) old_width: u16,
+    pub(crate) old_height: u16,
+    pub(crate) after: &'a [u8],
+    pub(crate) new_width: u16,
+    pub(crate) new_height: u16,
+}
+
 /// FNV-1a 64-bit offset basis.
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 /// FNV-1a 64-bit prime.
@@ -176,16 +188,17 @@ pub(crate) fn summarize_diff_where(
 /// canvas is changed when its index is not 0. A non-zero cell that exists only
 /// on the old canvas increments `clipped` and is not part of `bounds`, because
 /// that coordinate is gone.
-pub(crate) fn dirty_region(
-    frame: usize,
-    layer: usize,
-    before: &[u8],
-    old_width: u16,
-    old_height: u16,
-    after: &[u8],
-    new_width: u16,
-    new_height: u16,
-) -> DirtyRegion {
+pub(crate) fn dirty_region(args: DirtyRegionArgs<'_>) -> DirtyRegion {
+    let DirtyRegionArgs {
+        frame,
+        layer,
+        before,
+        old_width,
+        old_height,
+        after,
+        new_width,
+        new_height,
+    } = args;
     let mut changed_at = Vec::new();
     for y in 0..new_height {
         for x in 0..new_width {
@@ -222,9 +235,7 @@ pub(crate) fn dirty_region(
 
 pub(crate) fn union_bounds(boxes: impl IntoIterator<Item = CellBounds>) -> Option<CellBounds> {
     let mut boxes = boxes.into_iter();
-    let Some(first) = boxes.next() else {
-        return None;
-    };
+    let first = boxes.next()?;
     let mut x0 = first.x;
     let mut y0 = first.y;
     let mut x1 = first.x + first.width;
@@ -335,7 +346,16 @@ mod tests {
     fn dirty_region_shifts_inside_the_canvas_and_counts_clipped_ink() {
         let before = [1, 0, 0, 0];
         let after = [0, 1, 0, 0];
-        let shifted = dirty_region(0, 0, &before, 2, 2, &after, 2, 2);
+        let shifted = dirty_region(crate::scene::DirtyRegionArgs {
+            frame: 0,
+            layer: 0,
+            before: &before,
+            old_width: 2,
+            old_height: 2,
+            after: &after,
+            new_width: 2,
+            new_height: 2,
+        });
         assert_eq!(shifted.changed, 2);
         assert_eq!(shifted.clipped, 0);
         assert_eq!(
@@ -348,7 +368,16 @@ mod tests {
             })
         );
 
-        let shrunk = dirty_region(1, 2, &[0, 0, 0, 5], 4, 1, &[0, 0], 2, 1);
+        let shrunk = dirty_region(crate::scene::DirtyRegionArgs {
+            frame: 1,
+            layer: 2,
+            before: &[0, 0, 0, 5],
+            old_width: 4,
+            old_height: 1,
+            after: &[0, 0],
+            new_width: 2,
+            new_height: 1,
+        });
         assert_eq!(shrunk.changed, 0);
         assert_eq!(shrunk.clipped, 1);
         assert_eq!(shrunk.bounds, None);

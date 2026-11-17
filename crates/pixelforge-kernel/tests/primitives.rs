@@ -248,11 +248,7 @@ fn drawing_stays_on_the_named_layer() {
         .unwrap()
         .iter()
         .all(|cell| *cell != 2));
-    assert!(document
-        .layer_pixels(0, gear)
-        .unwrap()
-        .iter()
-        .any(|cell| *cell == 2));
+    assert!(document.layer_pixels(0, gear).unwrap().contains(&2));
 }
 
 #[test]

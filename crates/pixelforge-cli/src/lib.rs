@@ -13,6 +13,7 @@ mod export_files;
 mod failure;
 mod manifest_cmd;
 mod output;
+mod output_paths;
 mod player;
 mod preview;
 mod requests;
@@ -48,6 +49,39 @@ use crate::output::{annotate_revision, emit, print_line, request_tool_name, tool
 use crate::requests::{batch_mutates, parse_request_blob};
 use crate::session::{Access, SaveReport, Session};
 use crate::store::ProjectLock;
+
+/// Named inputs for `put_rect`; keep related values explicit at call sites.
+struct PutRectArgs<'a> {
+    params: &'a mut Value,
+    x: Option<u16>,
+    y: Option<u16>,
+    width: Option<u16>,
+    height: Option<u16>,
+    x_key: &'a str,
+    y_key: &'a str,
+    width_key: &'a str,
+    height_key: &'a str,
+}
+
+/// Named inputs for `cmd_convert`; keep related values explicit at call sites.
+struct CmdConvertArgs<'a> {
+    file: &'a Path,
+    output: Option<&'a Path>,
+    project: Option<&'a Path>,
+    checkpoint: Option<&'a Path>,
+    width: Option<u16>,
+    height: Option<u16>,
+    engine: Option<&'a str>,
+    palette: Option<ConvertPaletteMode>,
+    palette_strategy: Option<&'a str>,
+    palette_file: Option<&'a Path>,
+    max_colors: Option<u8>,
+    features: &'a [String],
+    params_text: Option<&'a str>,
+    frame: Option<u32>,
+    layer: Option<u32>,
+    expected: Option<&'a str>,
+}
 
 /// Parse argv and run one command. `0` success, `1` a tool refused, `2` the
 /// command did not finish a tool call (usage errors exit from clap itself).
@@ -95,24 +129,24 @@ fn execute(cli: Cli) -> i32 {
             params,
             frame,
             layer,
-        } => cmd_convert(
-            &file,
-            output.as_deref(),
-            project.as_deref(),
-            checkpoint.as_deref(),
+        } => cmd_convert(crate::CmdConvertArgs {
+            file: &file,
+            output: output.as_deref(),
+            project: project.as_deref(),
+            checkpoint: checkpoint.as_deref(),
             width,
             height,
-            engine.as_deref(),
+            engine: engine.as_deref(),
             palette,
-            palette_strategy.as_deref(),
-            palette_file.as_deref(),
+            palette_strategy: palette_strategy.as_deref(),
+            palette_file: palette_file.as_deref(),
             max_colors,
-            &feature,
-            params.as_deref(),
+            features: &feature,
+            params_text: params.as_deref(),
             frame,
             layer,
-            expected_revision.as_deref(),
-        ),
+            expected: expected_revision.as_deref(),
+        }),
         Command::Engine { command } => cmd_engine(command),
         Command::Inspect { doc, preview } => {
             apply_with(&doc, vec![request("inspect", json!({}))], preview)
@@ -260,48 +294,49 @@ fn cmd_mask(command: MaskCmd) -> i32 {
 
 fn mask_params(op: &str, args: &MaskArgs) -> Value {
     let mut params = json!({ "op": op });
-    put_rect(
-        &mut params,
-        args.x,
-        args.y,
-        args.width,
-        args.height,
-        "x",
-        "y",
-        "width",
-        "height",
-    );
+    put_rect(crate::PutRectArgs {
+        params: &mut params,
+        x: args.x,
+        y: args.y,
+        width: args.width,
+        height: args.height,
+        x_key: "x",
+        y_key: "y",
+        width_key: "width",
+        height_key: "height",
+    });
     if !args.mask.is_empty() {
         params["mask"] = rect_list(&args.mask);
     }
-    put_rect(
-        &mut params,
-        args.base_x,
-        args.base_y,
-        args.base_width,
-        args.base_height,
-        "baseX",
-        "baseY",
-        "baseWidth",
-        "baseHeight",
-    );
+    put_rect(crate::PutRectArgs {
+        params: &mut params,
+        x: args.base_x,
+        y: args.base_y,
+        width: args.base_width,
+        height: args.base_height,
+        x_key: "baseX",
+        y_key: "baseY",
+        width_key: "baseWidth",
+        height_key: "baseHeight",
+    });
     if !args.base_mask.is_empty() {
         params["base"] = rect_list(&args.base_mask);
     }
     params
 }
 
-fn put_rect(
-    params: &mut Value,
-    x: Option<u16>,
-    y: Option<u16>,
-    width: Option<u16>,
-    height: Option<u16>,
-    x_key: &str,
-    y_key: &str,
-    width_key: &str,
-    height_key: &str,
-) {
+fn put_rect(args: PutRectArgs<'_>) {
+    let PutRectArgs {
+        params,
+        x,
+        y,
+        width,
+        height,
+        x_key,
+        y_key,
+        width_key,
+        height_key,
+    } = args;
     let Some(object) = params.as_object_mut() else {
         return;
     };
@@ -344,17 +379,17 @@ fn scope_params(params: &mut Value, scope: &ScopeArgs) {
     if scope.selection {
         params["selection"] = json!(true);
     }
-    put_rect(
+    put_rect(crate::PutRectArgs {
         params,
-        scope.x,
-        scope.y,
-        scope.width,
-        scope.height,
-        "x",
-        "y",
-        "width",
-        "height",
-    );
+        x: scope.x,
+        y: scope.y,
+        width: scope.width,
+        height: scope.height,
+        x_key: "x",
+        y_key: "y",
+        width_key: "width",
+        height_key: "height",
+    });
     if !scope.mask.is_empty() {
         params["mask"] = rect_list(&scope.mask);
     }
@@ -833,24 +868,25 @@ fn cmd_engine_list(project: Option<&Path>) -> i32 {
     0
 }
 
-fn cmd_convert(
-    file: &Path,
-    output: Option<&Path>,
-    project: Option<&Path>,
-    checkpoint: Option<&Path>,
-    width: Option<u16>,
-    height: Option<u16>,
-    engine: Option<&str>,
-    palette: Option<ConvertPaletteMode>,
-    palette_strategy: Option<&str>,
-    palette_file: Option<&Path>,
-    max_colors: Option<u8>,
-    features: &[String],
-    params_text: Option<&str>,
-    frame: Option<u32>,
-    layer: Option<u32>,
-    expected: Option<&str>,
-) -> i32 {
+fn cmd_convert(args: CmdConvertArgs<'_>) -> i32 {
+    let CmdConvertArgs {
+        file,
+        output,
+        project,
+        checkpoint,
+        width,
+        height,
+        engine,
+        palette,
+        palette_strategy,
+        palette_file,
+        max_colors,
+        features,
+        params_text,
+        frame,
+        layer,
+        expected,
+    } = args;
     let target = match (output, project) {
         (Some(output), None) => output,
         (None, Some(project)) => project,
@@ -1067,6 +1103,9 @@ fn cmd_preview(
     let path = output
         .map(Path::to_path_buf)
         .unwrap_or_else(|| sibling_png(&doc.project, if compare { "compare" } else { "preview" }));
+    if let Err(failure) = session.check_outputs(&[&path]) {
+        return emit(failure);
+    }
     let bytes = match export_files::write_png_b64(&path, value["result"]["png"].as_str()) {
         Ok(bytes) => bytes,
         Err(failure) => return emit(failure),
@@ -1171,6 +1210,9 @@ fn cmd_diff(
     let path = output
         .map(Path::to_path_buf)
         .unwrap_or_else(|| sibling_png(&doc.project, "diff"));
+    if let Err(failure) = session.check_outputs(&[&path]) {
+        return emit(failure);
+    }
     let bytes = match export_files::write_png_b64(&path, result["png"].as_str()) {
         Ok(bytes) => bytes,
         Err(failure) => return emit(failure),

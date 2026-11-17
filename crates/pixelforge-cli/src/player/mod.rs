@@ -893,8 +893,8 @@ mod tests {
             doc.add_frame();
         }
         let delays = [40, 200, 80, 120];
-        for index in 0..4 {
-            doc.set_frame_delay(index, delays[index]).unwrap();
+        for (index, &delay) in delays.iter().enumerate() {
+            doc.set_frame_delay(index, delay).unwrap();
             doc.set_active_frame(index).unwrap();
             doc.paint(index as u16, 0, (index as u8) + 1).unwrap();
         }
