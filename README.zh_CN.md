@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <img alt="哪吒火尖枪攻击动画" src="https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif" width="420" />
+  <img alt="港口守灯人四向行走动画" src="https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif" width="840" />
 </p>
 
 ## 为什么是 PixelForge
@@ -31,7 +31,7 @@
 - **Agent 优先** — Cursor / Codex / Claude Code 等调用本地 `pixelforge`
 - **引擎可导出** — PNG 序列、精灵表、图集 JSON、校验门槛
 
-从[哪吒攻击动画](https://starcloud530.github.io/pixelforge-ai/showcase/)开始：12 帧可编辑动作、独立图层与游戏图集导出。
+从[港口守灯人制作流程](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/demo-zombie)开始：四向行走、分层换装与游戏图集导出。
 
 ## 快速开始
 
@@ -99,14 +99,12 @@ mkdocs serve
 
 ## 展示媒体
 
-- [哪吒攻击：可编辑工程与制作教程](https://starcloud530.github.io/pixelforge-ai/showcase/)
+查看港口守灯人的制作流程：
 
-CDN（大媒体不要提交进 git）：
-
-- [四向行走 GIF](https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif)
-- [Hero 前后对比](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/hero-before-after.png)
-- [七阶段时间线](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
-- [Sheet 组装短片](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
+- [四向行走 GIF](https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif)
+- [Hero 前后对比](https://resources.pixelforge.torzsi.com/port-keeper/v2/storyboard/hero-before-after.png)
+- [七阶段时间线](https://resources.pixelforge.torzsi.com/port-keeper/v2/storyboard/timeline.png)
+- [Sheet 组装短片](https://resources.pixelforge.torzsi.com/port-keeper/v2/videos/01-sheet-assembly.mp4)
 
 宣传站：[pixelforge-demos Pages](https://starcloud530.github.io/pixelforge-demos/)。案例与评测：[pixelforge-demos](https://github.com/starcloud530/pixelforge-demos)。**不要**在本仓再加 `examples/`。
 
