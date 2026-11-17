@@ -1,8 +1,8 @@
 # Install & quick start
 
-No Rust toolchain needed for the prebuilt CLI. Current tag: **[v0.1.0-rc.5](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)** (prerelease). Prefer the installer scripts below; do not use `releases/latest` until a non-prerelease ships.
+Install PixelForge for macOS, Windows, or Linux using the scripts below, or choose a platform archive from [Downloads](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6).
 
-预编译 CLI 不需要 Rust。当前标签：**v0.1.0-rc.5**（预发布）。用下面的安装脚本；在正式版之前不要用 `releases/latest`。
+通过下方脚本安装，或下载对应系统的压缩包解压使用。
 
 ## Installer / 安装脚本
 
@@ -10,17 +10,16 @@ macOS / Linux:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.sh | sh
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
 ```
 
-The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when possible). Archives are also on the [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5) page if you prefer a manual unpack.
+The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when possible). Archives are also on the [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6) page if you prefer a manual unpack.
 
 安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。也可在 Releases 页手动下载对应平台压缩包。
 
@@ -33,7 +32,7 @@ The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when po
 
 Linux builds need glibc 2.35+ (Ubuntu 22.04-class). Windows prebuilts link the C runtime statically.
 
-## 30-second smoke / 三十秒冒烟
+## Your first project / 第一份工程
 
 ```bash
 pixelforge --version
@@ -48,9 +47,9 @@ pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
 pixelforge export apng --project hero.json --output walk.apng --tag walk_down
 ```
 
-`export apng` is a looping preview, not the sprite sheet a game imports. Sheets and atlas JSON: [export](export.md).
+Use APNG for a looping preview; use sprite sheets and atlas JSON for game import. See [export](export.md).
 
-`export apng` 是可循环预览，不是游戏用的 sprite sheet。图集与约定见 [export](export.md)。
+用 APNG 循环预览，用精灵表与 atlas JSON 导入游戏。详细步骤见[导出指南](export.md)。
 
 ## Agents / Agent
 

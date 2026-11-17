@@ -6,12 +6,12 @@
 
 <p align="center">
   提示或参考 → 真像素 → 动画 → 引擎可导出。<br/>
-  外部 Agent 驱动本地 <code>pixelforge</code>，在真实索引网格上作画——不是扩散假像素。
+  外部 Agent 驱动本地 <code>pixelforge</code>，在真实索引网格上作画。
 </p>
 
 <p align="center">
-  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.5-blue" /></a>
-  <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-ai/install/"><img alt="Download PixelForge" src="https://img.shields.io/badge/download-PixelForge-blue" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-demos/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
   <a href="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml/badge.svg" /></a>
@@ -22,30 +22,28 @@
 </p>
 
 <p align="center">
-  <img alt="丧尸四向行走" src="https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif" width="420" />
+  <img alt="哪吒火尖枪攻击动画" src="https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif" width="420" />
 </p>
 
 ## 为什么是 PixelForge
 
 - **真像素** — 索引格 + 调色板，Agent 与人改的是同一份格子
-- **Agent 优先** — Cursor / Codex / Claude Code 等调用本地 `pixelforge`；网页里的一轮面板只是演示
+- **Agent 优先** — Cursor / Codex / Claude Code 等调用本地 `pixelforge`
 - **引擎可导出** — PNG 序列、精灵表、图集 JSON、校验门槛
-- **不是**完整 Aseprite 克隆，**不是**假像素扩散，**不是**完整游戏引擎
 
-状态：早期 / WIP。预编译 CLI **[v0.1.0-rc.5](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)** 为预发布。愿景与 L4 长文：[docs/vision.md](docs/vision.md)。能力边界：[docs/known-limits.md](docs/known-limits.md)。
+从[哪吒攻击动画](https://starcloud530.github.io/pixelforge-ai/showcase/)开始：12 帧可编辑动作、独立图层与游戏图集导出。
 
 ## 快速开始
 
-安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。正式版之前请用 **rc.5** 标签（不要用 `latest`）。
+安装 macOS、Windows 或 Linux 版本。安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.sh | sh
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.sh | sh
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
 ```
 
 ```bash
@@ -54,7 +52,7 @@ pixelforge new --width 16 --height 16 --output hero.json
 pixelforge preview --project hero.json --scale 4
 ```
 
-手动压缩包、平台说明与源码构建：**[安装文档](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)
+手动压缩包、平台说明与源码构建：**[安装文档](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6)
 
 ## 站点与文档
 
@@ -74,7 +72,7 @@ pixelforge preview --project hero.json --scale 4
 | 导出与引擎导入 | [export](https://starcloud530.github.io/pixelforge-ai/export/) |
 | 项目清单 | [project-manifest](https://starcloud530.github.io/pixelforge-ai/project-manifest/) |
 | 技术栈 | [tech-stack](https://starcloud530.github.io/pixelforge-ai/tech-stack/) |
-| 已知限制 | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
+| 使用说明 | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
 | 许可证 | [licensing](https://starcloud530.github.io/pixelforge-ai/licensing/) |
 
 正文源文件在 [`docs/`](docs/)。本地预览：
@@ -100,6 +98,8 @@ mkdocs serve
 | `pixel-art-craft` | 走路、机位、运动轨迹工艺（公开教程链接） |
 
 ## 展示媒体
+
+- [哪吒攻击：可编辑工程与制作教程](https://starcloud530.github.io/pixelforge-ai/showcase/)
 
 CDN（大媒体不要提交进 git）：
 

@@ -4,7 +4,7 @@
 # Docs URL: https://starcloud530.github.io/pixelforge-ai/
 
 site_name: PixelForge
-site_description: AI-native true-pixel CLI and studio. Agents drive the local pixelforge CLI on a real indexed grid.
+site_description: Create editable pixel art, character animation and game-ready sprite sheets with your AI agent.
 site_url: https://starcloud530.github.io/pixelforge-ai/
 site_author: PixelForge contributors
 
@@ -87,12 +87,13 @@ validation:
 nav:
   - Home: index.md
   - Install & quick start: install.md
+  - Showcase: showcase.md
   - Agent skill: agent-skill.md
   - Tool API: tool-api.md
   - Export: export.md
   - Project manifest: project-manifest.md
   - Tech stack: tech-stack.md
-  - Known limits: known-limits.md
+  - Usage notes: known-limits.md
   - AI driver (web demo): ai-driver.md
   - Dev setup: dev-setup.md
   - Checks & performance: quality.md
