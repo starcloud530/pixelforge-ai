@@ -11,6 +11,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 fn main() {
+    // clap's generated command builder has a large debug stack frame. Windows
+    // defaults to a 1 MiB main stack, unlike the 8 MiB used on our Unix hosts.
+    // Reserve 8 MiB for this binary (committed pages still grow on demand).
+    // Use TARGET, not cfg!(windows): this must also work when cross-compiling.
+    let target = env::var("TARGET").unwrap();
+    if target.contains("windows-msvc") {
+        println!("cargo:rustc-link-arg-bin=pixelforge=/STACK:8388608");
+    } else if target.contains("windows-gnu") {
+        println!("cargo:rustc-link-arg-bin=pixelforge=-Wl,--stack,8388608");
+    }
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let skills_root = manifest.join("..").join("..").join("skills");
     let skills_root = skills_root.canonicalize().unwrap_or_else(|err| {

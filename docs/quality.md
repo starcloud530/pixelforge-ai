@@ -38,6 +38,9 @@ Web/WASM、浏览器与文档检查。任一依赖失败、取消或跳过都会
 - 严格 Clippy 保持开启。九个既有公开标量绘制/约束接口保留源兼容性，逐函数声明
   `expect(clippy::too_many_arguments)`；`Mask::try_from_rects` 的 `Err(())` 同样保留兼容例外。
   没有全模块/全仓库 `allow`；新增内部函数不继承这些例外。以后改变接口时应重新评估这些预期。
+- Windows CLI 显式保留 8 MiB 主线程栈（按需提交内存），与已验证的 Unix 环境对齐；
+  原默认 1 MiB 无法容纳 clap 生成的 debug 命令构建栈帧。Windows 全套 CLI 集成测试覆盖启动与命令执行；
+  这不是对任意深度 JSON 或无界递归的保证，后续扩充命令目录仍需关注生成代码的栈占用。
 - `rust-version = 1.83` 既约束 Cargo，也让 Clippy 避免推荐最低版本不可用的 API。
 
 ## 输出与失败语义
