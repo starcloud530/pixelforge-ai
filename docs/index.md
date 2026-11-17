@@ -1,49 +1,38 @@
 # PixelForge
 
-**AI-native true-pixel CLI and studio.**  
-Prompt or reference → true pixels → animation → engine-ready export, with agents driving a local `pixelforge` CLI.
+**Create editable pixel art and animation with your AI agent.**
 
-PixelForge 是 **AI 原生的真像素 CLI / 工作室**：外部 Agent 驱动本地 `pixelforge`，在真实像素网格与调色板上作画、做动画、导出引擎可用资源。
+与 AI Agent 一起创作角色、编排逐帧动作，再导出游戏所需的精灵表与图集。索引色、图层与帧时长保留在同一份可编辑工程里。
 
-## What it is / 它是什么
+[开始创作 · Install](install.md){ .md-button .md-button--primary }
+[查看作品 · Gallery](https://starcloud530.github.io/pixelforge-demos/gallery/){ .md-button }
 
-- **True pixels** — indexed grid + palette, not diffusion “fake pixel”
-- **Agent-first** — product path is Agent → local `pixelforge` CLI → Rust Tool API
-- **Studio tools** — frames, layers, parts/anchors, sheets, atlas validation, tilemaps
-- **真像素** — 索引格 + 调色板，不是扩散假像素
-- **Agent 优先** — 产品路径是 Agent → 本地 CLI → Rust Tool API
-- **工作室工具** — 帧、层、部件/锚点、精灵表、图集校验、tilemap
+## 哪吒 · 火尖枪攻击
 
-## What it is not / 它不是什么
+![哪吒蓄力、出枪与收势的12帧像素攻击动画](https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif){ width="384" }
 
-- Not a full Aseprite UI clone  
-- Not fake-pixel diffusion only  
-- Not a full game engine / text → whole game  
-- 不是完整 Aseprite 界面克隆，不是假像素扩散，不是完整游戏引擎
+128 × 128 像素，12 帧，四个独立图层。从蓄力、蹬地刺出到收势，身体、脚步与混天绫逐帧编排。
 
-## Status / 状态
+[打开示例：播放、编辑与导出](showcase.md) · [制作流程与源工程](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/nezha-frame-attack)
 
-Early / WIP. Current prebuilt CLI: **[v0.1.0-rc.5](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)** (prerelease). Installer scripts: `pixelforge-cli-installer.sh` / `.ps1`.
+## 你的创作流程
 
-早期开发中。当前预编译：**v0.1.0-rc.5**（预发布）。用安装脚本，不要依赖 GitHub `latest`，直到正式版。
+1. **创作角色**：让 Codex、Claude Code 或 Cursor 调用本地 `pixelforge`，从剪影推进到配色与细节。
+2. **编排动作**：复制关键姿势、调整图层与帧时长，在本地播放器中检查节奏。
+3. **持续精修**：按调色板换色，检查帧间差异，逐步修改同一份工程。
+4. **交付资产**：导出 PNG 序列、精灵表、atlas JSON 与 APNG 预览。
 
-## Start here / 从这里开始
+## 文档导航
 
-| | |
+| 目标 | 从这里开始 |
 | --- | --- |
-| [Install & quick start](install.md) | curl / PowerShell installer + 30s commands |
-| [Releases](https://github.com/starcloud530/pixelforge-ai/releases) | Prebuilt binaries and installers |
-| [Agent skill](agent-skill.md) | How agents use the CLI |
-| [Tool API](tool-api.md) | Machine-readable tool catalog |
-| [Known limits](known-limits.md) | Honest capability bounds |
-| [Repository](https://github.com/starcloud530/pixelforge-ai) | Source, issues, examples |
+| 安装与第一份工程 | [安装指南](install.md) |
+| 播放并导出哪吒动画 | [示例教程](showcase.md) |
+| 让 Agent 使用创作技能 | [Agent 与 CLI](agent-skill.md) |
+| 将精灵表导入游戏引擎 | [导出与引擎导入](export.md) |
+| 管理角色与资产关系 | [项目清单](project-manifest.md) |
+| 查询工具参数 | [Tool API](tool-api.md) |
+| 选择运行环境与工作流 | [使用说明](known-limits.md) |
+| 许可与商业使用 | [许可说明](licensing.md) |
 
-Marketing landing (Pages root):  
-**https://starcloud530.github.io/pixelforge-ai/**
-
-Docs site (this MkDocs tree under `/docs/`):  
-**https://starcloud530.github.io/pixelforge-ai/docs/**
-
-## License / 许可证
-
-Code: **MIT OR Apache-2.0**. Example art in the companion demos repo: **CC BY 4.0**. See [licensing](licensing.md).
+产品网站：[PixelForge](https://starcloud530.github.io/pixelforge-demos/) · 产品文档：[Docs](https://starcloud530.github.io/pixelforge-ai/) · [下载与更新记录](https://github.com/starcloud530/pixelforge-ai/releases)

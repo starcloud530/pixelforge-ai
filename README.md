@@ -6,12 +6,12 @@
 
 <p align="center">
   Prompt or reference → true pixels → animation → engine-ready export.<br/>
-  Agents drive a local <code>pixelforge</code> CLI on a real indexed grid — not fake-pixel diffusion.
+  Agents drive a local <code>pixelforge</code> CLI on a real indexed grid.
 </p>
 
 <p align="center">
-  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.5-blue" /></a>
-  <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
+  <a href="https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6"><img alt="Release" src="https://img.shields.io/badge/release-v0.1.0--rc.6-blue" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-demos/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
   <a href="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml/badge.svg" /></a>
@@ -22,30 +22,29 @@
 </p>
 
 <p align="center">
-  <img alt="Four-direction zombie walk" src="https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif" width="420" />
+  <img alt="Nezha spear attack animation" src="https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif" width="420" />
 </p>
 
 ## Why PixelForge
 
 - **True pixels** — indexed grid + palette, the same cells agents and humans edit
-- **Agent-first** — external agents (Cursor, Codex, Claude Code, …) call local `pixelforge`; the in-app one-turn panel is only a demo
+- **Agent-first** — external agents (Cursor, Codex, Claude Code, …) call local `pixelforge`
 - **Engine-ready export** — PNG sequences, sprite sheets, atlas JSON, validation gates
-- **Not** a full Aseprite clone, **not** diffusion fake-pixel, **not** a full game engine
 
-Status: early / WIP. Prebuilt CLI **[v0.1.0-rc.5](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)** is a prerelease. Longer vision & L4 framing: [docs/vision.md](docs/vision.md). Honest bounds: [docs/known-limits.md](docs/known-limits.md).
+Explore the [Nezha attack animation](https://starcloud530.github.io/pixelforge-ai/showcase/): 12 editable frames, independent layers, and sprite-sheet export.
 
 ## Quick start
 
-Installers put `pixelforge` in `~/.pixelforge/bin`. Use the **rc.5** tag (not `latest`) until a stable release ships.
+Install PixelForge for macOS, Windows, or Linux. Installers put `pixelforge` in `~/.pixelforge/bin`.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.sh | sh
+  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.sh | sh
 ```
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c \
-  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.5/pixelforge-cli-installer.ps1 | iex"
+  "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
 ```
 
 ```bash
@@ -55,7 +54,7 @@ pixelforge preview --project hero.json --scale 4
 pixelforge play --project hero.json
 ```
 
-Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.5)
+Manual archives, platform notes, and source builds: **[Install docs](https://starcloud530.github.io/pixelforge-ai/install/)** · [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6)
 
 ## Site & documentation
 
@@ -75,7 +74,7 @@ Product docs (MkDocs Material on this repo’s Pages):
 | Export & engine import | [export](https://starcloud530.github.io/pixelforge-ai/export/) |
 | Project manifest | [project-manifest](https://starcloud530.github.io/pixelforge-ai/project-manifest/) |
 | Tech stack | [tech-stack](https://starcloud530.github.io/pixelforge-ai/tech-stack/) |
-| Known limits | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
+| Usage notes | [known-limits](https://starcloud530.github.io/pixelforge-ai/known-limits/) |
 | Licensing | [licensing](https://starcloud530.github.io/pixelforge-ai/licensing/) |
 
 Markdown sources live under [`docs/`](docs/). Local preview:
@@ -102,9 +101,11 @@ Product skills live in `skills/<name>/SKILL.md`. Creative skills follow the `pix
 
 ## Showcase media
 
+- [Nezha attack: editable project and walkthrough](https://starcloud530.github.io/pixelforge-ai/showcase/)
+
 CDN (do not commit large media into git):
 
-- [Four-direction walk GIF](https://resources.pixelforge.torzsi.com/demo-zombie/v1/a/walk-four-directions.gif)
+- [Four-direction walk GIF](https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif)
 - [Hero before/after](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/hero-before-after.png)
 - [Seven-stage timeline](https://resources.pixelforge.torzsi.com/demo-zombie/v1/storyboard/timeline.png)
 - [Sheet assembly video](https://resources.pixelforge.torzsi.com/demo-zombie/v1/videos/01-sheet-assembly.mp4)
