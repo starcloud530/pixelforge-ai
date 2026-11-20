@@ -3,8 +3,8 @@
 # Local: pip install -r requirements-docs.txt && mkdocs serve
 # Docs URL: https://starcloud530.github.io/pixelforge-ai/
 
-site_name: PixelForge
-site_description: Create editable pixel art, character animation and game-ready sprite sheets with your AI agent.
+site_name: PixelForge 文档
+site_description: 安装、评估与接入 PixelForge，验证可编辑像素工程、动画图集和导出工作流。
 site_url: https://starcloud530.github.io/pixelforge-ai/
 site_author: PixelForge contributors
 
@@ -17,6 +17,7 @@ site_dir: site
 
 theme:
   name: material
+  language: zh
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -24,14 +25,14 @@ theme:
       accent: teal
       toggle:
         icon: material/brightness-7
-        name: Switch to dark mode
+        name: 切换到深色模式
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: blue grey
       accent: teal
       toggle:
         icon: material/brightness-4
-        name: Switch to light mode
+        name: 切换到浅色模式
   features:
     - navigation.sections
     - navigation.top
@@ -41,7 +42,11 @@ theme:
     - content.code.copy
     - content.action.edit
   icon:
+    logo: material/grid
     repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/pixelforge.css
 
 plugins:
   - search
@@ -85,19 +90,22 @@ validation:
     anchors: ignore
 
 nav:
-  - Home: index.md
-  - Install & quick start: install.md
-  - Showcase: showcase.md
-  - Agent skill: agent-skill.md
-  - Tool API: tool-api.md
-  - Export: export.md
-  - Project manifest: project-manifest.md
-  - Tech stack: tech-stack.md
-  - Usage notes: known-limits.md
-  - AI driver (web demo): ai-driver.md
-  - Dev setup: dev-setup.md
-  - Checks & performance: quality.md
-  - Licensing: licensing.md
-  - Vision: vision.md
-  - Trials:
-      - Lighthouse tilemap: trials/111-lighthouse-tilemap.md
+  - 产品文档: index.md
+  - 评估与安装:
+      - 示例工程验证: showcase.md
+      - 安装与快速开始: install.md
+      - 已知边界: known-limits.md
+      - 许可与依赖: licensing.md
+  - 工作流与集成:
+      - Agent 与 CLI: agent-skill.md
+      - 导出与引擎导入: export.md
+      - 项目清单: project-manifest.md
+      - Tool API: tool-api.md
+  - 开发与质量:
+      - 开发环境: dev-setup.md
+      - 技术栈: tech-stack.md
+      - 检查与性能: quality.md
+      - 浏览器 AI 演示: ai-driver.md
+      - 愿景: vision.md
+      - Lighthouse 图块地图试验: trials/111-lighthouse-tilemap.md
+  - 像素画室: /pixelforge-demos/

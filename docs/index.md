@@ -1,38 +1,37 @@
-# PixelForge
+# PixelForge 技术文档
 
-**Create editable pixel art and animation with your AI agent.**
+<div class="docs-studio-cover" markdown>
+<div markdown>
 
-与 AI Agent 一起创作角色、编排逐帧动作，再导出游戏所需的精灵表与图集。索引色、图层与帧时长保留在同一份可编辑工程里。
+用开源 CLI 在本地编辑像素和动画，导出 PNG 精灵表与图集 JSON。
 
-[开始创作 · Install](install.md){ .md-button .md-button--primary }
-[查看作品 · Gallery](https://starcloud530.github.io/pixelforge-demos/gallery/){ .md-button }
+[安装 PixelForge](install.md){ .md-button .md-button--primary }
+[验证示例工程](showcase.md){ .md-button }
 
-## 哪吒 · 火尖枪攻击
+[v0.1.0-rc.6 预发布 · 安装包与校验和](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6)
 
-![哪吒蓄力、出枪与收势的12帧像素攻击动画](https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.gif){ width="384" }
+</div>
+<figure><a href="/pixelforge-demos/gallery/#tidal-glasshouse"><img src="https://resources.pixelforge.torzsi.com/studio/rc6/1bacf12e29c69944/glasshouse-facade-preview.png?rev=d440a94c29c332e9" width="384" height="288" alt="潮汐温室原稿，暖光门廊和冷绿色玻璃罩"></a><figcaption>潮汐温室 · 128 × 96 px 立面</figcaption></figure>
+</div>
 
-128 × 128 像素，12 帧，四个独立图层。从蓄力、蹬地刺出到收势，身体、脚步与混天绫逐帧编排。
+## 示例工程
 
-[打开示例：播放、编辑与导出](showcase.md) · [制作流程与源工程](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/nezha-frame-attack)
-
-## 你的创作流程
-
-1. **创作角色**：让 Codex、Claude Code 或 Cursor 调用本地 `pixelforge`，从剪影推进到配色与细节。
-2. **编排动作**：复制关键姿势、调整图层与帧时长，在本地播放器中检查节奏。
-3. **持续精修**：按调色板换色，检查帧间差异，逐步修改同一份工程。
-4. **交付资产**：导出 PNG 序列、精灵表、atlas JSON 与 APNG 预览。
-
-## 文档导航
-
-| 目标 | 从这里开始 |
+| 检查内容 | 工程 |
 | --- | --- |
-| 安装与第一份工程 | [安装指南](install.md) |
-| 播放并导出哪吒动画 | [示例教程](showcase.md) |
-| 让 Agent 使用创作技能 | [Agent 与 CLI](agent-skill.md) |
-| 将精灵表导入游戏引擎 | [导出与引擎导入](export.md) |
-| 管理角色与资产关系 | [项目清单](project-manifest.md) |
-| 查询工具参数 | [Tool API](tool-api.md) |
-| 选择运行环境与工作流 | [使用说明](known-limits.md) |
-| 许可与商业使用 | [许可说明](licensing.md) |
+| 图块如何组成一张五层地图 | [潮汐温室](/pixelforge-demos/gallery/#tidal-glasshouse) |
+| 四向步态和帧时长 | [雪岭邮差](/pixelforge-demos/gallery/#alpine-courier) |
+| 机关的启动与循环状态 | [星芒风候仪](/pixelforge-demos/gallery/#observatory-machine) |
+| 保留像素轮廓、切换整套配色 | [潮汐科考道具](/pixelforge-demos/gallery/#tide-survey-icons) |
+| 从本地工程重新导出并校验图集 | [守灯人与哪吒的 CLI 教程](showcase.md) |
 
-产品网站：[PixelForge](https://starcloud530.github.io/pixelforge-demos/) · 产品文档：[Docs](https://starcloud530.github.io/pixelforge-ai/) · [下载与更新记录](https://github.com/starcloud530/pixelforge-ai/releases)
+## 部署与接入
+
+- 用 Agent 或自有脚本调用本地 CLI。[Agent 接入](agent-skill.md) · [Tool API](tool-api.md)
+- 在 Godot 或 Unity 设置切片、轴心和动画映射。[引擎导入指南](export.md)
+- 登记画布、色板和角色方向，检查资产依赖。[项目清单](project-manifest.md)
+
+## 试用前核对
+
+- **数据流**。CLI 在本机读写工程。启用外部 Agent 时，按所选服务与配置核对上下文、提示和文件的处理方式。浏览器 AI 演示的路径见[数据流说明](ai-driver.md)。
+- **验收范围**。结构检查覆盖图集与标签。动作质量、团队协作方式和游戏内效果应加入试用验收。参见[已知边界](known-limits.md)和[检查与性能](quality.md)。
+- **许可与版本**。软件采用 MIT 或 Apache-2.0，示例美术采用 CC BY 4.0。[许可详情](licensing.md) · [发布记录](https://github.com/starcloud530/pixelforge-ai/releases)

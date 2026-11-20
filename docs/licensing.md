@@ -1,8 +1,8 @@
 # 依赖许可证 Dependency licenses
 
-本仓库代码以 **MIT OR Apache-2.0** 双许可发布，全文在 [`LICENSE-MIT`](../LICENSE-MIT) 与 [`LICENSE-APACHE`](../LICENSE-APACHE)，说明见 [`LICENSE`](../LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。`pixelforge-demos` 下示例美术素材另见 [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) 内的 `LICENSE-ASSETS.md`（CC BY 4.0，AI 辅助生成）。
+本仓库代码以 **MIT OR Apache-2.0** 双许可发布，全文在 [`LICENSE-MIT`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-MIT) 与 [`LICENSE-APACHE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-APACHE)，说明见 [`LICENSE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。`pixelforge-demos` 下示例美术素材另见 [示例素材许可](https://github.com/starcloud530/pixelforge-demos/blob/main/LICENSE-ASSETS.md)（CC BY 4.0，AI 辅助生成）。
 
-*This repository’s code is dual-licensed MIT OR Apache-2.0. Texts: [`LICENSE-MIT`](../LICENSE-MIT), [`LICENSE-APACHE`](../LICENSE-APACHE); see [`LICENSE`](../LICENSE). Copyright © 2026 PixelForge contributors / starcloud530. Example art in the companion demos repo is covered by `LICENSE-ASSETS.md` in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos) (CC BY 4.0, AI-assisted).*
+*This repository’s code is dual-licensed MIT OR Apache-2.0. Texts: [`LICENSE-MIT`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-MIT), [`LICENSE-APACHE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-APACHE); see [`LICENSE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE). Copyright © 2026 PixelForge contributors / starcloud530. Example art in the companion demos repo is covered by the [example art license](https://github.com/starcloud530/pixelforge-demos/blob/main/LICENSE-ASSETS.md) (CC BY 4.0, AI-assisted).*
 
 ## 结论
 
