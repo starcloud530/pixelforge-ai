@@ -5,13 +5,12 @@
 <h3 align="center">AI-native true-pixel CLI &amp; studio</h3>
 
 <p align="center">
-  Prompt or reference → true pixels → animation → engine-ready export.<br/>
-  Agents drive a local <code>pixelforge</code> CLI on a real indexed grid.
+  Use an AI agent or script to draw on an indexed pixel grid, edit layers and animation frames, and export sprite sheets with atlas JSON.
 </p>
 
 <p align="center">
   <a href="https://starcloud530.github.io/pixelforge-ai/install/"><img alt="Download PixelForge" src="https://img.shields.io/badge/download-PixelForge-blue" /></a>
-  <a href="https://starcloud530.github.io/pixelforge-demos/"><img alt="Site" src="https://img.shields.io/badge/site-GitHub%20Pages-teal" /></a>
+  <a href="https://starcloud530.github.io/pixelforge-demos/"><img alt="PixelForge Studio" src="https://img.shields.io/badge/studio-PixelForge-teal" /></a>
   <a href="https://starcloud530.github.io/pixelforge-ai/"><img alt="Docs" src="https://img.shields.io/badge/docs-MkDocs-blue" /></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-green" /></a>
   <a href="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/starcloud530/pixelforge-ai/actions/workflows/ci.yml/badge.svg" /></a>
@@ -22,16 +21,21 @@
 </p>
 
 <p align="center">
-  <img alt="Port Keeper four-direction walk animation" src="https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif" width="840" />
+  <a href="https://starcloud530.github.io/pixelforge-demos/gallery/#tidal-glasshouse"><img alt="Tidal Glasshouse, a glass conservatory and a lantern at the end of a wooden bridge" src="https://resources.pixelforge.torzsi.com/studio/rc6/1bacf12e29c69944/tidal-glasshouse.png?rev=fb2d394c870ececb" width="416" /></a>
 </p>
 
-## Why PixelForge
+## Made with PixelForge
 
-- **True pixels** — indexed grid + palette, the same cells agents and humans edit
-- **Agent-first** — external agents (Cursor, Codex, Claude Code, …) call local `pixelforge`
-- **Engine-ready export** — PNG sequences, sprite sheets, atlas JSON, validation gates
+These six projects were drawn with the local CLI. Open a project to inspect its tiles, frames or palettes and download the editable source.
 
-Explore the [Port Keeper workflow](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/demo-zombie): four-direction walks, editable outfit layers, and game sprite-sheet export.
+| Project | What to inspect |
+| --- | --- |
+| [Tidal Glasshouse](https://starcloud530.github.io/pixelforge-demos/gallery/#tidal-glasshouse) | 51 tiles across five map layers |
+| [Alpine Post Courier](https://starcloud530.github.io/pixelforge-demos/gallery/#alpine-courier) | four directions and 20 frames |
+| [Aster Wind Observatory](https://starcloud530.github.io/pixelforge-demos/gallery/#observatory-machine) | startup, sampling and standby |
+| [Tide Survey Kit](https://starcloud530.github.io/pixelforge-demos/gallery/#tide-survey-icons) | eight inventory icons in two palettes |
+| [Port Keeper](https://starcloud530.github.io/pixelforge-demos/gallery/#port-keeper) | a four-direction walk with a layered outfit |
+| [Nezha](https://starcloud530.github.io/pixelforge-demos/gallery/#nezha) | a 12-frame action study |
 
 ## Quick start
 
@@ -57,13 +61,7 @@ Manual archives, platform notes, and source builds: **[Install docs](https://sta
 
 ## Site & documentation
 
-Marketing landing:
-
-**https://starcloud530.github.io/pixelforge-demos/**
-
-Product docs (MkDocs Material on this repo’s Pages):
-
-**https://starcloud530.github.io/pixelforge-ai/**
+[Pixel art studio](https://starcloud530.github.io/pixelforge-demos/) · [Technical documentation](https://starcloud530.github.io/pixelforge-ai/) · [Verify the example projects](https://starcloud530.github.io/pixelforge-ai/showcase/)
 
 | Topic | Link |
 | --- | --- |
@@ -98,16 +96,15 @@ Product skills live in `skills/<name>/SKILL.md`. Creative skills follow the `pix
 | `pixelforge-critique` | Read-only defect list |
 | `pixel-art-craft` | Walk, camera, and motion craft (public tutorial links) |
 
-## Showcase media
+## Port Keeper production notes
 
-Follow the Port Keeper creation workflow:
+<p><a href="https://starcloud530.github.io/pixelforge-demos/gallery/#port-keeper"><img alt="Port Keeper walking in four directions" src="https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif" width="416" /></a></p>
 
-- [Four-direction walk GIF](https://resources.pixelforge.torzsi.com/port-keeper/v2/a/walk-four-directions.gif)
 - [Hero before/after](https://resources.pixelforge.torzsi.com/port-keeper/v2/storyboard/hero-before-after.png)
 - [Seven-stage timeline](https://resources.pixelforge.torzsi.com/port-keeper/v2/storyboard/timeline.png)
 - [Sheet assembly video](https://resources.pixelforge.torzsi.com/port-keeper/v2/videos/01-sheet-assembly.mp4)
 
-Marketing site: [pixelforge-demos Pages](https://starcloud530.github.io/pixelforge-demos/). Replayable demos / curated runs: [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos). Do **not** add an `examples/` tree to this repository.
+[Port Keeper workflow and replay scripts](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/demo-zombie) · [All example sources](https://github.com/starcloud530/pixelforge-demos/tree/main/demos)
 
 ## Development
 
@@ -121,5 +118,6 @@ cargo test -p pixelforge-cli
 ## License
 
 Code: **MIT OR Apache-2.0** ([LICENSE](LICENSE), [LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).  
-Demo / eval art licenses are declared in [pixelforge-demos](https://github.com/starcloud530/pixelforge-demos).  
+Example artwork is licensed under [CC BY 4.0](https://github.com/starcloud530/pixelforge-demos/blob/main/LICENSE-ASSETS.md).
+
 Dependency notes: [docs/licensing.md](docs/licensing.md).
