@@ -1,10 +1,17 @@
-"""Keep Material search results in the article's selected language."""
+"""Localize Material search results and Markdown section links."""
 
 import json
 from pathlib import Path
 
 from mkdocs.plugins import event_priority
 from mkdocs.utils import get_relative_url
+
+
+def on_page_markdown(markdown, *, config, **kwargs):
+    # Python-Markdown creates the heading links after this event.
+    config.mdx_configs["toc"]["permalink_title"] = (
+        "本节链接" if config.theme["language"] == "zh" else "Link to this section"
+    )
 
 
 def on_page_context(context, page, **kwargs):
