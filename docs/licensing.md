@@ -1,24 +1,23 @@
-# 依赖许可证 Dependency licenses
+# Software and artwork licenses { #dependency-licenses }
 
-本仓库代码以 **MIT OR Apache-2.0** 双许可发布，全文在 [`LICENSE-MIT`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-MIT) 与 [`LICENSE-APACHE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-APACHE)，说明见 [`LICENSE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE)。版权所有 © 2026 PixelForge contributors / starcloud530。`pixelforge-demos` 下示例美术素材另见 [示例素材许可](https://github.com/starcloud530/pixelforge-demos/blob/main/LICENSE-ASSETS.md)（CC BY 4.0，AI 辅助生成）。
+| What you are using | License |
+| --- | --- |
+| PixelForge software, including the CLI and kernel | Choose MIT or Apache-2.0. See the [software license](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE), [MIT text](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-MIT) and [Apache-2.0 text](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-APACHE). |
+| Published example pixel projects, sheets, tiles and previews | CC BY 4.0. Credit PixelForge / starcloud530. Scripts shipped with those assets use the software license. [Example artwork license](https://github.com/starcloud530/pixelforge-demos/blob/main/LICENSE-ASSETS.md) |
 
-*This repository’s code is dual-licensed MIT OR Apache-2.0. Texts: [`LICENSE-MIT`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-MIT), [`LICENSE-APACHE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE-APACHE); see [`LICENSE`](https://github.com/starcloud530/pixelforge-ai/blob/main/LICENSE). Copyright © 2026 PixelForge contributors / starcloud530. Example art in the companion demos repo is covered by the [example art license](https://github.com/starcloud530/pixelforge-demos/blob/main/LICENSE-ASSETS.md) (CC BY 4.0, AI-assisted).*
+## Credit example artwork { #_1 }
 
-## 结论
+When sharing or adapting sample artwork, credit the creator, link to the source and license, and indicate changes you made. For example, a game that uses an edited Port Keeper sprite could include this entry in its credits. [CC BY 4.0 terms](https://creativecommons.org/licenses/by/4.0/)
 
-没有与 MIT OR Apache-2.0 再分发冲突的依赖。核对范围内没有 GPL、AGPL、LGPL、MPL、SSPL 或其它 copyleft。出现过的许可证都是宽松许可：MIT、Apache-2.0、二者择一、0BSD、BSD-3-Clause、ISC、BlueOak-1.0.0、Zlib、Unlicense，以及下面单独点名的 Unicode-3.0 和 CC-BY-4.0。这些都不要求把本仓库改成 copyleft。
+> [Port Keeper](https://starcloud530.github.io/pixelforge-demos/gallery/#port-keeper) by PixelForge / starcloud530. AI-assisted artwork, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Cape palette adapted for this game.
 
-*No dependency in the checked set conflicts with MIT OR Apache-2.0 redistribution. There is no GPL, AGPL, LGPL, MPL, SSPL, or other copyleft. Every license found is permissive.*
+## Direct dependency licenses { #_2 }
 
-核对日期：2026-10-27；2026-11-14 增补 CLI 文件锁依赖（`fs4`、`libc`、`rustix`、`windows-sys` 及其传递项）。版本取自当时的 `Cargo.lock` 与 `pnpm-lock.yaml`。npm 包清单没有在 2026-11-14 重核。Rust crate 的许可证字符串来自 crates.io 上该版本的 `license` 字段。npm 包来自 registry 上该版本的 `license` 字段。工作区自己的 crate（`pixelforge-kernel`、`pixelforge-kernel-wasm`、`pixelforge-cli`）不计入第三方。
+For teams redistributing the software, the tables below record the license fields of the dependency versions reviewed on October 27, 2026. The Rust file-lock dependencies were added to this review on November 14, 2026. Check the lockfiles for the release you distribute if its dependency versions differ. [Cargo lockfile](https://github.com/starcloud530/pixelforge-ai/blob/main/Cargo.lock) · [pnpm lockfile](https://github.com/starcloud530/pixelforge-ai/blob/main/pnpm-lock.yaml)
 
-*Checked on 2026-10-27 against `Cargo.lock` and `pnpm-lock.yaml`. On 2026-11-14 the CLI file-lock crates (`fs4`, `libc`, `rustix`, `windows-sys`, and their transitive crates) were added; the npm list was not rechecked that day. License strings are the registry fields for those locked versions. Workspace crates are not third-party.*
+### Rust packages
 
-## 直接依赖
-
-`Cargo.toml` 里声明、并由 lockfile 解析的第三方 crate：
-
-| Crate | 锁定版本 | 许可证 |
+| Crate | Locked version | License |
 | --- | --- | --- |
 | base64 | 0.22.1 | MIT OR Apache-2.0 |
 | clap | 4.5.23 | MIT OR Apache-2.0 |
@@ -31,11 +30,9 @@
 | serde_json | 1.0.154 | MIT OR Apache-2.0 |
 | wasm-bindgen | 0.2.129 | MIT OR Apache-2.0 |
 
-`flate2` 在清单里写的是 `1.0.35`，lockfile 解析到 `1.1.10`。上表用的是实际锁定版本。`Apache-2.0/MIT` 与 `MIT OR Apache-2.0` 是同一种双许可的不同写法。
+### Web and build tools
 
-根目录 `package.json` 与 `apps/web/package.json` 的直接依赖：
-
-| 包 | 锁定版本 | 许可证 |
+| Package | Locked version | License |
 | --- | --- | --- |
 | wasm-pack | 0.15.0 | MIT OR Apache-2.0 |
 | react | 19.3.1 | MIT |
@@ -48,11 +45,11 @@
 | typescript | 5.9.3 | Apache-2.0 |
 | vite | 6.4.4 | MIT |
 
-## 传递依赖
+## Transitive dependency licenses { #_3 }
 
-`Cargo.lock` 里其余第三方 crate 的许可证同样是 MIT、Apache-2.0，或 `MIT OR Apache-2.0`（`bitflags` 1.3.2 的登记写法是 `MIT/Apache-2.0`）。另外这几条仍是宽松许可，不是冲突：
+The following Rust packages have additional license options, notices or platform-specific versions relevant to the reviewed dependency tree.
 
-| Crate | 锁定版本 | 许可证 |
+| Crate | Locked version | License |
 | --- | --- | --- |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
 | bitflags | 2.13.2 | MIT OR Apache-2.0 |
@@ -60,20 +57,20 @@
 | linux-raw-sys | 0.9.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | rustix | 1.0.8 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | windows-link | 0.2.1 | MIT OR Apache-2.0 |
-| windows-sys | 0.60.2、0.61.2 | MIT OR Apache-2.0 |
+| windows-sys | 0.60.2, 0.61.2 | MIT OR Apache-2.0 |
 | memchr | 2.8.3 | Unlicense OR MIT |
-| miniz_oxide | 0.8.9、0.9.1 | MIT OR Zlib OR Apache-2.0 |
+| miniz_oxide | 0.8.9, 0.9.1 | MIT OR Zlib OR Apache-2.0 |
 | simd-adler32 | 0.3.10 | MIT |
 | strsim | 0.11.1 | MIT |
 | unicode-ident | 1.0.27 | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | zlib-rs | 0.6.8 | Zlib |
 | zmij | 1.0.23 | MIT |
 
-`unicode-ident` 在 MIT 或 Apache-2.0 之外还要遵守 Unicode-3.0。那是 Unicode 数据的宽松许可，只约束这份数据，不把整个仓库变成 copyleft。
+`unicode-ident` also includes Unicode-3.0 terms for its Unicode data.
 
-`pnpm-lock.yaml` 的 `packages` 段共 156 个第三方包条目。其中 141 个是 MIT，2 个是 Apache-2.0（`typescript` 5.9.3、`baseline-browser-mapping` 2.11.29），1 个是 `MIT OR Apache-2.0`（`wasm-pack` 0.15.0）。其余：
+The audited pnpm lockfile contains 156 third-party package entries. Of these, 141 report MIT, two report Apache-2.0 and one reports MIT OR Apache-2.0. The remaining entries are listed below.
 
-| 包 | 锁定版本 | 许可证 |
+| Package | Locked version | License |
 | --- | --- | --- |
 | @isaacs/fs-minipass | 4.0.1 | ISC |
 | electron-to-chromium | 1.5.459 | ISC |
@@ -88,6 +85,4 @@
 | source-map-js | 1.2.2 | BSD-3-Clause |
 | caniuse-lite | 1.0.30001816 | CC-BY-4.0 |
 
-`caniuse-lite` 是 browserslist 用的数据，经 Vite 工具链进 lockfile，不是内核或 CLI 的运行时依赖。CC-BY-4.0 要求保留署名，不要求本仓库改用 CC，也不与 MIT 再分发冲突。BlueOak-1.0.0、ISC、BSD-3-Clause 都是宽松软件许可。
-
-锁文件升级后应重跑这次核对。本页只记录当时登记的许可证字段，不是律师意见。
+`caniuse-lite` supplies browser compatibility data to the web build toolchain. Retain its applicable attribution when redistributing that data.

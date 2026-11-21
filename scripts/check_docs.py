@@ -31,9 +31,15 @@ assert re.findall(r'"([A-Za-z]+)"', ts) == tools, "TypeScript/Rust tool registri
 catalog = (ROOT / "apps/web/src/ai/catalog.ts").read_text()
 catalog_names = re.findall(r'\w+: tool\(\s*"([A-Za-z]+)"', catalog)
 assert len(catalog_names) == len(tools) and set(catalog_names) == set(tools), "AI catalog/Rust registries differ"
-doc = (ROOT / "docs/tool-api.md").read_text()
-for name in tools:
-    assert f"`{name}`" in doc, f"Tool API docs omit {name}"
+pages = set((ROOT / "docs").rglob("*.md"))
+english_pages = {p for p in pages if not p.name.endswith(".zh.md")}
+translated_pages = {p for p in pages if p.name.endswith(".zh.md")}
+expected_translations = {p.with_suffix(".zh.md") for p in english_pages}
+assert translated_pages == expected_translations, f"Unmatched translations: {translated_pages ^ expected_translations}"
+api_pages = {p.name: p.read_text() for p in (ROOT / "docs").glob("tool-api*.md")}
+for filename, doc in api_pages.items():
+    for name in tools:
+        assert f"`{name}(" in doc, f"{filename} omits the signature for {name}"
 # Map/manifest registries live in separate kernel modules.
 for module, name in [("tilemap", "TILEMAP_TOOL_NAMES"), ("manifest", "MANIFEST_TOOL_NAMES")]:
     for file in (ROOT / "crates/pixelforge-kernel/src").glob("*.rs"):
@@ -41,7 +47,8 @@ for module, name in [("tilemap", "TILEMAP_TOOL_NAMES"), ("manifest", "MANIFEST_T
         match = re.search(r"pub const " + name + r": &\[&str\] = &\[([\s\S]*?)\];", text)
         if match:
             for tool in re.findall(r'"([A-Za-z]+)"', match[1]):
-                assert f"`{tool}`" in doc, tool
+                for filename, doc in api_pages.items():
+                    assert f"`{tool}`" in doc, f"{filename} omits {tool}"
             break
     else:
         raise AssertionError(f"Missing {name}")

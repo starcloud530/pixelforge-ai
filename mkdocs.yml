@@ -3,8 +3,8 @@
 # Local: pip install -r requirements-docs.txt && mkdocs serve
 # Docs URL: https://starcloud530.github.io/pixelforge-ai/
 
-site_name: PixelForge 文档
-site_description: 安装、评估与接入 PixelForge，验证可编辑像素工程、动画图集和导出工作流。
+site_name: PixelForge Docs
+site_description: Install PixelForge, verify editable pixel art projects and export sprite atlases to your game.
 site_url: https://starcloud530.github.io/pixelforge-ai/
 site_author: PixelForge contributors
 
@@ -17,22 +17,25 @@ site_dir: site
 
 theme:
   name: material
-  language: zh
+  language: en
+  custom_dir: overrides
   palette:
-    - media: "(prefers-color-scheme: light)"
+    - &light_palette
+      media: "(prefers-color-scheme: light)"
       scheme: default
       primary: blue grey
       accent: teal
       toggle:
         icon: material/brightness-7
-        name: 切换到深色模式
-    - media: "(prefers-color-scheme: dark)"
+        name: Switch to dark theme
+    - &dark_palette
+      media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: blue grey
       accent: teal
       toggle:
         icon: material/brightness-4
-        name: 切换到浅色模式
+        name: Switch to light theme
   features:
     - navigation.sections
     - navigation.top
@@ -40,19 +43,69 @@ theme:
     - search.suggest
     - search.highlight
     - content.code.copy
-    - content.action.edit
   icon:
     logo: material/grid
     repo: fontawesome/brands/github
 
+extra_javascript:
+  - javascripts/language.js
+
 extra_css:
   - stylesheets/pixelforge.css
 
+hooks:
+  - scripts/docs_search.py
+
 plugins:
   - search
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: false
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: zh
+          name: 中文
+          build: true
+          theme:
+            palette:
+              - <<: *light_palette
+                toggle:
+                  icon: material/brightness-7
+                  name: 切换到深色主题
+              - <<: *dark_palette
+                toggle:
+                  icon: material/brightness-4
+                  name: 切换到浅色主题
+          site_name: PixelForge 文档
+          site_description: 安装 PixelForge，验证可编辑像素工程、精灵图集和游戏导出流程。
+          nav:
+            - 使用文档: index.md
+            - 使用指南:
+                - 安装与快速开始: install.md
+                - 认识 PixelForge 工程: vision.md
+                - 使用 Agent 创作: agent-skill.md
+                - 验证示例工程: showcase.md
+                - 导出与引擎导入: export.md
+                - 编辑与导出限制: known-limits.md
+                - 软件与素材许可: licensing.md
+            - 开发者文档:
+                - Tool API: tool-api.md
+                - 项目清单: project-manifest.md
+                - 运行时架构: tech-stack.md
+                - 网页模型适配器: ai-driver.md
+                - 开发环境: dev-setup.md
+                - 测试与性能测量: quality.md
+                - 灯塔图块地图案例: trials/111-lighthouse-tilemap.md
+            - 像素画室: /pixelforge-demos/zh/
 
 markdown_extensions:
   - admonition
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - attr_list
   - def_list
   - footnotes
@@ -90,22 +143,21 @@ validation:
     anchors: ignore
 
 nav:
-  - 产品文档: index.md
-  - 评估与安装:
-      - 示例工程验证: showcase.md
-      - 安装与快速开始: install.md
-      - 已知边界: known-limits.md
-      - 许可与依赖: licensing.md
-  - 工作流与集成:
-      - Agent 与 CLI: agent-skill.md
-      - 导出与引擎导入: export.md
-      - 项目清单: project-manifest.md
+  - Documentation: index.md
+  - User guides:
+      - Installation and quick start: install.md
+      - Working with projects: vision.md
+      - Create with an agent: agent-skill.md
+      - Verify a sample project: showcase.md
+      - Export and engine import: export.md
+      - Editing and export limits: known-limits.md
+      - Software and artwork licenses: licensing.md
+  - Developer documentation:
       - Tool API: tool-api.md
-  - 开发与质量:
-      - 开发环境: dev-setup.md
-      - 技术栈: tech-stack.md
-      - 检查与性能: quality.md
-      - 浏览器 AI 演示: ai-driver.md
-      - 愿景: vision.md
-      - Lighthouse 图块地图试验: trials/111-lighthouse-tilemap.md
-  - 像素画室: /pixelforge-demos/
+      - Project manifest: project-manifest.md
+      - Runtime architecture: tech-stack.md
+      - Web editor model adapter: ai-driver.md
+      - Development setup: dev-setup.md
+      - Testing and benchmarks: quality.md
+      - Lighthouse tilemap case study: trials/111-lighthouse-tilemap.md
+  - Pixel art studio: /pixelforge-demos/

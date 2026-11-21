@@ -1,80 +1,57 @@
-# Install & quick start
+# Install PixelForge and create a project { #install-quick-start }
 
-Install PixelForge for macOS, Windows, or Linux using the scripts below, or choose a platform archive from [Downloads](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6).
+Install the command-line tool for your operating system, draw a small lantern and export it as a transparent PNG. The examples use the v0.1.0-rc.6 release candidate.
 
-通过下方脚本安装，或下载对应系统的压缩包解压使用。
+## Install the CLI { #installer }
 
-## Installer / 安装脚本
+**macOS or Linux**
 
-macOS / Linux:
+~~~bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.sh | sh
+~~~
 
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.sh | sh
-```
+**Windows PowerShell**
 
-Windows (PowerShell):
-
-```powershell
+~~~powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/starcloud530/pixelforge-ai/releases/download/v0.1.0-rc.6/pixelforge-cli-installer.ps1 | iex"
-```
+~~~
 
-The installer puts `pixelforge` in `~/.pixelforge/bin` (and updates PATH when possible). Archives are also on the [Releases](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6) page if you prefer a manual unpack.
+Open a new terminal and run `pixelforge --version`. For this release, the expected output is `pixelforge 0.1.0-rc.6`. If your shell cannot find the command, add the installation directory shown by the installer to PATH.
 
-安装脚本把 `pixelforge` 放到 `~/.pixelforge/bin`。也可在 Releases 页手动下载对应平台压缩包。
+For manual installation, download the archive and its SHA-256 checksum from the [release files](https://github.com/starcloud530/pixelforge-ai/releases/tag/v0.1.0-rc.6). Verify the archive against its SHA-256 checksum before extracting the binary into a directory on PATH.
 
 | Platform | Archive |
 | --- | --- |
+| macOS · Apple silicon | `pixelforge-cli-aarch64-apple-darwin.tar.gz` |
+| macOS · Intel | `pixelforge-cli-x86_64-apple-darwin.tar.gz` |
 | Windows x64 | `pixelforge-cli-x86_64-pc-windows-msvc.zip` |
-| macOS Intel | `pixelforge-cli-x86_64-apple-darwin.tar.gz` |
-| macOS Apple silicon | `pixelforge-cli-aarch64-apple-darwin.tar.gz` |
-| Linux x64 | `pixelforge-cli-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux x64 · glibc 2.35+ | `pixelforge-cli-x86_64-unknown-linux-gnu.tar.gz` |
 
-Linux builds need glibc 2.35+ (Ubuntu 22.04-class). Windows prebuilts link the C runtime statically.
+## Draw and preview a lantern { #your-first-project }
 
-## Your first project / 第一份工程
+Run the commands in an empty working directory. The project stores the editable 16 × 16 canvas, palette and frame. The outlines and light use three entries from the built-in palette.
 
-```bash
-pixelforge --version
-pixelforge new --width 16 --height 16 --output hero.json
-pixelforge preview --project hero.json --scale 4
-```
+~~~bash
+pixelforge new --width 16 --height 16 --output lantern.json
+pixelforge stroke-rect --project lantern.json --x 6 --y 1 --width 4 --height 4 --color-index 1
+pixelforge fill-rect --project lantern.json --x 4 --y 4 --width 8 --height 9 --color-index 1
+pixelforge fill-rect --project lantern.json --x 5 --y 5 --width 6 --height 6 --color-index 4
+pixelforge fill-rect --project lantern.json --x 7 --y 6 --width 2 --height 4 --color-index 5
+pixelforge preview --project lantern.json --output lantern-preview.png --scale 4
+pixelforge export png --project lantern.json --out-dir lantern-frames
+~~~
 
-PNG sequence / APNG preview:
+Open `lantern-preview.png` for a 64 × 64 enlarged view. The game-size 16 × 16 frame is `lantern-frames/pixelforge-000.png`. Reopen `lantern.json` to continue editing.
 
-```bash
-pixelforge export png --project hero.json --out-dir ./hero-frames --scale 2
-pixelforge export apng --project hero.json --output walk.apng --tag walk_down
-```
+## Continue with an agent or an animation { #agents-agent }
 
-Use APNG for a looping preview; use sprite sheets and atlas JSON for game import. See [export](export.md).
+- [Create pixel art with an agent](agent-skill.md) and give it access to your project directory.
+- [Open a sample character](showcase.md#port-keeper) to play a four-direction walk cycle and verify the exported atlas.
 
-用 APNG 循环预览，用精灵表与 atlas JSON 导入游戏。详细步骤见[导出指南](export.md)。
+## Build from source { #source-build }
 
-## Agents / Agent
+If you are modifying PixelForge or building for another platform, follow [development setup](dev-setup.md) for the Rust toolchain and platform dependencies.
 
-External agents (Cursor, Codex, Claude Code, …) drive the same local binary. Product skills live under `skills/<name>/SKILL.md` and are embedded in that binary. Use `pixelforge skills list` and `pixelforge skills read <name>` (optional path, or `--json`) so an agent does not need the git checkout. In a checkout, open the files listed in `AGENTS.md` / `CLAUDE.md`. Command reference: [agent-skill](agent-skill.md). Tool catalog: [tool-api](tool-api.md).
+<span id="docs-site-local"></span>
 
-外部 Agent 调用同一支本地二进制。产品 skill 在 `skills/<name>/SKILL.md`，并打进该二进制。用 `pixelforge skills list` 和 `pixelforge skills read <name>` 列出并读取，不依赖仓库检出。打开仓库时，从 `AGENTS.md` / `CLAUDE.md` 打开列表里的文件。命令速查：[agent-skill](agent-skill.md)。工具目录：[tool-api](tool-api.md)。
-
-## Source build / 源码构建
-
-Only when changing the kernel or not using a prebuilt. Needs Rust stable (`cargo` 1.83+). Full steps: [dev-setup](dev-setup.md).
-
-```bash
-cargo install --path crates/pixelforge-cli
-```
-
-Windows source builds also need Visual Studio Build Tools (Desktop development with C++) and a Windows 10/11 SDK. That toolchain is **not** required for the prebuilt `.exe`.
-
-## Docs site (local) / 本地文档站
-
-```bash
-pip install -r requirements-docs.txt
-mkdocs serve
-```
-
-Production deploy is GitHub Actions → Pages from `main` (workflow `pages.yml`): this repository publishes the MkDocs tree at the site root.
-Expected docs URL: https://starcloud530.github.io/pixelforge-ai/
-Marketing: https://starcloud530.github.io/pixelforge-demos/
-If the site 404s after merge, enable **Settings → Pages → Build and deployment → Source = GitHub Actions** once.
+[PixelForge Documentation](https://starcloud530.github.io/pixelforge-ai/)

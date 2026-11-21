@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{# The i18n sitemap contains per-page hreflang pairs. Material treats alternate
+   links in the head as independent site roots and fetches a sitemap per page.
+   The header links directly to the translated article instead. #}
+{% block site_meta %}
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="{{ page.meta.description | default(config.site_description, true) if page else config.site_description }}">
+  <meta name="author" content="{{ config.site_author }}">
+  {% if page %}
+    <link rel="canonical" href="{{ page.canonical_url }}">
+    {% if page.previous_page %}<link rel="prev" href="{{ page.previous_page.url | url }}">{% endif %}
+    {% if page.next_page %}<link rel="next" href="{{ page.next_page.url | url }}">{% endif %}
+  {% endif %}
+  <link rel="icon" href="{{ config.theme.favicon | url }}">
+{% endblock %}

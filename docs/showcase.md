@@ -1,71 +1,63 @@
-# 示例工程验证
+# Verify a sample project { #_1 }
 
-用守灯人和哪吒的源工程练习播放动画、重新导出和校验图集。
+Open an editable project, export a fresh atlas and check its frame data. Use the Port Keeper to verify a four-direction character. Use Nezha to see how changing a single frame delay affects an action. [Install the CLI](install.md)
 
-[安装 PixelForge](install.md){ .md-button }
-[浏览作品集](/pixelforge-demos/gallery/){ .md-button }
+## Port Keeper · Verify a directional character { #port-keeper }
 
-## 港口守灯人：验收四向角色 { #port-keeper }
+Download the project from the gallery and unzip it. Run the commands in the folder containing the `a` and `b` directories. The character uses a 64 × 64 canvas with five frames per direction. The storm outfit adds a cape on a separate layer. [View Port Keeper in the gallery](/pixelforge-demos/gallery/#port-keeper)
 
-64 × 64 画布，四个朝向，每向一帧闲置和四帧行走。角色有四层，换装版新增独立披风层。下载包同时提供共享色板的道具与局部修改工程。
+### Play the source project { #_2 }
 
-[查看守灯人工程包](/pixelforge-demos/gallery/#port-keeper) · [查看源文件和完整重放方法](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/demo-zombie)
-
-### 播放原始工程
-
-解压角色交付包，在解压目录中运行。播放器可暂停、逐帧查看及选择动作；完成后按 Ctrl+C 退出。
-
-```bash
-pixelforge --version
+~~~bash
 pixelforge play --project a/keeper.pxf.json
-```
+~~~
 
-### 验证并重新导出图集
+Choose `walk_down` and step through its four frames. Their delays are 140, 110, 140 and 110 ms. Compare the foot positions against the standing pose in `idle_down`. Return to the terminal and press Ctrl+C to stop the viewer before continuing.
 
-第一条检查原始 PNG 与 atlas JSON。后两条从同一份工程导出一对新文件，再检查新结果。图集 JSON 的 `image` 字段指向同目录下的 PNG。
+### Validate the atlas and export it again { #_3 }
 
-```bash
+~~~bash
 pixelforge validate-atlas --atlas a/keeper-sheet.atlas.json
 pixelforge export sheet --project a/keeper.pxf.json --cols 5 --output keeper-check.png --atlas keeper-check.atlas.json
 pixelforge validate-atlas --atlas keeper-check.atlas.json
-```
+~~~
 
-查看校验输出中的错误、告警和检查项。打开 `keeper-check.atlas.json`，可检查 `idle_down`、`walk_down` 等八个标签，以及每帧的坐标、尺寸和时长。要验证换装，再对 `b/keeper-storm-sheet.atlas.json` 运行同一条校验命令。
+The first check reads the supplied export. The second checks your new one. Look for 20 frame rectangles in five columns, four directions and eight idle/walk tags. In `keeper-check.atlas.json` the `image` field should be `keeper-check.png`. Check the cape variant separately with `pixelforge validate-atlas --atlas b/keeper-storm-sheet.atlas.json`.
 
-### 带进目标工程
+### Import the walk cycle { #_4 }
 
-从 [Godot 导入](export.md#godot-4)或 [Unity 导入](export.md#unity)继续，在引擎内设置最近邻过滤、切片、轴心和动画映射。建议在目标背景和真实缩放比例上预览，确认脚底稳定、动作可读并适配现有管线。
+Use `keeper-check.png` as the texture and its JSON for frame rectangles, pivots if specified, tag ranges and timing. Check the silhouette and foot contact at your game's zoom and against its background. [Godot 4](export.md#godot-4) · [Unity](export.md#unity)
 
-[查看四套导出的结构校验报告](https://github.com/starcloud530/pixelforge-demos/blob/main/demos/demo-zombie/validation.json) · [查看重放版本与图集哈希](https://github.com/starcloud530/pixelforge-demos/blob/main/demos/demo-zombie/media-latest.json)
+## Nezha · Review and change action timing { #nezha }
 
-## 哪吒：检查逐帧动作 { #nezha }
+Download and extract the project. Run these commands from the directory containing `nezha-attack.pxf.json`. The original has 12 frames on a 128 × 128 canvas. One complete attack lasts 1,070 ms. [View Nezha in the gallery](/pixelforge-demos/gallery/#nezha)
 
-这段朝右的普通攻击使用 128 × 128 画布，12 帧总长 1070 ms。四层分别保留红绫、下肢与风火轮、身体、手臂与枪。
+### Inspect the motion { #_5 }
 
-[查看哪吒动画与工程包](/pixelforge-demos/gallery/#nezha) · [查看姿势配置和完整制作脚本](https://github.com/starcloud530/pixelforge-demos/tree/main/demos/nezha-frame-attack)
-
-### 打开与播放
-
-解压动作交付包，或直接[下载源工程](https://raw.githubusercontent.com/starcloud530/pixelforge-demos/main/demos/nezha-frame-attack/final/nezha-attack.pxf.json)，然后在文件所在目录执行：
-
-```bash
+~~~bash
 pixelforge play --project nezha-attack.pxf.json
-```
+~~~
 
-暂停后逐帧检查前脚落定、出枪速度和红绫回摆。用 `ready`、`charge`、`thrust` 和 `recover` 标签跳转到对应阶段。
+Use `ready`, `charge`, `thrust` and `recover` to jump between phases. Pause at the end of the charge and step forward to inspect the front foot, spear and sash. Stop the viewer with Ctrl+C.
 
-### 导出游戏资源
+### Export a baseline { #_6 }
 
-```bash
+~~~bash
 pixelforge export sheet --project nezha-attack.pxf.json --cols 6 --output nezha-check.png --atlas nezha-check.atlas.json
 pixelforge export apng --project nezha-attack.pxf.json --output nezha-check.apng
 pixelforge validate-atlas --atlas nezha-check.atlas.json
-```
+~~~
 
-游戏导入使用精灵表与 atlas JSON。透明 APNG 保留时长，用于审阅和分享。
+The six-column PNG contains two rows. The matching atlas stores the frame rectangles and timing. Open `nezha-check.apng` to review the original animation at its intended speed.
 
-### 接着创作
+### Lengthen the final charge frame { #_7 }
 
-让 Agent 先执行 `pixelforge skills read pixelforge` 和 `pixelforge skills read pixel-art-craft`。可以从修改蓄力段时长开始，保留角色像素与图层，播放确认节奏后导出新图集。
+Frame index 3 (the fourth frame) is the final charge pose. Change its delay from 60 to 120 ms, export a second preview, then undo the edit using the same checkpoint.
 
-两套示例为 CLI 绘制、AI 辅助，采用 CC BY 4.0，署名 PixelForge / starcloud530。[许可详情](licensing.md)
+~~~bash
+pixelforge frame delay --project nezha-attack.pxf.json --index 3 --delay-ms 120 --checkpoint timing.ckpt.json
+pixelforge export apng --project nezha-attack.pxf.json --output nezha-long-charge.apng
+pixelforge undo --project nezha-attack.pxf.json --checkpoint timing.ckpt.json
+~~~
+
+Play the two APNGs side by side. The longer charge adds 60 ms to the preparation and leaves the thrust frames and pixel artwork intact. The two previews remain available after undo. Both source projects are licensed under CC BY 4.0. [Artwork attribution](licensing.md)

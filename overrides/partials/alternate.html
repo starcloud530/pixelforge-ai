@@ -1,0 +1,4 @@
+{% for alt in config.extra.alternate if alt.lang != config.theme.language %}
+  <a class="pf-language" href="{{ alt.link | url }}" lang="{{ alt.lang }}"
+     rel="alternate" hreflang="{{ alt.lang }}" data-language="{{ alt.lang }}">{% include ".icons/material/web.svg" %}<span>{{ alt.name }}</span></a>
+{% endfor %}
