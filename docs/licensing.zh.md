@@ -15,7 +15,7 @@
 
 供重新分发软件的团队参考。下表记录 2026 年 10 月 27 日核对的依赖版本与许可字段；Rust 文件锁相关依赖于 2026 年 11 月 14 日补充核对。若分发版本的依赖已变化，应按对应版本的锁文件检查。[Cargo 锁文件](https://github.com/starcloud530/pixelforge-ai/blob/main/Cargo.lock) · [pnpm 锁文件](https://github.com/starcloud530/pixelforge-ai/blob/main/pnpm-lock.yaml)
 
-### Rust 包
+### Rust 包 { #rust-packages }
 
 | Rust 包 | 锁定版本 | 许可证 |
 | --- | --- | --- |
@@ -30,7 +30,7 @@
 | serde_json | 1.0.154 | MIT OR Apache-2.0 |
 | wasm-bindgen | 0.2.129 | MIT OR Apache-2.0 |
 
-### 网页与构建工具
+### 网页与构建工具 { #web-and-build-tools }
 
 | 包 | 锁定版本 | 许可证 |
 | --- | --- | --- |

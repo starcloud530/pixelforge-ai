@@ -1223,7 +1223,7 @@ CLI 的 `--checkpoint FILE` 不把栈写进工程文件。检查点一步是一�
 | `clippedCells` | 落在画布外、被丢掉的像素数 |
 | `ignored` | 跳过的 chunk 名，已排序 |
 
-只读索引色 8 位。画布边长必须在 `1..=256`。图像层按文件顺序从底到顶放进现有层模型，不先合成再压成一层，这样身体和装备还能分开改。组文件夹本身不是一层，子层按文件顺序摊平。参考层不导入。隐藏层导入后可见，因为内核没有隐藏旗标。索引 0 一律改成全透明。文件的透明索引不是 0 时，先把调色板槽 0 和该索引对调，再对调像素，然后强制槽 0 透明。背景层上的这个索引同样收成 0。帧时长会导入：时长 0 时用文件头速度；两边都是 0 则 100 毫秒。
+支持 8 位索引色文件，画布边长为 1 至 256 像素。图像层按文件顺序从底到顶导入，可单独编辑。组内的子层按文件顺序展开，导入器跳过组文件夹和参考层。导入时所有图像层均设为可见。索引 0 一律改成全透明。文件的透明索引不是 0 时，先把调色板槽 0 和该索引对调，再对调像素，然后强制槽 0 透明。背景层上的这个索引同样收成 0。帧时长会导入：时长 0 时用文件头速度；两边都是 0 则 100 毫秒。
 
 不导入：标签、切片、用户数据、蒙版、色彩配置、外部文件、tilemap。单独的 tileset chunk 记在 `ignored`；tilemap 层或 tilemap cel 整文件拒绝（`AsepriteTilemap`）。混合模式、层不透明度、cel 不透明度、cel z-index 只计数，不参与叠色。层与层之间仍是非 0 索引盖住下层。没有 `.aseprite` 写回，也没有插件接口。
 
@@ -1482,6 +1482,8 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 
 `result`：`{ "index", "role", "part", "anchor" }`。改成 `default` 时清掉绑定。
 
+错误：图层索引越界时返回 `LayerIndex`。缺少 `role` 或取值无效时返回 `InvalidParams`。
+
 ### `setLayerBind` { #setlayerbind }
 
 `setLayerBind(part, index?, anchor?)`
@@ -1489,8 +1491,6 @@ CLI：`pixelforge rotate --degrees 90`。矩形四个边要齐，或全部省略
 `params`：`part`（字符串，或 `null` 表示解开），可选 `anchor`（字符串或 `null`），可选 `index`（省略时是当前层）。层必须已经是 `polish`。`part` 为 `null` 时不能再给 `anchor`。同一个绑定不进撤销栈。像素不动。
 
 错误：`LayerIndex`、`PolishBind`（不是精修层，或解开时还带锚点）、`PartName`、`PartMissing`、`AnchorName`、`AnchorMissing`。`part` 缺失或类型不对是 `InvalidParams`。工程文件里的绑定对不上部件或角色是 `ProjectFile`。
-
-错误：`LayerIndex`。`role` 缺失或不是那两个字符串时是 `InvalidParams`。
 
 ### `setLayerVisible` { #setlayervisible }
 

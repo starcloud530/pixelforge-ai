@@ -36,12 +36,11 @@
   padding-inline: .4rem;
   font-size: .72rem;
   white-space: nowrap;
-  text-decoration: underline;
-  text-underline-offset: .18rem;
+  gap: .25rem;
+  text-decoration: none;
 }
 .pf-language:focus-visible { outline: 2px solid currentColor; }
 
-.pf-language { gap: .25rem; text-decoration: none; }
 .pf-language svg { width: .85rem; height: .85rem; fill: currentColor; }
 .md-typeset:has(.docs-start) h1 { margin-bottom: .7rem; }
 .docs-start { padding: .3rem 0 1rem; max-width: 39rem; }
@@ -57,3 +56,7 @@
 .docs-paths li a { display: flex; align-items: center; justify-content: space-between; gap: .4rem; min-height: 1.65rem; font-weight: 650; font-size: .77rem; }
 .docs-paths li a::after { content: ""; width: .3rem; height: .3rem; border: solid currentColor; border-width: 1px 1px 0 0; transform: rotate(45deg); flex: none; }
 @media(max-width: 38em) { .docs-start .md-button { font-size: .73rem; } }
+
+.md-header__source { width: auto; }
+.pf-source { display: inline-flex; align-items: center; justify-content: center; width: 2.2rem; height: 2.2rem; }
+.pf-source:focus-visible { outline: 2px solid currentColor; }

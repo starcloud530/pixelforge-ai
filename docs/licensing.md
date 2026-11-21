@@ -15,7 +15,7 @@ When sharing or adapting sample artwork, credit the creator, link to the source 
 
 For teams redistributing the software, the tables below record the license fields of the dependency versions reviewed on October 27, 2026. The Rust file-lock dependencies were added to this review on November 14, 2026. Check the lockfiles for the release you distribute if its dependency versions differ. [Cargo lockfile](https://github.com/starcloud530/pixelforge-ai/blob/main/Cargo.lock) · [pnpm lockfile](https://github.com/starcloud530/pixelforge-ai/blob/main/pnpm-lock.yaml)
 
-### Rust packages
+### Rust packages { #rust-packages }
 
 | Crate | Locked version | License |
 | --- | --- | --- |
@@ -30,7 +30,7 @@ For teams redistributing the software, the tables below record the license field
 | serde_json | 1.0.154 | MIT OR Apache-2.0 |
 | wasm-bindgen | 0.2.129 | MIT OR Apache-2.0 |
 
-### Web and build tools
+### Web and build tools { #web-and-build-tools }
 
 | Package | Locked version | License |
 | --- | --- | --- |
