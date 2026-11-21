@@ -83,22 +83,20 @@ plugins:
           site_description: 安装 PixelForge，验证可编辑像素工程、精灵图集和游戏导出流程。
           nav:
             - 使用文档: index.md
-            - 使用指南:
-                - 安装与快速开始: install.md
-                - 认识 PixelForge 工程: vision.md
-                - 使用 Agent 创作: agent-skill.md
-                - 验证示例工程: showcase.md
-                - 导出与引擎导入: export.md
-                - 编辑与导出限制: known-limits.md
-                - 软件与素材许可: licensing.md
-            - 开发者文档:
-                - Tool API: tool-api.md
-                - 项目清单: project-manifest.md
-                - 运行时架构: tech-stack.md
-                - 网页模型适配器: ai-driver.md
-                - 开发环境: dev-setup.md
-                - 测试与性能测量: quality.md
-                - 灯塔图块地图案例: trials/111-lighthouse-tilemap.md
+            - 安装与快速开始: install.md
+            - 验证示例工程: showcase.md
+            - 使用 Agent 创作: agent-skill.md
+            - Tool API: tool-api.md
+            - 导出与引擎导入: export.md
+            - 项目清单: project-manifest.md
+            - 运行时架构: tech-stack.md
+            - 编辑与导出限制: known-limits.md
+            - 网页模型适配器: ai-driver.md
+            - 开发环境: dev-setup.md
+            - 测试与性能测量: quality.md
+            - 软件与素材许可: licensing.md
+            - 认识 PixelForge 工程: vision.md
+            - 灯塔图块地图案例: trials/111-lighthouse-tilemap.md
             - 像素画室: /pixelforge-demos/zh/
 
 markdown_extensions:
@@ -144,20 +142,18 @@ validation:
 
 nav:
   - Documentation: index.md
-  - User guides:
-      - Installation and quick start: install.md
-      - Working with projects: vision.md
-      - Create with an agent: agent-skill.md
-      - Verify a sample project: showcase.md
-      - Export and engine import: export.md
-      - Editing and export limits: known-limits.md
-      - Software and artwork licenses: licensing.md
-  - Developer documentation:
-      - Tool API: tool-api.md
-      - Project manifest: project-manifest.md
-      - Runtime architecture: tech-stack.md
-      - Web editor model adapter: ai-driver.md
-      - Development setup: dev-setup.md
-      - Testing and benchmarks: quality.md
-      - Lighthouse tilemap case study: trials/111-lighthouse-tilemap.md
+  - Installation and quick start: install.md
+  - Verify a sample project: showcase.md
+  - Create with an agent: agent-skill.md
+  - Tool API: tool-api.md
+  - Export and engine import: export.md
+  - Project manifest: project-manifest.md
+  - Runtime architecture: tech-stack.md
+  - Editing and export limits: known-limits.md
+  - Web editor model adapter: ai-driver.md
+  - Development setup: dev-setup.md
+  - Testing and benchmarks: quality.md
+  - Software and artwork licenses: licensing.md
+  - Working with projects: vision.md
+  - Lighthouse tilemap case study: trials/111-lighthouse-tilemap.md
   - Pixel art studio: /pixelforge-demos/
