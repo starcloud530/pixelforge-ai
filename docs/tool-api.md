@@ -1074,7 +1074,9 @@ Returns the `inspect` fields plus the following `aseprite` report:
 | `clippedCells` | Off-canvas pixels discarded |
 | `ignored` | Sorted skipped chunk names |
 
-Replaces the document, the same as `loadProject`. The new undo stack is empty. Failure leaves the previous document. Indexed 8-bit only. Image layers map bottom to top so body and gear stay separate. Groups are not stored; their children join that stack in file order. Reference layers are skipped. Hidden layers become visible. Blend, layer opacity, cel opacity, and z-index are counted and not applied. Index 0 is forced transparent; a non-zero transparent index is swapped with slot 0 first. Tags, slices, user data, masks, color profiles, external files, and tilemaps are not imported. There is no `.aseprite` writer and no plugin API. The reader is a small indexed subset parser: `asefile` returns composited RGBA, and `aseprite-io` writes the format back on a newer Rust than this repo. `flate2` only inflates compressed cels.
+The importer accepts 8-bit indexed files with canvas dimensions from 1 to 256 pixels. It preserves image layers in file order, expands groups and skips reference layers. All imported layers start visible. Index 0 is transparent. If the file uses another transparent index, the importer exchanges the two palette entries and remaps the pixels.
+
+Blend modes, layer and cel opacity, and z-index values appear in the import report. The importer skips tags, slices, user data, masks, color profiles, external files and tilemaps.
 
 ### `exportPngSequence` { #exportpngsequence }
 

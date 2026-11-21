@@ -45,7 +45,7 @@ Rust 与 WASM 返回紧凑的 JSON 字符串。CLI 将 JSON 写为以换行结�
 
 内核错误原样穿过，`code` 与 `KernelError::code()` 相同，`message` 与它的 `Display` 相同：
 
-| code | 含义 Meaning |
+| code | 说明 |
 | --- | --- |
 | `OutOfBounds` | 格子超出画布。线段、椭圆、多边形、矩形轮廓只要有一端或一格出界，整次不写 |
 | `PolygonPoints` | 多边形少于 3 个顶点。Tool API 在进内核前用 `InvalidParams` 拒绝；直接调用文档方法时是这个码。一格都不写 |
@@ -155,7 +155,7 @@ Rust 与 WASM 返回紧凑的 JSON 字符串。CLI 将 JSON 写为以换行结�
 
 参数：无。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `width`, `height` | 画布边长，像素 |
 | `palette` | `{ "r", "g", "b", "a" }` 数组。索引 0 是透明 |
@@ -191,7 +191,7 @@ Rust 与 WASM 返回紧凑的 JSON 字符串。CLI 将 JSON 写为以换行结�
 
 参数：无。只读。不进撤销栈。不返回像素缓冲。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `width`, `height` | 画布边长，格子 |
 | `activeFrame`, `activeLayer` | 当前帧、当前层，从 0 计 |
@@ -225,7 +225,7 @@ Rust 与 WASM 返回紧凑的 JSON 字符串。CLI 将 JSON 写为以换行结�
 
 `true` 时，在这个工具原有的 `result` 字段上再加：
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `changed` | 索引变了的格子数。一格都没变是 `0` |
 | `dirty` | 这些格子的外接矩形 `{ "x", "y", "width", "height" }`。`changed` 为 0 时是 `null` |
@@ -495,7 +495,7 @@ CLI：`pixelforge mask union|intersect|subtract`。矩形用 `--x --y --width --
 
 一次调用是一步撤销。调色板和索引都没变时不进栈。锁定时拒绝，文档不变。这里没有 Lospec 在线浏览器；调色板文本由调用方提供。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `pixelsChanged` | 存储索引变了的格子数。只换了颜色、索引号没变的格子不算 |
 | `paletteLength` | 调用之后的调色板长度，含索引 0 |
@@ -1101,7 +1101,7 @@ Tool API 和 CLI 接受 `stick`，存成 `attach`。文件里的 `kind` 接受 `
 
 `params`：可选 `frame`（有限数，可以是小数）、`apply`（布尔，缺省 false）、`pixelFrame`。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `frame` | 传入的曲线帧，省略时是 `null` |
 | `pixelFrame` | 写入的像素帧 |
@@ -1124,7 +1124,7 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 
 `params` 全是可选的：
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `from` | 闭区间第一帧。缺省 0。可以等于现有帧数，表示只追加 |
 | `to` | 闭区间最后一帧。缺省最后一帧。超过现有帧数则追加。必须小于 4096 |
@@ -1146,7 +1146,7 @@ CLI：`pixelforge constraint solve --frame 4` 只读。`pixelforge constraint so
 
 像素或时长有变化才是一步撤销。源帧只可能改时长。当前帧不因这次调用而改变。工程文件仍是 version 1，没有 `bake` 字段。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `from`, `to`, `source` | 实际使用的区间和源帧 |
 | `fps` | 传入的帧率，省略时是 `null` |
@@ -1207,7 +1207,7 @@ CLI 的 `--checkpoint FILE` 不把栈写进工程文件。检查点一步是一�
 
 `result`：与 `inspect` 相同，再加 `aseprite`：
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `sourceTransparentIndex` | 文件头里的透明索引 |
 | `transparentSwapped` | 透明索引不是 0 时，已经和索引 0 对调 |
@@ -1228,8 +1228,6 @@ CLI 的 `--checkpoint FILE` 不把栈写进工程文件。检查点一步是一�
 不导入：标签、切片、用户数据、蒙版、色彩配置、外部文件、tilemap。单独的 tileset chunk 记在 `ignored`；tilemap 层或 tilemap cel 整文件拒绝（`AsepriteTilemap`）。混合模式、层不透明度、cel 不透明度、cel z-index 只计数，不参与叠色。层与层之间仍是非 0 索引盖住下层。没有 `.aseprite` 写回，也没有插件接口。
 
 cel 一边超过 256，或 `宽 × 高 × 导入层数 × 帧数` 超过 16777216，整文件拒绝。伸出画布的 cel 裁掉并计入 `clippedCells`。同一层同一帧上，后画的 cel 盖住先画的，不把层上其它格子清掉。链接 cel 复制最终的原始图像，放在链接 cel 自己的坐标上，不保留链接。
-
-读文件用自写的索引子集解析器，只为取出画布、调色板和索引像素。`asefile` 经 `image` 合成出 RGBA，索引就没了。`aseprite-io` 带写回，且声明的最低 Rust 新于本仓库。`flate2` 只用来解开压缩 cel。
 
 错误：`AsepriteFile`、`AsepriteSize`、`AsepriteColorMode`、`AsepritePalette`、`AsepriteTilemap`、`AsepritePixel`、`AsepriteLayers`。`bytes` 不是 Base64 是 `InvalidParams`。
 
@@ -1253,7 +1251,7 @@ CLI：`pixelforge import-aseprite --file hero.aseprite --output hero.json` 新�
 
 `params`：可选 `scale`，规则与 `exportPngSequence` 相同。不改文档，不进撤销栈。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `png` | 网格 sprite sheet 的 Base64 PNG |
 | `columns`, `rows` | 未传 `columns` 时是 `ceil(sqrt(帧数))` 和 `ceil(帧数 / 列数)`。传入 `columns` 时用那个列数，行数是 `ceil(帧数 / columns)`。`scale` 不改变这两格 |
@@ -1289,7 +1287,7 @@ CLI 的 `pixelforge export sheet --atlas hero-sheet.json` 把这个对象写成�
 
 每一帧是和 `exportPngSequence` 相同的 RGBA 合成：隐藏层和 opacity 0 跳过，opacity 255 用调色板颜色盖住，1 到 254 做直通 alpha 混合。`--scale` 在混合之后最近邻放大。文件是 APNG，不是 GIF，也不做调色板量化或抖动。理由和播放序见 [export.md](export.md)。
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `apng` | 这一张 APNG 的标准 Base64。没有 `data:` 前缀 |
 | `format` | `"apng"` |
@@ -1322,7 +1320,7 @@ CLI：`pixelforge export apng --project hero.json --output walk.apng --tag walk_
 
 只读。不改 `activeFrame`，不进撤销栈。`result`：
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `frame` | 画出的帧 |
 | `activeFrame` | 文档当前帧，保持原值 |
@@ -1357,7 +1355,7 @@ CLI 的 `pixelforge preview` 另外把 ASCII 行放进 `result.rows`，并把 PN
 
 只读。比较索引，不把洋葱皮写回像素。`result`：
 
-| 字段 Field | 含义 Meaning |
+| 字段 | 说明 |
 | --- | --- |
 | `frame`, `with` | 参与比较的两帧 |
 | `activeFrame` | 文档当前帧 |
