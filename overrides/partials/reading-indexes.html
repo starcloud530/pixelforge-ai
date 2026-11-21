@@ -1,0 +1,27 @@
+{% set zh = config.theme.language == "zh" %}
+{% set toc = page.toc if page else [] %}
+{% if toc and (toc | first).level == 1 %}{% set toc = (toc | first).children %}{% endif %}
+
+<div class="pf-indexes">
+  <nav class="pf-index pf-pages" aria-labelledby="pf-pages-title">
+    <strong id="pf-pages-title">{{ "文档索引" if zh else "Pages" }}</strong>
+    <ul>
+      {% for item in nav %}
+        <li><a href="{{ item.url | url }}" {% if item.active %}aria-current="page"{% endif %}>{{ item.title | e }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+  {% if toc %}
+    <nav class="pf-index pf-sections" aria-labelledby="pf-sections-title">
+      <strong id="pf-sections-title">{{ "本文目录" if zh else "On this page" }}</strong>
+      <ul data-md-component="toc">
+        {% for item in toc recursive %}
+          <li>
+            <a href="{{ item.url }}" class="md-nav__link">{{ item.title | striptags | e }}</a>
+            {% if item.children %}<ul>{{ loop(item.children) }}</ul>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+  {% endif %}
+</div>

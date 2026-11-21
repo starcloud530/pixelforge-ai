@@ -14,3 +14,7 @@
   {% endif %}
   <link rel="icon" href="{{ config.theme.favicon | url }}">
 {% endblock %}
+
+{% block site_nav %}
+  {% if nav %}{% include "partials/reading-indexes.html" %}{% endif %}
+{% endblock %}
